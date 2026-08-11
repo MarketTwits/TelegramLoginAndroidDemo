@@ -1,0 +1,65 @@
+# Operating systems
+.DS_Store
+Thumbs.db
+
+# Android Studio / IntelliJ IDEA
+.idea/
+*.iml
+
+# Gradle and Android build output
+.gradle/
+.kotlin/
+**/build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+*.hprof
+
+# Local Android configuration and signing material
+local.properties
+keystore.properties
+google-services.json
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+*.cer
+*.crt
+*.der
+
+# Local credential stores
+.npmrc
+.netrc
+credentials*.json
+service-account*.json
+
+# Node.js dependencies, caches, logs, and test output
+node_modules/
+.npm/
+.cache/
+coverage/
+.nyc_output/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# Environment files may contain credentials; commit templates only
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Local backend state
+backend/data/
+backend-data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
