@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#ffffff">
+    <title>Telegram Sign-In</title>
+    <meta name="description" content="Backend for secure authentication with Telegram OpenID Connect">
+    <link rel="icon" href="/telegram-mark.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Telegram Sign-In home">
+        <img src="/telegram-mark.svg" width="34" height="34" alt="">
+        <span>Telegram Sign-In</span>
+      </a>
+      <button class="theme-button" type="button" aria-label="Change theme" title="Change theme">
+        <span class="theme-icon" aria-hidden="true">◐</span>
+      </button>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="telegram-logo"><img src="/telegram-mark.svg" alt="Telegram logo"></div>
+        <p class="eyebrow">OPENID CONNECT BACKEND</p>
+        <h1>Sign in with Telegram.<br>No demo mocks.</h1>
+        <p class="lead">The server verifies the Telegram ID token signature, persists the user in SQLite, and issues its own revocable session.</p>
+        <div class="status" role="status" aria-live="polite">
+          <span class="status-dot"></span>
+          <span class="status-text">Checking connectivity…</span>
+        </div>
+      </section>
+
+      <section class="cards" aria-label="Server capabilities">
+        <article class="card">
+          <div class="card-icon">✓</div>
+          <div><h2>Telegram verification</h2><p>JWKS, issuer, audience, signing algorithm, and expiration are verified on the server.</p></div>
+        </article>
+        <article class="card">
+          <div class="card-icon">⌁</div>
+          <div><h2>Persistent accounts</h2><p>Subsequent sign-ins find the same user by the stable Telegram <code>sub</code>.</p></div>
+        </article>
+        <article class="card">
+          <div class="card-icon">♢</div>
+          <div><h2>Secure sessions</h2><p>SQLite stores only the SHA-256 token hash; sessions expire and can be revoked.</p></div>
+        </article>
+      </section>
+
+      <section class="flow">
+        <div>
+          <p class="eyebrow">API</p>
+          <h2>A small, explicit contract</h2>
+          <p>The Android app sends the ID token only after completing the native Telegram Login flow.</p>
+        </div>
+        <ol>
+          <li><code>POST /auth/telegram</code><span>Registration or sign-in</span></li>
+          <li><code>GET /auth/session</code><span>Validate the current session</span></li>
+          <li><code>DELETE /auth/session</code><span>Secure sign-out</span></li>
+          <li><code>GET /api/health/ready</code><span>Readiness for Docker and reverse proxies</span></li>
+        </ol>
+      </section>
+    </main>
+
+    <footer>
+      <span>Telegram Sign-In API</span>
+      <a href="/api/health/ready">Check API</a>
+    </footer>
+  </body>
+</html>
