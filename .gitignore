@@ -63,3 +63,6 @@ backend-data/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
+
+# Local product plans and implementation journals
+docs/

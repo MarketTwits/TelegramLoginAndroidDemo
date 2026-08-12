@@ -4,7 +4,26 @@ Minimal Android demo of the official Telegram Login SDK:
 <https://github.com/TelegramMessenger/telegram-login-android>
 
 The repository contains an Android application and a small Node.js backend for
-verifying Telegram ID tokens and managing application sessions.
+verifying Telegram ID tokens and managing application sessions. The demo is
+presented as **Telegram Bloom**: Telegram authenticates the person while the
+application owns a separate editable signal profile.
+
+## Telegram Bloom flow
+
+- First Telegram sign-in creates one internal account keyed only by the stable
+  Telegram `sub` claim and routes to a one-screen profile setup.
+- The service stores display name, current intent, headline, up to three topics,
+  avatar choice, membership number, and a stable generated Bloom visual.
+- Returning sign-ins refresh only Telegram identity metadata. They never
+  overwrite the application-owned profile.
+- The encrypted Android cache restores completed profiles or interrupted drafts
+  before background session validation and keeps completed profiles readable
+  while offline.
+- Sign-out revokes the server session and clears the local encrypted cache while
+  preserving the account and profile in SQLite.
+
+The complete phone number is private identity metadata. API and profile UI only
+expose whether Telegram verified it.
 
 ## Setup
 
@@ -58,3 +77,25 @@ Then sync the project in Android Studio and run the `app` configuration.
 With the local script, Android reaches the backend at `http://127.0.0.1:8080`
 through ADB port forwarding. If several devices are connected, set
 `ANDROID_SERIAL` before running the script.
+
+## API
+
+All authenticated endpoints use `Authorization: Bearer <sessionToken>`.
+
+- `POST /auth/telegram` with `{ "idToken": "..." }` verifies Telegram and
+  returns `sessionToken`, `expiresAt`, `account`, `telegram`, and `profile`.
+- `GET /auth/session` restores the account, onboarding state, Telegram summary,
+  and optional service profile.
+- `PUT /me/profile` creates or idempotently updates the service profile. Valid
+  intents are `BUILDING`, `HELPING`, and `EXPLORING`; one to three supported
+  topics are required; headline length is 1–120 characters.
+- `DELETE /auth/session` revokes the current application session.
+- `GET /api/health/live` and `GET /api/health/ready` provide container health.
+
+## Verification
+
+```bash
+cd backend && npm test
+cd .. && ./gradlew testDebugUnitTest assembleDebug
+docker compose config
+```

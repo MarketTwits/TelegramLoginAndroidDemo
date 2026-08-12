@@ -60,18 +60,24 @@ import com.markettwits.devx.tgsignin.ui.viewModel.LoginState
 @Composable
 fun LoginScreen(
     uiState: LoginScreenUiState,
+    sessionExpired: Boolean = false,
     onScopesChanged: (Set<TelegramScope>) -> Unit,
     onLogin: () -> Unit
 ) {
     var pickerExpanded by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val cancelledMessage = stringResource(R.string.login_cancelled)
+    val sessionExpiredMessage = stringResource(R.string.session_expired)
     val errorMessage = when (val state = uiState.loginState) {
         is LoginState.Error -> stringResource(state.messageRes)
         else -> null
     }
 
-    LaunchedEffect(uiState.loginState, cancelledMessage, errorMessage) {
+    LaunchedEffect(uiState.loginState, cancelledMessage, sessionExpiredMessage, errorMessage, sessionExpired) {
+        if (sessionExpired) {
+            snackbarHostState.showSnackbar(sessionExpiredMessage)
+            return@LaunchedEffect
+        }
         when (val state = uiState.loginState) {
             LoginState.Cancelled -> snackbarHostState.showSnackbar(cancelledMessage)
             is LoginState.Error -> errorMessage?.let { snackbarHostState.showSnackbar(it) }
@@ -154,7 +160,7 @@ fun LoginScreen(
         ) {
             TelegramSnackbar(
                 message = it.visuals.message,
-                isError = uiState.loginState is LoginState.Error
+                isError = uiState.loginState is LoginState.Error || sessionExpired
             )
         }
     }

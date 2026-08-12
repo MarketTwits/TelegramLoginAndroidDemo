@@ -16,7 +16,4 @@ data class TelegramUser(
     val pictureUrl: String? = null
 )
 
-data class AuthenticatedSession(
-    val accessToken: String,
-    val user: TelegramUser
-)
+typealias AuthenticatedSession = AuthenticationResult

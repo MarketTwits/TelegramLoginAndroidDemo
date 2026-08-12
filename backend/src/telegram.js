@@ -39,14 +39,3 @@ export const createTelegramVerifier = (config) => {
     };
   };
 };
-
-export const publicUserFromVerifiedProfile = (id, profile) => ({
-  id,
-  ...(profile.name && { name: profile.name }),
-  ...(profile.givenName && { givenName: profile.givenName }),
-  ...(profile.familyName && { familyName: profile.familyName }),
-  ...(profile.username && { username: profile.username }),
-  ...(profile.phoneNumber && { phoneNumber: profile.phoneNumber }),
-  ...(profile.phoneNumber && { phoneVerified: profile.phoneVerified }),
-  ...(profile.picture && { picture: profile.picture })
-});

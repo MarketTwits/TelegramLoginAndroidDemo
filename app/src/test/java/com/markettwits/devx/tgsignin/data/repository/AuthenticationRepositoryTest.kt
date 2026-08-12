@@ -2,6 +2,23 @@ package com.markettwits.devx.tgsignin.data.repository
 
 import android.content.Context
 import android.net.Uri
+import com.markettwits.devx.tgsignin.data.dataSource.AuthenticationLocalDataSource
+import com.markettwits.devx.tgsignin.data.dataSource.BackendHttpException
+import com.markettwits.devx.tgsignin.data.dataSource.BackendNetworkException
+import com.markettwits.devx.tgsignin.data.dataSource.TelegramAuthApiDataSource
+import com.markettwits.devx.tgsignin.data.dataSource.TelegramLoginDataSource
+import com.markettwits.devx.tgsignin.data.model.AuthenticationResult
+import com.markettwits.devx.tgsignin.data.model.AvatarSource
+import com.markettwits.devx.tgsignin.data.model.OnboardingState
+import com.markettwits.devx.tgsignin.data.model.ProfileDraft
+import com.markettwits.devx.tgsignin.data.model.ProfileIntent
+import com.markettwits.devx.tgsignin.data.model.ProfileTopic
+import com.markettwits.devx.tgsignin.data.model.RootAuthenticationState
+import com.markettwits.devx.tgsignin.data.model.ServiceAccount
+import com.markettwits.devx.tgsignin.data.model.ServiceProfile
+import com.markettwits.devx.tgsignin.data.model.TelegramIdentity
+import com.markettwits.devx.tgsignin.data.model.TelegramScope
+import java.io.IOException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -13,101 +30,121 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
-import com.markettwits.devx.tgsignin.data.dataSource.AuthenticationLocalDataSource
-import com.markettwits.devx.tgsignin.data.dataSource.TelegramAuthApiDataSource
-import com.markettwits.devx.tgsignin.data.dataSource.TelegramLoginDataSource
-import com.markettwits.devx.tgsignin.data.model.AuthenticatedSession
-import com.markettwits.devx.tgsignin.data.model.TelegramScope
-import com.markettwits.devx.tgsignin.data.model.TelegramUser
 
 class AuthenticationRepositoryTest {
     @Test
-    fun `restores cached user and clears local session on logout`() = runBlocking {
-        val user = TelegramUser(id = "user-1", username = "demo")
-        val verifiedUser = user.copy(name = "Verified Demo")
-        val localDataSource = FakeAuthenticationLocalDataSource(
-            AuthenticatedSession(accessToken = "session-token", user = user)
-        )
-        val apiDataSource = FakeTelegramAuthApiDataSource(verifiedUser)
-        val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
-        val repository = AuthenticationRepositoryImpl(
-            telegramLoginDataSource = FakeTelegramLoginDataSource(),
-            telegramAuthApiDataSource = apiDataSource,
-            authenticationLocalDataSource = localDataSource,
-            applicationScope = applicationScope
-        )
+    fun `renders cached completed profile, refreshes it, and revokes on logout`() = runBlocking {
+        val cached = session("Cached")
+        val verified = session("Verified")
+        val local = FakeAuthenticationLocalDataSource(cached)
+        val api = FakeTelegramAuthApiDataSource(verified)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val repository = AuthenticationRepositoryImpl(FakeTelegramLoginDataSource(), api, local, scope)
 
-        assertEquals(verifiedUser, repository.currentUser.first { it != null })
-        assertEquals("session-token", apiDataSource.validatedToken)
+        val state = repository.state.first {
+            it is RootAuthenticationState.Authenticated && it.session.profile?.displayName == "Verified"
+        } as RootAuthenticationState.Authenticated
+        assertEquals("Verified", state.session.profile?.displayName)
+        assertEquals("session-token", api.validatedToken)
+
         repository.logout()
-
-        assertEquals("session-token", apiDataSource.revokedToken)
-        assertNull(repository.currentUser.value)
-        assertNull(localDataSource.sessionValue.value)
-        applicationScope.cancel()
+        assertEquals("session-token", api.revokedToken)
+        assertNull(local.sessionValue.value)
+        assertEquals(RootAuthenticationState.Unauthenticated(), repository.state.value)
+        scope.cancel()
     }
 
     @Test
-    fun `does not restore a cached user when the server rejects the session`() = runBlocking {
-        val cachedSession = AuthenticatedSession(
-            accessToken = "expired-token",
-            user = TelegramUser(id = "cached-user")
-        )
-        val localDataSource = FakeAuthenticationLocalDataSource(cachedSession)
-        val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+    fun `keeps completed cached profile visible offline`() = runBlocking {
+        val cached = session("Offline profile")
+        val local = FakeAuthenticationLocalDataSource(cached)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         val repository = AuthenticationRepositoryImpl(
-            telegramLoginDataSource = FakeTelegramLoginDataSource(),
-            telegramAuthApiDataSource = FakeTelegramAuthApiDataSource(validationFails = true),
-            authenticationLocalDataSource = localDataSource,
-            applicationScope = applicationScope
+            FakeTelegramLoginDataSource(),
+            FakeTelegramAuthApiDataSource(failure = BackendNetworkException(IOException("offline"))),
+            local,
+            scope
         )
+        val state = repository.state.first {
+            it is RootAuthenticationState.Authenticated && it.isOffline
+        } as RootAuthenticationState.Authenticated
+        assertEquals("Offline profile", state.session.profile?.displayName)
+        assertEquals(cached, local.sessionValue.value)
+        scope.cancel()
+    }
 
-        repository.isSessionRestored.first { it }
-
-        assertNull(repository.currentUser.value)
-        assertNull(localDataSource.sessionValue.value)
-        applicationScope.cancel()
+    @Test
+    fun `expired server session clears encrypted cache and returns to login`() = runBlocking {
+        val local = FakeAuthenticationLocalDataSource(session("Expired"))
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val repository = AuthenticationRepositoryImpl(
+            FakeTelegramLoginDataSource(),
+            FakeTelegramAuthApiDataSource(failure = BackendHttpException(401)),
+            local,
+            scope
+        )
+        val state = repository.state.first {
+            it is RootAuthenticationState.Unauthenticated && it.sessionExpired
+        }
+        assertEquals(RootAuthenticationState.Unauthenticated(sessionExpired = true), state)
+        assertNull(local.sessionValue.value)
+        scope.cancel()
     }
 }
 
-private class FakeAuthenticationLocalDataSource(
-    session: AuthenticatedSession?
-) : AuthenticationLocalDataSource {
+private fun session(displayName: String) = AuthenticationResult(
+    accessToken = "session-token",
+    expiresAt = "2026-09-01T00:00:00Z",
+    account = ServiceAccount(
+        id = "account-1",
+        memberNumber = 42,
+        onboardingState = OnboardingState.PROFILE_COMPLETED,
+        registeredAt = "2026-08-01T00:00:00Z",
+        lastLoginAt = "2026-08-12T00:00:00Z",
+        loginCount = 3
+    ),
+    telegram = TelegramIdentity(username = "demo", phoneVerified = true),
+    profile = ServiceProfile(
+        displayName = displayName,
+        headline = "Building a demo",
+        intent = ProfileIntent.BUILDING,
+        topics = listOf(ProfileTopic.ANDROID),
+        avatarSource = AvatarSource.BLOOM,
+        visualSeed = "stable-seed",
+        createdAt = "2026-08-01T00:00:00Z",
+        updatedAt = "2026-08-12T00:00:00Z"
+    )
+)
+
+private class FakeAuthenticationLocalDataSource(session: AuthenticationResult?) : AuthenticationLocalDataSource {
     val sessionValue = MutableStateFlow(session)
-    override val session: Flow<AuthenticatedSession?> = sessionValue
-
-    override suspend fun save(session: AuthenticatedSession) {
-        sessionValue.value = session
-    }
-
-    override suspend fun clear() {
-        sessionValue.value = null
-    }
+    val draftValue = MutableStateFlow<ProfileDraft?>(null)
+    override val session: Flow<AuthenticationResult?> = sessionValue
+    override val profileDraft: Flow<ProfileDraft?> = draftValue
+    override suspend fun save(session: AuthenticationResult) { sessionValue.value = session }
+    override suspend fun saveDraft(draft: ProfileDraft) { draftValue.value = draft }
+    override suspend fun clearDraft() { draftValue.value = null }
+    override suspend fun clear() { sessionValue.value = null; draftValue.value = null }
 }
 
 private class FakeTelegramAuthApiDataSource(
-    private val verifiedUser: TelegramUser = TelegramUser(id = "verified-user"),
-    private val validationFails: Boolean = false
+    private val verified: AuthenticationResult = session("Verified"),
+    private val failure: Throwable? = null
 ) : TelegramAuthApiDataSource {
     var revokedToken: String? = null
     var validatedToken: String? = null
-
-    override suspend fun authenticate(idToken: String): AuthenticatedSession =
-        error("Not used in this test")
-
-    override suspend fun getCurrentSession(accessToken: String): AuthenticatedSession {
+    override suspend fun authenticate(idToken: String): AuthenticationResult = verified
+    override suspend fun getCurrentSession(accessToken: String): AuthenticationResult {
         validatedToken = accessToken
-        if (validationFails) error("Session rejected")
-        return AuthenticatedSession(accessToken = accessToken, user = verifiedUser)
+        failure?.let { throw it }
+        return verified
     }
-
-    override suspend fun revokeSession(accessToken: String) {
-        revokedToken = accessToken
-    }
+    override suspend fun saveProfile(accessToken: String, draft: ProfileDraft): AuthenticationResult = verified
+    override suspend fun revokeSession(accessToken: String) { revokedToken = accessToken }
 }
 
 private class FakeTelegramLoginDataSource : TelegramLoginDataSource {
     override fun startLogin(context: Context, scopes: Set<TelegramScope>) = Unit
-    override suspend fun consumeCallback(uri: Uri): String = error("Not used in this test")
+    override suspend fun consumeCallback(uri: Uri): String = "id-token"
     override fun isTelegramCallback(uri: Uri): Boolean = false
 }

@@ -1,25 +1,74 @@
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import helmet from 'helmet';
 import { rateLimit } from 'express-rate-limit';
 import { createSession, bearerToken, hashSessionToken } from './sessions.js';
-import { publicUserFromVerifiedProfile } from './telegram.js';
 
 const publicDirectory = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const asyncRoute = (handler) => (request, response, next) =>
   Promise.resolve(handler(request, response, next)).catch(next);
 
-const storedUser = (row) => ({
-  id: row.id,
-  ...(row.name && { name: row.name }),
-  ...(row.given_name && { givenName: row.given_name }),
-  ...(row.family_name && { familyName: row.family_name }),
-  ...(row.username && { username: row.username }),
-  ...(row.phone_number && { phoneNumber: row.phone_number }),
-  ...(row.phone_number && { phoneVerified: row.phone_verified }),
-  ...(row.picture_url && { picture: row.picture_url })
+const PROFILE_INTENTS = new Set(['BUILDING', 'HELPING', 'EXPLORING']);
+const PROFILE_TOPICS = new Set([
+  'ANDROID', 'BACKEND', 'DESIGN', 'SECURITY', 'OPEN_SOURCE', 'AI', 'PRODUCT', 'TELEGRAM', 'OTHER'
+]);
+const AVATAR_SOURCES = new Set(['TELEGRAM', 'BLOOM']);
+
+const accountResponse = (account) => ({
+  id: account.id,
+  memberNumber: account.member_number,
+  onboardingState: account.onboarding_state,
+  registeredAt: account.created_at.toISOString(),
+  lastLoginAt: account.last_login_at.toISOString(),
+  loginCount: account.login_count
 });
+
+const telegramResponse = (account) => ({
+  ...(account.name && { name: account.name }),
+  ...(account.given_name && { givenName: account.given_name }),
+  ...(account.family_name && { familyName: account.family_name }),
+  ...(account.username && { username: account.username }),
+  ...(account.picture_url && { picture: account.picture_url }),
+  phoneVerified: account.phone_verified,
+  syncedAt: account.telegram_synced_at.toISOString()
+});
+
+const profileResponse = (profile) => profile ? ({
+  displayName: profile.display_name,
+  headline: profile.headline,
+  intent: profile.intent,
+  topics: profile.topics,
+  avatarSource: profile.avatar_source,
+  visualSeed: profile.visual_seed,
+  createdAt: profile.created_at.toISOString(),
+  updatedAt: profile.updated_at.toISOString()
+}) : null;
+
+const authenticationStateResponse = ({ account, profile }, expiresAt) => ({
+  ...(expiresAt && { expiresAt: expiresAt.toISOString() }),
+  account: accountResponse(account),
+  telegram: telegramResponse(account),
+  profile: profileResponse(profile)
+});
+
+const authenticatedSession = async (database, request) => {
+  const token = bearerToken(request);
+  return token ? database.findSession(hashSessionToken(token)) : null;
+};
+
+const profileDraft = (body) => {
+  const displayName = typeof body?.displayName === 'string' ? body.displayName.trim() : '';
+  const headline = typeof body?.headline === 'string' ? body.headline.trim() : '';
+  const topics = Array.isArray(body?.topics) ? body.topics : [];
+  if (displayName.length < 1 || displayName.length > 80) return null;
+  if (headline.length < 1 || headline.length > 120) return null;
+  if (!PROFILE_INTENTS.has(body?.intent) || !AVATAR_SOURCES.has(body?.avatarSource)) return null;
+  if (topics.length < 1 || topics.length > 3 || new Set(topics).size !== topics.length) return null;
+  if (!topics.every((topic) => PROFILE_TOPICS.has(topic))) return null;
+  return { displayName, headline, intent: body.intent, topics, avatarSource: body.avatarSource };
+};
 
 export const createApp = ({ config, database, verifyTelegramToken }) => {
   const app = express();
@@ -38,9 +87,7 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
     legacyHeaders: false
   });
 
-  app.get('/api/health/live', (_request, response) => {
-    response.json({ status: 'ok' });
-  });
+  app.get('/api/health/live', (_request, response) => response.json({ status: 'ok' }));
 
   app.get('/api/health/ready', asyncRoute(async (_request, response) => {
     await database.ping();
@@ -63,9 +110,9 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
       return response.status(400).json({ code: 'INVALID_REQUEST', message: 'idToken is required' });
     }
 
-    let profile;
+    let telegramProfile;
     try {
-      profile = await verifyTelegramToken(idToken);
+      telegramProfile = await verifyTelegramToken(idToken);
     } catch (error) {
       console.warn('Rejected Telegram ID token:', error.code ?? error.message);
       return response.status(401).json({
@@ -74,28 +121,46 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
       });
     }
 
-    const userId = await database.upsertTelegramUser(profile);
-    const session = await createSession(database, userId, config.sessionTtlDays);
-    response
-      .set('Cache-Control', 'no-store')
-      .status(200)
-      .json({
-        user: publicUserFromVerifiedProfile(userId, profile),
-        sessionToken: session.token,
-        expiresAt: session.expiresAt.toISOString()
-      });
+    const state = await database.authenticateTelegramUser(telegramProfile);
+    if (state.account.onboarding_state === 'DISABLED') {
+      return response.status(403).json({ code: 'ACCOUNT_DISABLED', message: 'Account is disabled' });
+    }
+    const session = await createSession(database, state.account.id, config.sessionTtlDays);
+    response.set('Cache-Control', 'no-store').json({
+      sessionToken: session.token,
+      ...authenticationStateResponse(state, session.expiresAt)
+    });
   }));
 
   app.get('/auth/session', asyncRoute(async (request, response) => {
-    const token = bearerToken(request);
-    const session = token ? await database.findSession(hashSessionToken(token)) : null;
+    const session = await authenticatedSession(database, request);
     if (!session) {
       return response.status(401).json({ code: 'SESSION_INVALID', message: 'Session is missing or expired' });
     }
-    response.set('Cache-Control', 'no-store').json({
-      user: storedUser(session),
-      expiresAt: session.expires_at.toISOString()
-    });
+    response.set('Cache-Control', 'no-store').json(
+      authenticationStateResponse(session, session.expiresAt)
+    );
+  }));
+
+  app.put('/me/profile', asyncRoute(async (request, response) => {
+    const session = await authenticatedSession(database, request);
+    if (!session) {
+      return response.status(401).json({ code: 'SESSION_INVALID', message: 'Session is missing or expired' });
+    }
+    const draft = profileDraft(request.body);
+    if (!draft) {
+      return response.status(422).json({
+        code: 'INVALID_PROFILE',
+        message: 'Profile fields do not satisfy the required format'
+      });
+    }
+    const state = await database.saveProfile(
+      session.account.id,
+      draft,
+      session.profile?.id ?? crypto.randomUUID(),
+      session.profile?.visual_seed ?? crypto.randomBytes(16).toString('hex')
+    );
+    response.set('Cache-Control', 'no-store').json(authenticationStateResponse(state, session.expiresAt));
   }));
 
   app.delete('/auth/session', asyncRoute(async (request, response) => {
@@ -109,11 +174,9 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
     maxAge: config.nodeEnv === 'production' ? '1h' : 0,
     etag: true
   }));
-
   app.use((_request, response) => {
     response.status(404).json({ code: 'NOT_FOUND', message: 'Resource not found' });
   });
-
   app.use((error, _request, response, _next) => {
     if (error?.type === 'entity.parse.failed') {
       return response.status(400).json({ code: 'INVALID_JSON', message: 'Request body must be valid JSON' });
