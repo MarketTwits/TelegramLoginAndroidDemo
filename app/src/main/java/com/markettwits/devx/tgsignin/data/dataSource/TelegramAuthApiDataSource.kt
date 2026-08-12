@@ -10,7 +10,15 @@ interface TelegramAuthApiDataSource {
     suspend fun revokeSession(accessToken: String)
 }
 
-class BackendHttpException(val statusCode: Int) : Exception()
+class BackendHttpException(
+    val statusCode: Int,
+    val errorCode: String? = null,
+    val requestId: String? = null
+) : Exception()
 class BackendResponseException(cause: Throwable) : Exception(cause)
+class BackendIncompatibleException(
+    val expectedVersion: Int,
+    val actualVersion: Int?
+) : Exception("Backend API version ${actualVersion ?: "missing"}; expected $expectedVersion")
 class BackendConfigurationException : Exception()
 class BackendNetworkException(cause: Throwable) : Exception(cause)

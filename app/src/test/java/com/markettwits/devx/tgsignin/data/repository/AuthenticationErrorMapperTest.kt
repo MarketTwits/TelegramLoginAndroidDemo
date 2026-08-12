@@ -6,6 +6,7 @@ import org.junit.Test
 import com.markettwits.devx.tgsignin.R
 import com.markettwits.devx.tgsignin.data.dataSource.BackendConfigurationException
 import com.markettwits.devx.tgsignin.data.dataSource.BackendHttpException
+import com.markettwits.devx.tgsignin.data.dataSource.BackendIncompatibleException
 import com.markettwits.devx.tgsignin.data.dataSource.BackendNetworkException
 import com.markettwits.devx.tgsignin.data.dataSource.BackendResponseException
 import com.markettwits.devx.tgsignin.data.model.AuthenticationError
@@ -16,6 +17,13 @@ import java.net.UnknownHostException
 import java.io.IOException
 
 class AuthenticationErrorMapperTest {
+    @Test
+    fun `maps legacy backend contract separately from malformed responses`() {
+        val mapped = BackendIncompatibleException(expectedVersion = 2, actualVersion = 1)
+            .toAuthenticationError()
+
+        assertTrue(mapped is AuthenticationError.IncompatibleBackend)
+    }
     @Test
     fun `unknown host becomes network unavailable`() {
         assertTrue(UnknownHostException().toAuthenticationError() is AuthenticationError.NetworkUnavailable)

@@ -24,22 +24,33 @@ class AppLinkVerificationDataSourceImpl(
     private val assetLinksUrl = URL("https://${config.redirectHost}$ASSET_LINKS_PATH")
 
     override suspend fun checkVerification(): AppLinkVerification = withContext(ioDispatcher) {
-        val connection = openConnection()
+        val startedAt = NetworkRequestLogger.start(HTTP_GET, assetLinksUrl)
+        var connection: HttpURLConnection? = null
         try {
+            connection = openConnection()
             val statusCode = connection.responseCode
-            if (statusCode !in SUCCESS_STATUS_CODES) throw BackendHttpException(statusCode)
+            if (statusCode !in SUCCESS_STATUS_CODES) {
+                NetworkRequestLogger.httpFailure(HTTP_GET, assetLinksUrl, statusCode, startedAt)
+                throw BackendHttpException(statusCode)
+            }
             val body = connection.inputStream?.let { stream ->
                 InputStreamReader(stream, StandardCharsets.UTF_8).use { it.readText() }
             }.orEmpty()
-            parseVerification(body)
+            parseVerification(body).also {
+                NetworkRequestLogger.success(HTTP_GET, assetLinksUrl, statusCode, startedAt)
+            }
         } catch (error: IOException) {
+            NetworkRequestLogger.transportFailure(HTTP_GET, assetLinksUrl, startedAt, error)
             throw BackendNetworkException(error)
+        } catch (error: JSONException) {
+            NetworkRequestLogger.invalidResponse(HTTP_GET, assetLinksUrl, startedAt, error)
+            throw BackendResponseException(error)
         } finally {
-            connection.disconnect()
+            connection?.disconnect()
         }
     }
 
-    private fun openConnection(): HttpURLConnection = try {
+    private fun openConnection(): HttpURLConnection =
         (assetLinksUrl.openConnection() as HttpURLConnection).apply {
             requestMethod = HTTP_GET
             connectTimeout = NETWORK_TIMEOUT_MS
@@ -47,19 +58,12 @@ class AppLinkVerificationDataSourceImpl(
             instanceFollowRedirects = false
             setRequestProperty(HEADER_ACCEPT, JSON_MEDIA_TYPE)
         }
-    } catch (error: IOException) {
-        throw BackendNetworkException(error)
-    }
 
-    private fun parseVerification(body: String): AppLinkVerification = try {
-        verifyAssetLinks(
+    private fun parseVerification(body: String): AppLinkVerification = verifyAssetLinks(
             body = body,
             packageName = context.packageName,
             installedFingerprints = installedCertificateFingerprints()
         )
-    } catch (error: JSONException) {
-        throw BackendResponseException(error)
-    }
 
     @Suppress("DEPRECATION")
     private fun installedCertificateFingerprints(): Set<String> {

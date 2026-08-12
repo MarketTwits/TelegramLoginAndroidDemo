@@ -41,6 +41,7 @@ class BackendReadinessViewModel(
         !serviceReady -> BackendReadinessUiState.Error(R.string.backend_service_not_ready)
         !databaseConnected -> BackendReadinessUiState.Error(R.string.backend_database_unavailable)
         !telegramConfigured -> BackendReadinessUiState.Error(R.string.backend_telegram_not_configured)
+        !isApiCompatible -> BackendReadinessUiState.Error(R.string.error_incompatible_backend)
         else -> BackendReadinessUiState.Ready
     }
 }

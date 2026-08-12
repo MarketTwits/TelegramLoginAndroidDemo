@@ -15,6 +15,7 @@ const PROFILE_TOPICS = new Set([
   'ANDROID', 'BACKEND', 'DESIGN', 'SECURITY', 'OPEN_SOURCE', 'AI', 'PRODUCT', 'TELEGRAM', 'OTHER'
 ]);
 const AVATAR_SOURCES = new Set(['TELEGRAM', 'BLOOM']);
+const API_VERSION = 2;
 
 const accountResponse = (account) => ({
   id: account.id,
@@ -80,6 +81,21 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', config.trustProxy);
+  app.use((request, response, next) => {
+    const requestId = crypto.randomUUID();
+    const startedAt = process.hrtime.bigint();
+    response.set('X-Request-Id', requestId);
+    response.set('X-Telegram-Bloom-Api-Version', String(API_VERSION));
+    console.info(`[http] --> ${request.method} ${request.path} requestId=${requestId}`);
+    response.once('finish', () => {
+      const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+      console.info(
+        `[http] <-- ${response.statusCode} ${request.method} ${request.path} ` +
+        `durationMs=${durationMs.toFixed(1)} requestId=${requestId}`
+      );
+    });
+    next();
+  });
   app.use(helmet({
     crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
     crossOriginResourcePolicy: { policy: 'same-site' }
@@ -100,7 +116,8 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
     response.json({
       status: 'ready',
       database: 'connected',
-      telegram: config.telegramConfigured ? 'configured' : 'configuration_required'
+      telegram: config.telegramConfigured ? 'configured' : 'configuration_required',
+      apiVersion: API_VERSION
     });
   }));
 

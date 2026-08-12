@@ -99,6 +99,7 @@
     <string name="error_server_unavailable">Сервис авторизации временно недоступен. Попробуйте позже.</string>
     <string name="error_request_rejected">Сервер отклонил запрос авторизации. Попробуйте начать вход заново.</string>
     <string name="error_invalid_server_response">Сервер вернул некорректный ответ. Обновите приложение или обратитесь в поддержку.</string>
+    <string name="error_incompatible_backend">Версия сервера устарела. Обновите backend Telegram Bloom и попробуйте снова.</string>
     <string name="error_invalid_configuration">Вход через Telegram не настроен. Проверьте конфигурацию приложения.</string>
     <string name="error_telegram_sdk">Telegram не смог завершить авторизацию. Попробуйте начать вход заново.</string>
     <string name="error_browser_unavailable">Не удалось открыть страницу Telegram. Проверьте браузер на устройстве.</string>

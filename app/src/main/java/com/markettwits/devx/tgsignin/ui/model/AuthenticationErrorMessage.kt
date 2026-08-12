@@ -15,6 +15,7 @@ fun Throwable.toUserMessageRes(): Int = when (this) {
     is AuthenticationError.ServerUnavailable -> R.string.error_server_unavailable
     is AuthenticationError.RequestRejected -> R.string.error_request_rejected
     is AuthenticationError.InvalidServerResponse -> R.string.error_invalid_server_response
+    is AuthenticationError.IncompatibleBackend -> R.string.error_incompatible_backend
     is AuthenticationError.InvalidConfiguration -> R.string.error_invalid_configuration
     is AuthenticationError.TelegramSdk -> R.string.error_telegram_sdk
     is AuthenticationError.BrowserUnavailable -> R.string.error_browser_unavailable

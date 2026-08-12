@@ -10,6 +10,7 @@ import java.net.UnknownHostException
 import javax.net.ssl.SSLException
 import com.markettwits.devx.tgsignin.data.dataSource.BackendConfigurationException
 import com.markettwits.devx.tgsignin.data.dataSource.BackendHttpException
+import com.markettwits.devx.tgsignin.data.dataSource.BackendIncompatibleException
 import com.markettwits.devx.tgsignin.data.dataSource.BackendNetworkException
 import com.markettwits.devx.tgsignin.data.dataSource.BackendResponseException
 import com.markettwits.devx.tgsignin.data.dataSource.TelegramConfigurationException
@@ -47,6 +48,9 @@ internal fun Throwable.toAuthenticationError(): AuthenticationError {
     }
     causes.filterIsInstance<BackendResponseException>().firstOrNull()?.let {
         return AuthenticationError.InvalidServerResponse(it)
+    }
+    causes.filterIsInstance<BackendIncompatibleException>().firstOrNull()?.let {
+        return AuthenticationError.IncompatibleBackend(it)
     }
     causes.firstOrNull {
         it is BackendConfigurationException ||
