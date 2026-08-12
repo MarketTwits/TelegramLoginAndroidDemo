@@ -1,6 +1,7 @@
 package com.markettwits.devx.tgsignin.ui.screen
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,7 +29,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -46,6 +46,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -55,13 +56,15 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalResources
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
@@ -81,6 +84,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 @Composable
 fun ProfileSetupScreen(
@@ -90,12 +94,22 @@ fun ProfileSetupScreen(
     isOffline: Boolean,
     messages: Flow<Int>,
     onDraftChanged: (ProfileDraft) -> Unit,
-    onSave: (ProfileDraft) -> Unit
+    onSave: (ProfileDraft) -> Unit,
+    onCancel: () -> Unit
 ) {
+    val isEditing = session.profile != null
     val snackbar = remember { SnackbarHostState() }
     val resources = LocalResources.current
+    var displayNameTouched by rememberSaveable { mutableStateOf(false) }
+    var headlineTouched by rememberSaveable { mutableStateOf(false) }
+    var topicLimitReached by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(messages) {
         messages.collectLatest { snackbar.showSnackbar(resources.getString(it)) }
+    }
+    LaunchedEffect(session.telegram.pictureUrl, draft.avatarSource) {
+        if (session.telegram.pictureUrl == null && draft.avatarSource == AvatarSource.TELEGRAM) {
+            onDraftChanged(draft.copy(avatarSource = AvatarSource.BLOOM))
+        }
     }
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
@@ -113,20 +127,42 @@ fun ProfileSetupScreen(
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
             Spacer(Modifier.height(40.dp))
-            Text(stringResource(R.string.bloom_setup_title), style = MaterialTheme.typography.headlineMedium)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    stringResource(if (isEditing) R.string.bloom_edit_title else R.string.bloom_setup_title),
+                    style = MaterialTheme.typography.headlineMedium
+                )
+                if (isEditing) {
+                    TextButton(onClick = onCancel, enabled = !isSaving) {
+                        Text(stringResource(R.string.cancel))
+                    }
+                }
+            }
             Text(
-                stringResource(R.string.bloom_setup_subtitle),
+                stringResource(
+                    if (isEditing) R.string.bloom_edit_subtitle else R.string.bloom_setup_subtitle
+                ),
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             if (isOffline) OfflineBanner()
             AvatarChoice(session, draft, onDraftChanged)
             OutlinedTextField(
                 value = draft.displayName,
-                onValueChange = { if (it.length <= 80) onDraftChanged(draft.copy(displayName = it)) },
+                onValueChange = {
+                    displayNameTouched = true
+                    if (it.length <= 80) onDraftChanged(draft.copy(displayName = it))
+                },
                 label = { Text(stringResource(R.string.bloom_display_name)) },
+                supportingText = if (displayNameTouched && draft.displayName.isBlank()) {
+                    { Text(stringResource(R.string.required_field)) }
+                } else null,
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
-                isError = draft.displayName.isBlank()
+                isError = displayNameTouched && draft.displayName.isBlank()
             )
             Text(stringResource(R.string.bloom_intent_title), fontWeight = FontWeight.SemiBold)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -140,15 +176,24 @@ fun ProfileSetupScreen(
             }
             OutlinedTextField(
                 value = draft.headline,
-                onValueChange = { if (it.length <= 120) onDraftChanged(draft.copy(headline = it)) },
+                onValueChange = {
+                    headlineTouched = true
+                    if (it.length <= 120) onDraftChanged(draft.copy(headline = it))
+                },
                 label = { Text(intentPrompt(draft.intent)) },
-                supportingText = if (draft.headline.length >= 100) {
-                    { Text("${draft.headline.length}/120") }
-                } else null,
+                supportingText = when {
+                    headlineTouched && draft.headline.isBlank() -> {
+                        { Text(stringResource(R.string.required_field)) }
+                    }
+                    draft.headline.length >= 100 -> {
+                        { Text("${draft.headline.length}/120") }
+                    }
+                    else -> null
+                },
                 minLines = 2,
                 maxLines = 2,
                 modifier = Modifier.fillMaxWidth(),
-                isError = draft.headline.isBlank()
+                isError = headlineTouched && draft.headline.isBlank()
             )
             Text(stringResource(R.string.bloom_topics_title), fontWeight = FontWeight.SemiBold)
             Text(
@@ -163,13 +208,27 @@ fun ProfileSetupScreen(
                         selected = selected,
                         onClick = {
                             val topics = if (selected) draft.topics - topic else {
-                                if (draft.topics.size < 3) draft.topics + topic else draft.topics
+                                if (draft.topics.size < 3) {
+                                    topicLimitReached = false
+                                    draft.topics + topic
+                                } else {
+                                    topicLimitReached = true
+                                    draft.topics
+                                }
                             }
+                            if (selected) topicLimitReached = false
                             onDraftChanged(draft.copy(topics = topics))
                         },
                         label = { Text(topicLabel(topic)) }
                     )
                 }
+            }
+            if (topicLimitReached) {
+                Text(
+                    stringResource(R.string.bloom_topics_limit),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
             }
             TelegramIdentitySummary(session)
             Button(
@@ -198,6 +257,14 @@ private fun AvatarChoice(
         if (session.telegram.pictureUrl != null) {
             OutlinedCard(
                 onClick = { onDraftChanged(draft.copy(avatarSource = AvatarSource.TELEGRAM)) },
+                border = BorderStroke(
+                    if (draft.avatarSource == AvatarSource.TELEGRAM) 2.dp else 1.dp,
+                    if (draft.avatarSource == AvatarSource.TELEGRAM) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.outlineVariant
+                    }
+                ),
                 modifier = Modifier.weight(1f)
             ) {
                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -213,6 +280,14 @@ private fun AvatarChoice(
         }
         OutlinedCard(
             onClick = { onDraftChanged(draft.copy(avatarSource = AvatarSource.BLOOM)) },
+            border = BorderStroke(
+                if (draft.avatarSource == AvatarSource.BLOOM) 2.dp else 1.dp,
+                if (draft.avatarSource == AvatarSource.BLOOM) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.outlineVariant
+                }
+            ),
             modifier = Modifier.weight(1f)
         ) {
             Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -241,12 +316,39 @@ fun BloomProfileScreen(
 ) {
     val profile = requireNotNull(session.profile)
     val scroll = rememberScrollState()
-    val collapse by remember { derivedStateOf { (scroll.value / 240f).coerceIn(0f, 1f) } }
+    val collapseRangePx = with(LocalDensity.current) { 140.dp.toPx() }
+    val collapse by remember(scroll, collapseRangePx) {
+        derivedStateOf { (scroll.value / collapseRangePx).coerceIn(0f, 1f) }
+    }
+    val haptics = LocalHapticFeedback.current
     val snackbar = remember { SnackbarHostState() }
     val resources = LocalResources.current
     var confirmLogout by rememberSaveable { mutableStateOf(false) }
+    var lastBoundary by remember { mutableStateOf(0) }
     LaunchedEffect(messages) {
         messages.collectLatest { snackbar.showSnackbar(resources.getString(it)) }
+    }
+    LaunchedEffect(scroll, collapseRangePx) {
+        snapshotFlow { scroll.isScrollInProgress }
+            .distinctUntilChanged()
+            .collect { scrolling ->
+                val range = collapseRangePx.toInt()
+                if (!scrolling && scroll.value in 1 until range) {
+                    val target = if (scroll.value < range / 2) 0 else range
+                    scroll.animateScrollTo(target)
+                }
+            }
+    }
+    LaunchedEffect(collapse) {
+        val boundary = when {
+            collapse <= 0.01f -> 0
+            collapse >= 0.99f -> 1
+            else -> -1
+        }
+        if (boundary >= 0 && lastBoundary != boundary) {
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            lastBoundary = boundary
+        }
     }
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(

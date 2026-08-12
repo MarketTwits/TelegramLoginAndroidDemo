@@ -107,6 +107,8 @@
 
     <string name="bloom_setup_title">Создайте свой Bloom</string>
     <string name="bloom_setup_subtitle">Telegram подтвердил вашу личность. Добавьте немного личного, чтобы завершить профиль.</string>
+    <string name="bloom_edit_title">Редактирование Bloom</string>
+    <string name="bloom_edit_subtitle">Обновите профиль сервиса. Данные личности Telegram останутся отдельными.</string>
     <string name="bloom_display_name">Отображаемое имя</string>
     <string name="bloom_intent_title">Какой у вас сейчас сигнал?</string>
     <string name="bloom_intent_building">Что-то создаю</string>
@@ -117,6 +119,7 @@
     <string name="bloom_prompt_exploring">Что вы исследуете?</string>
     <string name="bloom_topics_title">Темы</string>
     <string name="bloom_topics_hint">Выберите от одной до трёх тем.</string>
+    <string name="bloom_topics_limit">Можно выбрать не больше трёх тем.</string>
     <string name="bloom_topic_android">Android</string>
     <string name="bloom_topic_backend">Backend</string>
     <string name="bloom_topic_design">Дизайн</string>

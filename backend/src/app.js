@@ -58,6 +58,12 @@ const authenticatedSession = async (database, request) => {
   return token ? database.findSession(hashSessionToken(token)) : null;
 };
 
+const rejectDisabledAccount = (session, response) => {
+  if (session.account.onboarding_state !== 'DISABLED') return false;
+  response.status(403).json({ code: 'ACCOUNT_DISABLED', message: 'Account is disabled' });
+  return true;
+};
+
 const profileDraft = (body) => {
   const displayName = typeof body?.displayName === 'string' ? body.displayName.trim() : '';
   const headline = typeof body?.headline === 'string' ? body.headline.trim() : '';
@@ -137,6 +143,7 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
     if (!session) {
       return response.status(401).json({ code: 'SESSION_INVALID', message: 'Session is missing or expired' });
     }
+    if (rejectDisabledAccount(session, response)) return;
     response.set('Cache-Control', 'no-store').json(
       authenticationStateResponse(session, session.expiresAt)
     );
@@ -147,6 +154,7 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
     if (!session) {
       return response.status(401).json({ code: 'SESSION_INVALID', message: 'Session is missing or expired' });
     }
+    if (rejectDisabledAccount(session, response)) return;
     const draft = profileDraft(request.body);
     if (!draft) {
       return response.status(422).json({

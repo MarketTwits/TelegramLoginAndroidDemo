@@ -154,6 +154,9 @@ export const createDatabase = (config) => {
       telegram_synced_at = ?, login_count = login_count + 1
     WHERE id = ?
   `);
+  const disableUser = database.prepare(`
+    UPDATE app_users SET onboarding_state = 'DISABLED', updated_at = ? WHERE id = ?
+  `);
   const insertSession = database.prepare(`
     INSERT INTO app_sessions (token_hash, user_id, created_at, expires_at, last_seen_at)
     VALUES (?, ?, ?, ?, ?)
@@ -235,6 +238,9 @@ export const createDatabase = (config) => {
     const now = Date.now();
     const existing = selectUserBySubject.get(profile.telegramSubject);
     if (existing) {
+      if (existing.onboarding_state === 'DISABLED') {
+        return readAccount(selectAccountWithProfile.get(existing.id));
+      }
       updateUserLogin.run(
         profile.name, profile.givenName, profile.familyName, profile.username,
         profile.phoneNumber, profile.phoneVerified ? 1 : 0, profile.picture,
@@ -280,6 +286,9 @@ export const createDatabase = (config) => {
       return readAccount(selectAccountWithProfile.get(userId));
     },
     saveProfile,
+    disableAccount(userId) {
+      disableUser.run(Date.now(), userId);
+    },
 
     createSession(tokenHash, userId, expiresAt) {
       const now = Date.now();
