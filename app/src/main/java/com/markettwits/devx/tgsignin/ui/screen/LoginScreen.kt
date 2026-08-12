@@ -52,6 +52,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.markettwits.devx.tgsignin.R
 import com.markettwits.devx.tgsignin.data.model.TelegramScope
+import com.markettwits.devx.tgsignin.ui.component.TelegramSnackbar
 import com.markettwits.devx.tgsignin.ui.viewModel.LoginScreenUiState
 import com.markettwits.devx.tgsignin.ui.viewModel.LoginState
 
@@ -148,11 +149,13 @@ fun LoginScreen(
             hostState = snackbarHostState,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .widthIn(max = 420.dp)
                 .fillMaxWidth()
-                .padding(start = 32.dp, end = 32.dp, bottom = 132.dp)
+                .padding(start = 16.dp, end = 16.dp, bottom = 132.dp)
         ) {
-            LoginSnackbar(it.visuals.message)
+            TelegramSnackbar(
+                message = it.visuals.message,
+                isError = uiState.loginState is LoginState.Error
+            )
         }
     }
 
@@ -162,37 +165,6 @@ fun LoginScreen(
             onScopesChanged = onScopesChanged,
             onDismiss = { pickerExpanded = false }
         )
-    }
-}
-
-@Composable
-private fun LoginSnackbar(message: String) = Surface(
-    shape = RoundedCornerShape(12.dp),
-    color = MaterialTheme.colorScheme.inverseSurface,
-    contentColor = MaterialTheme.colorScheme.inverseOnSurface,
-    shadowElevation = 6.dp,
-    tonalElevation = 0.dp
-) {
-    androidx.compose.foundation.layout.Row(
-        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Surface(
-            modifier = Modifier.size(22.dp),
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.inversePrimary
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Text(
-                    text = stringResource(R.string.error_symbol),
-                    color = MaterialTheme.colorScheme.inverseOnSurface,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-        Spacer(Modifier.size(10.dp))
-        Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.inverseOnSurface)
     }
 }
 

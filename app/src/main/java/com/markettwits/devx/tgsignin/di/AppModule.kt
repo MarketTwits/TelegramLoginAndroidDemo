@@ -11,6 +11,8 @@ import org.koin.dsl.module
 import com.markettwits.devx.tgsignin.BuildConfig
 import com.markettwits.devx.tgsignin.data.dataSource.AuthenticationLocalDataSource
 import com.markettwits.devx.tgsignin.data.dataSource.AuthenticationLocalDataSourceImpl
+import com.markettwits.devx.tgsignin.data.dataSource.AppLinkVerificationDataSource
+import com.markettwits.devx.tgsignin.data.dataSource.AppLinkVerificationDataSourceImpl
 import com.markettwits.devx.tgsignin.data.dataSource.AppearanceLocalDataSource
 import com.markettwits.devx.tgsignin.data.dataSource.AppearanceLocalDataSourceImpl
 import com.markettwits.devx.tgsignin.data.dataSource.BackendReadinessDataSource
@@ -23,12 +25,15 @@ import com.markettwits.devx.tgsignin.data.dataSource.TelegramLoginDataSource
 import com.markettwits.devx.tgsignin.data.dataSource.TelegramLoginDataSourceImpl
 import com.markettwits.devx.tgsignin.data.repository.AuthenticationRepository
 import com.markettwits.devx.tgsignin.data.repository.AuthenticationRepositoryImpl
+import com.markettwits.devx.tgsignin.data.repository.AppLinkVerificationRepository
+import com.markettwits.devx.tgsignin.data.repository.AppLinkVerificationRepositoryImpl
 import com.markettwits.devx.tgsignin.data.repository.AppearanceRepository
 import com.markettwits.devx.tgsignin.data.repository.AppearanceRepositoryImpl
 import com.markettwits.devx.tgsignin.data.repository.BackendReadinessRepository
 import com.markettwits.devx.tgsignin.data.repository.BackendReadinessRepositoryImpl
 import com.markettwits.devx.tgsignin.data.telegram.TelegramLoginConfig
 import com.markettwits.devx.tgsignin.ui.viewModel.AppearanceViewModel
+import com.markettwits.devx.tgsignin.ui.viewModel.AppLinkVerificationViewModel
 import com.markettwits.devx.tgsignin.ui.viewModel.BackendReadinessViewModel
 import com.markettwits.devx.tgsignin.ui.viewModel.LoginScreenViewModel
 import com.markettwits.devx.tgsignin.ui.viewModel.ProfileScreenViewModel
@@ -64,6 +69,14 @@ val appModule = module {
         )
     }
     single<BackendReadinessRepository> { BackendReadinessRepositoryImpl(get()) }
+    single<AppLinkVerificationDataSource> {
+        AppLinkVerificationDataSourceImpl(
+            context = androidContext(),
+            config = get(),
+            ioDispatcher = get(ioDispatcherQualifier)
+        )
+    }
+    single<AppLinkVerificationRepository> { AppLinkVerificationRepositoryImpl(get()) }
     single<AuthenticationLocalDataSource> { AuthenticationLocalDataSourceImpl(androidContext(), get()) }
     single<AuthenticationRepository> {
         AuthenticationRepositoryImpl(
@@ -79,4 +92,5 @@ val appModule = module {
     viewModel { ProfileScreenViewModel(get()) }
     viewModel { AppearanceViewModel(get()) }
     viewModel { BackendReadinessViewModel(get()) }
+    viewModel { AppLinkVerificationViewModel(get()) }
 }

@@ -2,7 +2,9 @@
 # Android Studio may add sdk.dir automatically.
 # All values below are required before Gradle Sync.
 telegram.clientId=000000000
-telegram.redirectHost=app000000000-login.tg.dev
+# BotFather generates a separate App Link for each registered signing certificate.
+telegram.redirectHost.debug=app000000001-login.tg.dev
+telegram.redirectHost.release=app000000002-login.tg.dev
 # scripts/run-backend-local.sh forwards this device port to the host through ADB.
 telegram.backendUrl=http://127.0.0.1:8080
 

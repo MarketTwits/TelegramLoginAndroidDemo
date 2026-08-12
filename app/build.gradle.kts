@@ -1,3 +1,4 @@
+import com.android.build.api.variant.ApplicationAndroidComponentsExtension
 import java.util.Properties
 
 plugins {
@@ -16,15 +17,39 @@ fun projectConfig(localKey: String, environmentKey: String): String =
         ?.takeIf(String::isNotEmpty)
         ?: localProperties.getProperty(localKey)?.trim().orEmpty()
 
+fun projectConfig(
+    localKey: String,
+    environmentKey: String,
+    fallbackLocalKey: String,
+    fallbackEnvironmentKey: String
+): String = projectConfig(localKey, environmentKey)
+    .ifBlank { projectConfig(fallbackLocalKey, fallbackEnvironmentKey) }
+
 fun String.asBuildConfigString(): String =
     "\"${replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
 val telegramClientId = projectConfig("telegram.clientId", "TELEGRAM_CLIENT_ID")
-val telegramRedirectHost = projectConfig("telegram.redirectHost", "TELEGRAM_REDIRECT_HOST")
+val telegramDebugRedirectHost = projectConfig(
+    localKey = "telegram.redirectHost.debug",
+    environmentKey = "TELEGRAM_REDIRECT_HOST_DEBUG",
+    fallbackLocalKey = "telegram.redirectHost",
+    fallbackEnvironmentKey = "TELEGRAM_REDIRECT_HOST"
+)
+val telegramReleaseRedirectHost = projectConfig(
+    localKey = "telegram.redirectHost.release",
+    environmentKey = "TELEGRAM_REDIRECT_HOST_RELEASE",
+    fallbackLocalKey = "telegram.redirectHost",
+    fallbackEnvironmentKey = "TELEGRAM_REDIRECT_HOST"
+)
 val telegramBackendUrl = projectConfig("telegram.backendUrl", "TELEGRAM_BACKEND_URL")
 val missingTelegramConfiguration = buildList {
     if (telegramClientId.isBlank()) add("telegram.clientId / TELEGRAM_CLIENT_ID")
-    if (telegramRedirectHost.isBlank()) add("telegram.redirectHost / TELEGRAM_REDIRECT_HOST")
+    if (telegramDebugRedirectHost.isBlank()) {
+        add("telegram.redirectHost.debug / TELEGRAM_REDIRECT_HOST_DEBUG")
+    }
+    if (telegramReleaseRedirectHost.isBlank()) {
+        add("telegram.redirectHost.release / TELEGRAM_REDIRECT_HOST_RELEASE")
+    }
     if (telegramBackendUrl.isBlank()) add("telegram.backendUrl / TELEGRAM_BACKEND_URL")
 }
 
@@ -53,18 +78,35 @@ android {
 
         buildConfigField("String", "TELEGRAM_SDK_VERSION", "\"${libs.versions.loginSdk.get()}\"")
         buildConfigField("String", "TELEGRAM_CLIENT_ID", telegramClientId.asBuildConfigString())
-        buildConfigField(
-            "String",
-            "TELEGRAM_REDIRECT_URI",
-            "https://$telegramRedirectHost/tglogin".asBuildConfigString()
-        )
-        buildConfigField("String", "TELEGRAM_REDIRECT_HOST", telegramRedirectHost.asBuildConfigString())
         buildConfigField("String", "TELEGRAM_BACKEND_URL", telegramBackendUrl.asBuildConfigString())
-        manifestPlaceholders["telegramRedirectHost"] = telegramRedirectHost
     }
 
     buildTypes {
+        debug {
+            buildConfigField(
+                "String",
+                "TELEGRAM_REDIRECT_URI",
+                "https://$telegramDebugRedirectHost/tglogin".asBuildConfigString()
+            )
+            buildConfigField(
+                "String",
+                "TELEGRAM_REDIRECT_HOST",
+                telegramDebugRedirectHost.asBuildConfigString()
+            )
+            manifestPlaceholders["telegramRedirectHost"] = telegramDebugRedirectHost
+        }
         release {
+            buildConfigField(
+                "String",
+                "TELEGRAM_REDIRECT_URI",
+                "https://$telegramReleaseRedirectHost/tglogin".asBuildConfigString()
+            )
+            buildConfigField(
+                "String",
+                "TELEGRAM_REDIRECT_HOST",
+                telegramReleaseRedirectHost.asBuildConfigString()
+            )
+            manifestPlaceholders["telegramRedirectHost"] = telegramReleaseRedirectHost
             optimization {
                 enable = false
             }
@@ -77,6 +119,28 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+}
+
+val apkBaseName = "TelegramLoginDemo"
+val outputFileNameGetter = "getOutputFileName"
+val unknownBuildType = "unknown"
+val unknownVersionName = "unspecified"
+
+extensions.configure<ApplicationAndroidComponentsExtension>("androidComponents") {
+    onVariants { variant ->
+        val versionName = variant.outputs.singleOrNull()?.versionName?.orNull ?: unknownVersionName
+        val buildType = variant.buildType ?: unknownBuildType
+        val apkName = "$apkBaseName-$buildType-v$versionName.apk"
+
+        variant.outputs.forEach { output ->
+            @Suppress("UNCHECKED_CAST")
+            val outputFileNameProperty = output.javaClass.methods
+                .firstOrNull { method -> method.name == outputFileNameGetter }
+                ?.invoke(output) as? org.gradle.api.provider.Property<String>
+
+            outputFileNameProperty?.set(apkName)
+        }
     }
 }
 

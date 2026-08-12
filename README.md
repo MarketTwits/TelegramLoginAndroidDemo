@@ -9,13 +9,29 @@ verifying Telegram ID tokens and managing application sessions.
 ## Setup
 
 1. Register the Android app in BotFather using package name
-   `com.markettwits.devx.tgsignin` and your signing certificate SHA-256.
+   `com.markettwits.devx.tgsignin`. Add the SHA-256 certificates used to sign
+   debug and release builds; BotFather generates a separate App Link host for
+   each registered native app.
 2. Copy `local.properties.example` to the Git-ignored `local.properties` file
    and provide the Telegram settings plus GitHub Packages credentials.
 3. Copy `.env.example` to the Git-ignored `.env` file and set the same Telegram
    Client ID for the backend.
 
 The GitHub token needs only the `read:packages` permission.
+
+Configure the generated hosts without a scheme or path:
+
+```properties
+telegram.redirectHost.debug=app000000001-login.tg.dev
+telegram.redirectHost.release=app000000002-login.tg.dev
+```
+
+Gradle selects the matching host for each build type and uses it consistently
+in both the SDK redirect URI and the Android App Links intent filter. CI can use
+`TELEGRAM_REDIRECT_HOST_DEBUG` and `TELEGRAM_REDIRECT_HOST_RELEASE` instead.
+The legacy `telegram.redirectHost` / `TELEGRAM_REDIRECT_HOST` setting remains a
+fallback for existing installations, but it assigns the same host to both
+build types.
 
 ## Run
 

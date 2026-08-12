@@ -30,6 +30,7 @@ import com.markettwits.devx.tgsignin.data.model.AppThemeMode
 import com.markettwits.devx.tgsignin.data.telegram.TelegramLoginConfig
 import com.markettwits.devx.tgsignin.ui.component.AppearanceToggleButton
 import com.markettwits.devx.tgsignin.ui.component.ConfigurationInfoButton
+import com.markettwits.devx.tgsignin.ui.model.AppLinkVerificationUiState
 import com.markettwits.devx.tgsignin.ui.model.BackendReadinessUiState
 import com.markettwits.devx.tgsignin.ui.screen.ConfigurationDialog
 import com.markettwits.devx.tgsignin.ui.screen.LoginScreen
@@ -38,6 +39,7 @@ import com.markettwits.devx.tgsignin.ui.theme.AppThemeAnimationScope
 import com.markettwits.devx.tgsignin.ui.theme.TelegramLoginDemoTheme
 import com.markettwits.devx.tgsignin.ui.theme.rememberAppThemeAnimationState
 import com.markettwits.devx.tgsignin.ui.viewModel.AppearanceViewModel
+import com.markettwits.devx.tgsignin.ui.viewModel.AppLinkVerificationViewModel
 import com.markettwits.devx.tgsignin.ui.viewModel.BackendReadinessViewModel
 import com.markettwits.devx.tgsignin.ui.viewModel.LoginScreenViewModel
 import com.markettwits.devx.tgsignin.ui.viewModel.ProfileScreenViewModel
@@ -47,6 +49,7 @@ class MainActivity : ComponentActivity() {
     private val profileViewModel: ProfileScreenViewModel by viewModel()
     private val appearanceViewModel: AppearanceViewModel by viewModel()
     private val backendReadinessViewModel: BackendReadinessViewModel by viewModel()
+    private val appLinkVerificationViewModel: AppLinkVerificationViewModel by viewModel()
     private val telegramLoginConfig: TelegramLoginConfig by inject()
     private var wentToBackgroundDuringLogin = false
 
@@ -59,6 +62,7 @@ class MainActivity : ComponentActivity() {
             val user by profileViewModel.user.collectAsState()
             val isSessionRestored by profileViewModel.isSessionRestored.collectAsState()
             val backendReadinessState by backendReadinessViewModel.uiState.collectAsState()
+            val appLinkVerificationState by appLinkVerificationViewModel.uiState.collectAsState()
             var showLoginConfiguration by rememberSaveable { mutableStateOf(false) }
             val systemDark = isSystemInDarkTheme()
             val expressiveAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
@@ -81,9 +85,12 @@ class MainActivity : ComponentActivity() {
                                         user = currentUser,
                                         telegramConfig = telegramLoginConfig,
                                         backendReadinessState = backendReadinessState,
+                                        appLinkVerificationState = appLinkVerificationState,
                                         messages = profileViewModel.messages,
                                         onLogout = profileViewModel::logout,
-                                        onRetryBackendReadiness = backendReadinessViewModel::checkReadiness
+                                        onRetryBackendReadiness = backendReadinessViewModel::checkReadiness,
+                                        onRetryAppLinkVerification =
+                                            appLinkVerificationViewModel::checkVerification
                                     )
                                 }
                                 !isSessionRestored -> SessionRestoringScreen()
@@ -101,7 +108,8 @@ class MainActivity : ComponentActivity() {
                 TelegramLoginDemoTheme(themeMode = animatedThemeMode) {
                     if (isSessionRestored && user == null) {
                         ConfigurationInfoButton(
-                            hasError = backendReadinessState is BackendReadinessUiState.Error,
+                            hasError = backendReadinessState is BackendReadinessUiState.Error ||
+                                appLinkVerificationState is AppLinkVerificationUiState.Error,
                             onClick = { showLoginConfiguration = true },
                             modifier = Modifier
                                 .align(Alignment.TopStart)
@@ -125,7 +133,10 @@ class MainActivity : ComponentActivity() {
                         ConfigurationDialog(
                             telegramConfig = telegramLoginConfig,
                             backendReadinessState = backendReadinessState,
+                            appLinkVerificationState = appLinkVerificationState,
                             onRetryBackendReadiness = backendReadinessViewModel::checkReadiness,
+                            onRetryAppLinkVerification =
+                                appLinkVerificationViewModel::checkVerification,
                             onDismiss = { showLoginConfiguration = false }
                         )
                     }
