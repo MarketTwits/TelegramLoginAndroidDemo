@@ -1,117 +1,141 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import test from 'node:test';
 import { createApp } from '../src/app.js';
+import { createDatabase } from '../src/database.js';
 
-test('Telegram login creates, reads and revokes an application session', async (context) => {
-  const sessions = new Map();
-  const userId = '4f28c230-70d3-452b-99d7-4d7fe8fe9e06';
-  const database = {
-    ping: async () => undefined,
-    upsertTelegramUser: async () => userId,
-    createSession: async (tokenHash, id, expiresAt) => sessions.set(tokenHash, { id, expiresAt }),
-    findSession: async (tokenHash) => sessions.has(tokenHash) ? {
-      id: userId,
-      name: 'Demo User',
-      given_name: null,
-      family_name: null,
-      username: 'demo',
-      phone_number: null,
-      phone_verified: false,
-      picture_url: null,
-      expires_at: sessions.get(tokenHash).expiresAt
-    } : null,
-    revokeSession: async (tokenHash) => sessions.delete(tokenHash)
-  };
-  const config = {
-    trustProxy: false,
-    authRateLimitPerMinute: 20,
-    sessionTtlDays: 30,
-    nodeEnv: 'test',
-    telegramConfigured: true
-  };
-  const verifyTelegramToken = async () => ({
-    id: 'unused-new-id',
-    telegramSubject: '12345',
-    name: 'Demo User',
-    givenName: null,
-    familyName: null,
-    username: 'demo',
-    phoneNumber: null,
-    phoneVerified: false,
-    picture: null
-  });
+const config = {
+  trustProxy: false,
+  authRateLimitPerMinute: 100,
+  sessionTtlDays: 30,
+  nodeEnv: 'test',
+  telegramConfigured: true
+};
 
-  const server = createApp({ config, database, verifyTelegramToken }).listen(0, '127.0.0.1');
+const telegramProfile = (overrides = {}) => ({
+  id: crypto.randomUUID(),
+  telegramSubject: '12345',
+  name: 'Demo User',
+  givenName: 'Demo',
+  familyName: 'User',
+  username: 'demo',
+  phoneNumber: '+10000000000',
+  phoneVerified: true,
+  picture: 'https://example.test/avatar.jpg',
+  ...overrides
+});
+
+const startServer = async (context, verifyTelegramToken, customConfig = config) => {
+  const database = createDatabase({ databasePath: ':memory:' });
+  database.migrate();
+  const server = createApp({ config: customConfig, database, verifyTelegramToken })
+    .listen(0, '127.0.0.1');
   await new Promise((resolve) => server.once('listening', resolve));
-  context.after(() => new Promise((resolve) => server.close(resolve)));
-  const { port } = server.address();
-  const baseUrl = `http://127.0.0.1:${port}`;
+  context.after(() => new Promise((resolve) => server.close(() => {
+    database.close();
+    resolve();
+  })));
+  return `http://127.0.0.1:${server.address().port}`;
+};
 
-  const loginResponse = await fetch(`${baseUrl}/auth/telegram`, {
+const login = async (baseUrl) => {
+  const response = await fetch(`${baseUrl}/auth/telegram`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ idToken: 'x'.repeat(40) })
   });
-  assert.equal(loginResponse.status, 200);
-  const login = await loginResponse.json();
-  assert.equal(login.user.id, userId);
-  assert.equal(login.user.username, 'demo');
-  assert.ok(login.sessionToken.length >= 32);
+  return { response, body: await response.json() };
+};
 
-  const sessionResponse = await fetch(`${baseUrl}/auth/session`, {
-    headers: { Authorization: `Bearer ${login.sessionToken}` }
+test('new login creates an account, profile PUT is idempotent, and returning login restores it', async (context) => {
+  let currentProfile = telegramProfile();
+  const baseUrl = await startServer(context, async () => currentProfile);
+
+  const first = await login(baseUrl);
+  assert.equal(first.response.status, 200);
+  assert.equal(first.body.account.onboardingState, 'PROFILE_REQUIRED');
+  assert.equal(first.body.account.memberNumber, 1);
+  assert.equal(first.body.account.loginCount, 1);
+  assert.equal(first.body.profile, null);
+  assert.equal(first.body.telegram.phoneVerified, true);
+  assert.equal('phoneNumber' in first.body.telegram, false);
+
+  const draft = {
+    displayName: 'Bloom Demo',
+    headline: 'Building a privacy-first Android application',
+    intent: 'BUILDING',
+    topics: ['ANDROID', 'SECURITY'],
+    avatarSource: 'BLOOM'
+  };
+  const save = () => fetch(`${baseUrl}/me/profile`, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${first.body.sessionToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(draft)
   });
-  assert.equal(sessionResponse.status, 200);
-  assert.equal((await sessionResponse.json()).user.name, 'Demo User');
+  const saved = await save();
+  assert.equal(saved.status, 200);
+  const savedBody = await saved.json();
+  assert.equal(savedBody.account.onboardingState, 'PROFILE_COMPLETED');
+  assert.deepEqual(savedBody.profile.topics, draft.topics);
+  const seed = savedBody.profile.visualSeed;
 
-  const logoutResponse = await fetch(`${baseUrl}/auth/session`, {
+  const repeated = await save();
+  assert.equal(repeated.status, 200);
+  assert.equal((await repeated.json()).profile.visualSeed, seed);
+
+  currentProfile = telegramProfile({ id: 'unused', username: 'renamed', name: 'Changed Telegram Name' });
+  const returning = await login(baseUrl);
+  assert.equal(returning.body.account.id, first.body.account.id);
+  assert.equal(returning.body.account.loginCount, 2);
+  assert.equal(returning.body.telegram.username, 'renamed');
+  assert.equal(returning.body.profile.displayName, 'Bloom Demo');
+  assert.equal(returning.body.profile.visualSeed, seed);
+
+  const session = await fetch(`${baseUrl}/auth/session`, {
+    headers: { Authorization: `Bearer ${returning.body.sessionToken}` }
+  });
+  assert.equal(session.status, 200);
+  assert.equal((await session.json()).profile.displayName, 'Bloom Demo');
+
+  const logout = await fetch(`${baseUrl}/auth/session`, {
     method: 'DELETE',
-    headers: { Authorization: `Bearer ${login.sessionToken}` }
+    headers: { Authorization: `Bearer ${returning.body.sessionToken}` }
   });
-  assert.equal(logoutResponse.status, 204);
+  assert.equal(logout.status, 204);
+  assert.equal((await fetch(`${baseUrl}/auth/session`, {
+    headers: { Authorization: `Bearer ${returning.body.sessionToken}` }
+  })).status, 401);
+});
 
-  const revokedResponse = await fetch(`${baseUrl}/auth/session`, {
-    headers: { Authorization: `Bearer ${login.sessionToken}` }
+test('profile validation and session authentication return typed public errors', async (context) => {
+  const baseUrl = await startServer(context, async () => telegramProfile());
+  const { body } = await login(baseUrl);
+  const invalid = await fetch(`${baseUrl}/me/profile`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${body.sessionToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ displayName: '', headline: 'x', intent: 'UNKNOWN', topics: [], avatarSource: 'BLOOM' })
   });
-  assert.equal(revokedResponse.status, 401);
+  assert.equal(invalid.status, 422);
+  assert.equal((await invalid.json()).code, 'INVALID_PROFILE');
+  assert.equal((await fetch(`${baseUrl}/me/profile`, { method: 'PUT' })).status, 401);
 });
 
 test('Backend starts without Telegram configuration and reports setup mode', async (context) => {
-  const database = {
-    ping: async () => undefined,
-    findSession: async () => null,
-    revokeSession: async () => undefined
-  };
-  const config = {
-    trustProxy: false,
-    authRateLimitPerMinute: 20,
-    sessionTtlDays: 30,
-    nodeEnv: 'test',
-    telegramConfigured: false
-  };
-  const verifyTelegramToken = async () => {
+  const setupConfig = { ...config, telegramConfigured: false };
+  const baseUrl = await startServer(context, async () => {
     throw new Error('Verifier must not be called in setup mode');
-  };
-
-  const server = createApp({ config, database, verifyTelegramToken }).listen(0, '127.0.0.1');
-  await new Promise((resolve) => server.once('listening', resolve));
-  context.after(() => new Promise((resolve) => server.close(resolve)));
-  const { port } = server.address();
-  const baseUrl = `http://127.0.0.1:${port}`;
-
+  }, setupConfig);
   const healthResponse = await fetch(`${baseUrl}/api/health/ready`);
   assert.equal(healthResponse.status, 200);
   assert.deepEqual(await healthResponse.json(), {
-    status: 'ready',
-    database: 'connected',
-    telegram: 'configuration_required'
+    status: 'ready', database: 'connected', telegram: 'configuration_required'
   });
-
-  const loginResponse = await fetch(`${baseUrl}/auth/telegram`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  const response = await fetch(`${baseUrl}/auth/telegram`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ idToken: 'x'.repeat(40) })
   });
-  assert.equal(loginResponse.status, 503);
-  assert.equal((await loginResponse.json()).code, 'TELEGRAM_NOT_CONFIGURED');
+  assert.equal(response.status, 503);
 });

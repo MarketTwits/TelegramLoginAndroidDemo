@@ -26,7 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import org.koin.androidx.viewmodel.ext.android.viewModel
 import org.koin.android.ext.android.inject
-import com.markettwits.devx.tgsignin.data.model.AppThemeMode
+import com.markettwits.devx.tgsignin.data.model.RootAuthenticationState
 import com.markettwits.devx.tgsignin.data.telegram.TelegramLoginConfig
 import com.markettwits.devx.tgsignin.ui.component.AppearanceToggleButton
 import com.markettwits.devx.tgsignin.ui.component.ConfigurationInfoButton
@@ -34,7 +34,8 @@ import com.markettwits.devx.tgsignin.ui.model.AppLinkVerificationUiState
 import com.markettwits.devx.tgsignin.ui.model.BackendReadinessUiState
 import com.markettwits.devx.tgsignin.ui.screen.ConfigurationDialog
 import com.markettwits.devx.tgsignin.ui.screen.LoginScreen
-import com.markettwits.devx.tgsignin.ui.screen.ProfileScreen
+import com.markettwits.devx.tgsignin.ui.screen.BloomProfileScreen
+import com.markettwits.devx.tgsignin.ui.screen.ProfileSetupScreen
 import com.markettwits.devx.tgsignin.ui.theme.AppThemeAnimationScope
 import com.markettwits.devx.tgsignin.ui.theme.TelegramLoginDemoTheme
 import com.markettwits.devx.tgsignin.ui.theme.rememberAppThemeAnimationState
@@ -59,8 +60,8 @@ class MainActivity : ComponentActivity() {
         consumeTelegramIntent(intent)
         setContent {
             val themeMode by appearanceViewModel.themeMode.collectAsState()
-            val user by profileViewModel.user.collectAsState()
-            val isSessionRestored by profileViewModel.isSessionRestored.collectAsState()
+            val authenticationState by profileViewModel.state.collectAsState()
+            val isSavingProfile by profileViewModel.isSaving.collectAsState()
             val backendReadinessState by backendReadinessViewModel.uiState.collectAsState()
             val appLinkVerificationState by appLinkVerificationViewModel.uiState.collectAsState()
             var showLoginConfiguration by rememberSaveable { mutableStateOf(false) }
@@ -78,25 +79,34 @@ class MainActivity : ComponentActivity() {
                     TelegramLoginDemoTheme(themeMode = animatedThemeMode) {
                         Box(Modifier.fillMaxSize()) {
                             val loginUiState by loginViewModel.uiState.collectAsState()
-                            val currentUser = user
-                            when {
-                                currentUser != null -> {
-                                    ProfileScreen(
-                                        user = currentUser,
-                                        telegramConfig = telegramLoginConfig,
-                                        backendReadinessState = backendReadinessState,
-                                        appLinkVerificationState = appLinkVerificationState,
+                            when (val state = authenticationState) {
+                                is RootAuthenticationState.Authenticated -> {
+                                    BloomProfileScreen(
+                                        session = state.session,
+                                        isOffline = state.isOffline,
                                         messages = profileViewModel.messages,
-                                        onLogout = profileViewModel::logout,
-                                        onRetryBackendReadiness = backendReadinessViewModel::checkReadiness,
-                                        onRetryAppLinkVerification =
-                                            appLinkVerificationViewModel::checkVerification
+                                        onEdit = profileViewModel::editProfile,
+                                        onLogout = profileViewModel::logout
                                     )
                                 }
-                                !isSessionRestored -> SessionRestoringScreen()
-                                else -> {
+                                is RootAuthenticationState.OnboardingRequired -> {
+                                    ProfileSetupScreen(
+                                        session = state.session,
+                                        draft = state.draft,
+                                        isSaving = isSavingProfile,
+                                        isOffline = state.isOffline,
+                                        messages = profileViewModel.messages,
+                                        onDraftChanged = profileViewModel::updateDraft,
+                                        onSave = profileViewModel::saveProfile
+                                    )
+                                }
+                                RootAuthenticationState.Loading -> SessionRestoringScreen()
+                                is RootAuthenticationState.Unauthenticated,
+                                is RootAuthenticationState.RecoverableError -> {
                                     LoginScreen(
                                         uiState = loginUiState,
+                                        sessionExpired = (state as? RootAuthenticationState.Unauthenticated)
+                                            ?.sessionExpired == true,
                                         onScopesChanged = loginViewModel::updateScopes,
                                         onLogin = { loginViewModel.login(this@MainActivity) }
                                     )
@@ -106,15 +116,15 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 TelegramLoginDemoTheme(themeMode = animatedThemeMode) {
-                    if (isSessionRestored && user == null) {
+                    if (authenticationState !is RootAuthenticationState.Loading) {
                         ConfigurationInfoButton(
                             hasError = backendReadinessState is BackendReadinessUiState.Error ||
                                 appLinkVerificationState is AppLinkVerificationUiState.Error,
                             onClick = { showLoginConfiguration = true },
                             modifier = Modifier
-                                .align(Alignment.TopStart)
+                                .align(Alignment.TopEnd)
                                 .statusBarsPadding()
-                                .padding(top = 6.dp, start = 8.dp)
+                                .padding(top = 6.dp, end = 64.dp)
                         )
                     }
                     AppearanceToggleButton(
@@ -129,7 +139,7 @@ class MainActivity : ComponentActivity() {
                             .statusBarsPadding()
                             .padding(top = 6.dp, end = 8.dp)
                     )
-                    if (showLoginConfiguration && user == null) {
+                    if (showLoginConfiguration) {
                         ConfigurationDialog(
                             telegramConfig = telegramLoginConfig,
                             backendReadinessState = backendReadinessState,
