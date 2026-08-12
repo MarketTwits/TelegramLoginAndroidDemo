@@ -56,6 +56,7 @@ test('new login creates an account, profile PUT is idempotent, and returning log
 
   const first = await login(baseUrl);
   assert.equal(first.response.status, 200);
+  assert.match(first.response.headers.get('x-request-id'), /^[0-9a-f-]{36}$/);
   assert.equal(first.body.account.onboardingState, 'PROFILE_REQUIRED');
   assert.equal(first.body.account.memberNumber, 1);
   assert.equal(first.body.account.loginCount, 1);
@@ -134,8 +135,9 @@ test('Backend starts without Telegram configuration and reports setup mode', asy
   const healthResponse = await fetch(`${baseUrl}/api/health/ready`);
   assert.equal(healthResponse.status, 200);
   assert.deepEqual(await healthResponse.json(), {
-    status: 'ready', database: 'connected', telegram: 'configuration_required'
+    status: 'ready', database: 'connected', telegram: 'configuration_required', apiVersion: 2
   });
+  assert.equal(healthResponse.headers.get('x-telegram-bloom-api-version'), '2');
   const response = await fetch(`${baseUrl}/auth/telegram`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ idToken: 'x'.repeat(40) })

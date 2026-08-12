@@ -10,7 +10,8 @@ class BackendReadinessTest {
         val readiness = BackendReadiness(
             serviceReady = true,
             databaseConnected = true,
-            telegramConfigured = true
+            telegramConfigured = true,
+            apiVersion = 2
         )
 
         assertTrue(readiness.isReady)
@@ -21,9 +22,23 @@ class BackendReadinessTest {
         val readiness = BackendReadiness(
             serviceReady = true,
             databaseConnected = true,
-            telegramConfigured = false
+            telegramConfigured = false,
+            apiVersion = 2
         )
 
+        assertFalse(readiness.isReady)
+    }
+
+    @Test
+    fun `legacy backend contract is not compatible or ready`() {
+        val readiness = BackendReadiness(
+            serviceReady = true,
+            databaseConnected = true,
+            telegramConfigured = true,
+            apiVersion = 1
+        )
+
+        assertFalse(readiness.isApiCompatible)
         assertFalse(readiness.isReady)
     }
 }

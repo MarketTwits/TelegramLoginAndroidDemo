@@ -16,45 +16,59 @@ class BackendReadinessDataSourceImpl(
     config: TelegramLoginConfig,
     private val ioDispatcher: CoroutineDispatcher
 ) : BackendReadinessDataSource {
-    private val readinessUrl = config.backendUrl.trimEnd(PATH_SEPARATOR) + READINESS_PATH
+    private val readinessUrl = URL(config.backendUrl.trimEnd(PATH_SEPARATOR) + READINESS_PATH)
 
     override suspend fun checkReadiness(): BackendReadiness = withContext(ioDispatcher) {
-        val connection = openConnection()
+        val startedAt = NetworkRequestLogger.start(HTTP_GET, readinessUrl)
+        var connection: HttpURLConnection? = null
         try {
+            connection = openConnection()
             val statusCode = connection.responseCode
-            if (statusCode !in SUCCESS_STATUS_CODES) throw BackendHttpException(statusCode)
+            if (statusCode !in SUCCESS_STATUS_CODES) {
+                val requestId = connection.getHeaderField("X-Request-Id")
+                NetworkRequestLogger.httpFailure(
+                    HTTP_GET,
+                    readinessUrl,
+                    statusCode,
+                    startedAt,
+                    requestId = requestId
+                )
+                throw BackendHttpException(statusCode, requestId = requestId)
+            }
 
             val body = connection.inputStream?.let { stream ->
                 InputStreamReader(stream, StandardCharsets.UTF_8).use { it.readText() }
             }.orEmpty()
-            parseResponse(body)
+            parseResponse(body).also {
+                NetworkRequestLogger.success(HTTP_GET, readinessUrl, statusCode, startedAt)
+            }
         } catch (error: IOException) {
+            NetworkRequestLogger.transportFailure(HTTP_GET, readinessUrl, startedAt, error)
             throw BackendNetworkException(error)
+        } catch (error: JSONException) {
+            NetworkRequestLogger.invalidResponse(HTTP_GET, readinessUrl, startedAt, error)
+            throw BackendResponseException(error)
         } finally {
-            connection.disconnect()
+            connection?.disconnect()
         }
     }
 
-    private fun openConnection(): HttpURLConnection = try {
-        (URL(readinessUrl).openConnection() as HttpURLConnection).apply {
+    private fun openConnection(): HttpURLConnection =
+        (readinessUrl.openConnection() as HttpURLConnection).apply {
             requestMethod = HTTP_GET
             connectTimeout = NETWORK_TIMEOUT_MS
             readTimeout = NETWORK_TIMEOUT_MS
             setRequestProperty(HEADER_ACCEPT, JSON_MEDIA_TYPE)
         }
-    } catch (error: IOException) {
-        throw BackendNetworkException(error)
-    }
 
-    private fun parseResponse(body: String): BackendReadiness = try {
+    private fun parseResponse(body: String): BackendReadiness {
         val response = JSONObject(body)
-        BackendReadiness(
+        return BackendReadiness(
             serviceReady = response.optString(JSON_STATUS) == STATUS_READY,
             databaseConnected = response.optString(JSON_DATABASE) == DATABASE_CONNECTED,
-            telegramConfigured = response.optString(JSON_TELEGRAM) == TELEGRAM_CONFIGURED
+            telegramConfigured = response.optString(JSON_TELEGRAM) == TELEGRAM_CONFIGURED,
+            apiVersion = response.optInt(JSON_API_VERSION, 0)
         )
-    } catch (error: JSONException) {
-        throw BackendResponseException(error)
     }
 
     private companion object {
@@ -67,6 +81,7 @@ class BackendReadinessDataSourceImpl(
         const val JSON_STATUS = "status"
         const val JSON_DATABASE = "database"
         const val JSON_TELEGRAM = "telegram"
+        const val JSON_API_VERSION = "apiVersion"
         const val STATUS_READY = "ready"
         const val DATABASE_CONNECTED = "connected"
         const val TELEGRAM_CONFIGURED = "configured"

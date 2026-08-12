@@ -99,3 +99,19 @@ cd backend && npm test
 cd .. && ./gradlew testDebugUnitTest assembleDebug
 docker compose config
 ```
+
+## Network diagnostics
+
+Android writes sanitized request diagnostics to Logcat with the
+`TelegramBloomHttp` tag. Logs contain the HTTP method, URL without query
+parameters, status, duration, public backend error code, and `X-Request-Id`.
+ID tokens, application session tokens, authorization headers, and payloads are
+never logged.
+
+```bash
+adb logcat -s TelegramBloomHttp
+```
+
+The backend logs matching request start/completion records as `[http]`, with
+status, duration, and the same request ID. This makes a reported 5xx response
+traceable without exposing credentials.

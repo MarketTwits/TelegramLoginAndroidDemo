@@ -68,14 +68,17 @@ class TelegramAuthApiDataSourceImpl(
         body: JSONObject? = null,
         parse: (JSONObject) -> T
     ): T = withContext(ioDispatcher) {
-        val connection = openConnection(path, method).apply {
-            accessToken?.let { setRequestProperty("Authorization", "Bearer $it") }
-            if (body != null) {
-                doOutput = true
-                setRequestProperty("Content-Type", "application/json; charset=utf-8")
-            }
-        }
+        val requestUrl = URL(baseUrl + path)
+        val startedAt = NetworkRequestLogger.start(method, requestUrl)
+        var connection: HttpURLConnection? = null
         try {
+            connection = openConnection(requestUrl, method).apply {
+                accessToken?.let { setRequestProperty("Authorization", "Bearer $it") }
+                if (body != null) {
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                }
+            }
             if (body != null) {
                 OutputStreamWriter(connection.outputStream, StandardCharsets.UTF_8).use {
                     it.write(body.toString())
@@ -85,29 +88,53 @@ class TelegramAuthApiDataSourceImpl(
             val text = (if (status in 200..299) connection.inputStream else connection.errorStream)
                 ?.let { InputStreamReader(it, StandardCharsets.UTF_8).use(InputStreamReader::readText) }
                 .orEmpty()
-            if (status !in 200..299) throw BackendHttpException(status)
-            parse(if (text.isBlank()) JSONObject() else JSONObject(text))
+            if (status !in 200..299) {
+                val errorCode = runCatching { JSONObject(text).optString("code") }
+                    .getOrNull()
+                    ?.takeIf(String::isNotBlank)
+                val requestId = connection.getHeaderField("X-Request-Id")
+                NetworkRequestLogger.httpFailure(
+                    method, requestUrl, status, startedAt, errorCode, requestId
+                )
+                throw BackendHttpException(status, errorCode, requestId)
+            }
+            val apiVersion = connection.getHeaderField(API_VERSION_HEADER)?.toIntOrNull()
+            if (apiVersion != REQUIRED_API_VERSION) {
+                NetworkRequestLogger.incompatibleBackend(
+                    method,
+                    requestUrl,
+                    startedAt,
+                    REQUIRED_API_VERSION,
+                    apiVersion
+                )
+                throw BackendIncompatibleException(REQUIRED_API_VERSION, apiVersion)
+            }
+            parse(if (text.isBlank()) JSONObject() else JSONObject(text)).also {
+                NetworkRequestLogger.success(method, requestUrl, status, startedAt)
+            }
         } catch (error: IOException) {
+            NetworkRequestLogger.transportFailure(method, requestUrl, startedAt, error)
             throw BackendNetworkException(error)
         } catch (error: org.json.JSONException) {
+            NetworkRequestLogger.invalidResponse(method, requestUrl, startedAt, error)
             throw BackendResponseException(error)
         } finally {
-            connection.disconnect()
+            connection?.disconnect()
         }
     }
 
-    private fun openConnection(path: String, method: String): HttpURLConnection = try {
-        (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
+    private fun openConnection(url: URL, method: String): HttpURLConnection =
+        (url.openConnection() as HttpURLConnection).apply {
             requestMethod = method
             connectTimeout = 15_000
             readTimeout = 15_000
             setRequestProperty("Accept", "application/json")
         }
-    } catch (error: IOException) {
-        throw BackendNetworkException(error)
-    }
 
     private fun parseAuthenticationResult(json: JSONObject, accessToken: String): AuthenticationResult {
+        if (!json.has("account") && json.has("user")) {
+            throw BackendIncompatibleException(REQUIRED_API_VERSION, actualVersion = 1)
+        }
         val account = json.getJSONObject("account")
         val telegram = json.getJSONObject("telegram")
         return AuthenticationResult(
@@ -145,6 +172,9 @@ class TelegramAuthApiDataSourceImpl(
         )
     }
 }
+
+private const val API_VERSION_HEADER = "X-Telegram-Bloom-Api-Version"
+private const val REQUIRED_API_VERSION = 2
 
 private fun JSONObject.optionalString(key: String): String? =
     optString(key).takeIf { it.isNotBlank() && it != JSONObject.NULL.toString() }
