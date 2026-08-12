@@ -112,6 +112,8 @@ import com.markettwits.devx.tgsignin.R
 import com.markettwits.devx.tgsignin.data.model.TelegramUser
 import com.markettwits.devx.tgsignin.data.telegram.TelegramLoginConfig
 import com.markettwits.devx.tgsignin.ui.component.ConfigurationInfoButton
+import com.markettwits.devx.tgsignin.ui.component.TelegramSnackbar
+import com.markettwits.devx.tgsignin.ui.model.AppLinkVerificationUiState
 import com.markettwits.devx.tgsignin.ui.model.BackendReadinessUiState
 
 @Composable
@@ -119,9 +121,11 @@ fun ProfileScreen(
     user: TelegramUser,
     telegramConfig: TelegramLoginConfig,
     backendReadinessState: BackendReadinessUiState,
+    appLinkVerificationState: AppLinkVerificationUiState,
     messages: Flow<Int>,
     onLogout: () -> Unit,
-    onRetryBackendReadiness: () -> Unit
+    onRetryBackendReadiness: () -> Unit,
+    onRetryAppLinkVerification: () -> Unit
 ) {
     var showLogoutConfirmation by rememberSaveable { mutableStateOf(false) }
     var showConfiguration by rememberSaveable { mutableStateOf(false) }
@@ -269,7 +273,8 @@ fun ProfileScreen(
                 )
             }
             ConfigurationInfoButton(
-                hasError = backendReadinessState is BackendReadinessUiState.Error,
+                hasError = backendReadinessState is BackendReadinessUiState.Error ||
+                    appLinkVerificationState is AppLinkVerificationUiState.Error,
                 onClick = { showConfiguration = true }
             )
         }
@@ -279,9 +284,10 @@ fun ProfileScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
+                .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 16.dp)
         ) { data ->
-            ProfileSnackbar(data.visuals.message)
+            TelegramSnackbar(message = data.visuals.message)
         }
     }
 
@@ -299,7 +305,9 @@ fun ProfileScreen(
         ConfigurationDialog(
             telegramConfig = telegramConfig,
             backendReadinessState = backendReadinessState,
+            appLinkVerificationState = appLinkVerificationState,
             onRetryBackendReadiness = onRetryBackendReadiness,
+            onRetryAppLinkVerification = onRetryAppLinkVerification,
             onDismiss = { showConfiguration = false }
         )
     }
@@ -684,26 +692,12 @@ private fun ProfileCard(
 }
 
 @Composable
-private fun ProfileSnackbar(message: String) {
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.inverseSurface,
-        contentColor = MaterialTheme.colorScheme.inverseOnSurface,
-        shadowElevation = 6.dp
-    ) {
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-        )
-    }
-}
-
-@Composable
 fun ConfigurationDialog(
     telegramConfig: TelegramLoginConfig,
     backendReadinessState: BackendReadinessUiState,
+    appLinkVerificationState: AppLinkVerificationUiState,
     onRetryBackendReadiness: () -> Unit,
+    onRetryAppLinkVerification: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -769,6 +763,10 @@ fun ConfigurationDialog(
                             )
                         )
                     )
+                    AppLinkVerificationSection(
+                        state = appLinkVerificationState,
+                        onRetry = onRetryAppLinkVerification
+                    )
                     BackendReadinessSection(
                         state = backendReadinessState,
                         onRetry = onRetryBackendReadiness
@@ -780,6 +778,84 @@ fun ConfigurationDialog(
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) }
         }
     )
+}
+
+@Composable
+private fun AppLinkVerificationSection(
+    state: AppLinkVerificationUiState,
+    onRetry: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            text = stringResource(R.string.app_link_verification),
+            color = MaterialTheme.colorScheme.primary,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold
+        )
+        when (state) {
+            AppLinkVerificationUiState.Checking -> Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp
+                )
+                Text(
+                    text = stringResource(R.string.app_link_checking),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+
+            AppLinkVerificationUiState.Verified -> Text(
+                text = stringResource(R.string.app_link_verified),
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.bodyMedium
+            )
+
+            is AppLinkVerificationUiState.Error -> Row(
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.ErrorOutline,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier
+                        .padding(top = 2.dp)
+                        .size(22.dp)
+                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.app_link_not_verified),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = stringResource(state.messageRes),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    TextButton(
+                        onClick = onRetry,
+                        contentPadding = PaddingValues(0.dp),
+                        modifier = Modifier.heightIn(min = 32.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.retry),
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable

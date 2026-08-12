@@ -50,6 +50,17 @@
     <string name="min_sdk">Min SDK</string>
     <string name="target_sdk">Target SDK</string>
     <string name="signing_sha256">SHA-256 подписи</string>
+    <string name="app_link_verification">Android App Link</string>
+    <string name="app_link_checking">Проверяем пакет и сертификат подписи…</string>
+    <string name="app_link_verified">Пакет и сертификат подписи соответствуют настройке Telegram App Link.</string>
+    <string name="app_link_not_verified">App Link настроен некорректно</string>
+    <string name="app_link_package_not_registered">Пакет приложения не зарегистрирован для настроенного redirect host Telegram.</string>
+    <string name="app_link_signature_not_registered">Сертификат подписи установленного приложения не зарегистрирован для настроенного redirect host Telegram.</string>
+    <string name="app_link_check_failed">Не удалось проверить настройку Telegram App Link. Проверьте подключение к сети и повторите попытку.</string>
+    <string name="app_link_check_timeout">Telegram слишком долго возвращает конфигурацию App Link. Повторите попытку.</string>
+    <string name="app_link_secure_connection_failed">Не удалось безопасно загрузить конфигурацию App Link с Telegram redirect host.</string>
+    <string name="app_link_document_unavailable">Telegram redirect host не предоставляет доступную конфигурацию App Link.</string>
+    <string name="app_link_invalid_document">Telegram redirect host вернул некорректную конфигурацию App Link.</string>
     <string name="telegram_login_sdk">Telegram Login SDK</string>
     <string name="sdk_version">Версия SDK</string>
     <string name="client_id">Client ID</string>
