@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 interface AuthenticationRepository {
     val state: StateFlow<RootAuthenticationState>
@@ -28,6 +30,7 @@ interface AuthenticationRepository {
     suspend fun saveDraft(draft: ProfileDraft)
     suspend fun saveProfile(draft: ProfileDraft): Result<AuthenticationResult>
     suspend fun beginProfileEditing()
+    suspend fun cancelProfileEditing()
     suspend fun logout()
 }
 
@@ -39,6 +42,7 @@ class AuthenticationRepositoryImpl(
 ) : AuthenticationRepository {
     private val _state = MutableStateFlow<RootAuthenticationState>(RootAuthenticationState.Loading)
     override val state = _state.asStateFlow()
+    private val localMutationMutex = Mutex()
 
     init {
         applicationScope.launch { bootstrap() }
@@ -54,17 +58,34 @@ class AuthenticationRepositoryImpl(
         _state.value = route(cached, draft)
         try {
             val refreshed = telegramAuthApiDataSource.getCurrentSession(cached.accessToken)
-            authenticationLocalDataSource.save(refreshed)
-            _state.value = route(refreshed, draft)
+            if (_state.value.sessionOrNull?.accessToken != cached.accessToken) return
+            localMutationMutex.withLock { authenticationLocalDataSource.save(refreshed) }
+            val current = _state.value
+            _state.value = if (current.isProfileEditing) {
+                RootAuthenticationState.OnboardingRequired(
+                    session = refreshed,
+                    draft = (current as RootAuthenticationState.OnboardingRequired).draft
+                )
+            } else {
+                route(refreshed, draft)
+            }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
+            if (_state.value.sessionOrNull?.accessToken != cached.accessToken) return
             when (error.toAuthenticationError()) {
                 is AuthenticationError.AuthorizationRejected -> {
-                    authenticationLocalDataSource.clear()
+                    localMutationMutex.withLock { authenticationLocalDataSource.clear() }
                     _state.value = RootAuthenticationState.Unauthenticated(sessionExpired = true)
                 }
-                else -> _state.value = route(cached, draft, isOffline = true)
+                else -> {
+                    val current = _state.value
+                    _state.value = if (current.isProfileEditing) {
+                        (current as RootAuthenticationState.OnboardingRequired).copy(isOffline = true)
+                    } else {
+                        route(cached, draft, isOffline = true)
+                    }
+                }
             }
         }
     }
@@ -85,11 +106,11 @@ class AuthenticationRepositoryImpl(
         val result = telegramAuthApiDataSource.authenticate(
             telegramLoginDataSource.consumeCallback(callbackUri)
         )
-        authenticationLocalDataSource.save(result)
+        localMutationMutex.withLock { authenticationLocalDataSource.save(result) }
         val draft = authenticationLocalDataSource.profileDraft.first()
             ?: initialDraft(result)
         if (result.account.onboardingState == OnboardingState.PROFILE_REQUIRED) {
-            authenticationLocalDataSource.saveDraft(draft)
+            localMutationMutex.withLock { authenticationLocalDataSource.saveDraft(draft) }
         }
         _state.value = route(result, draft)
         Result.success(result)
@@ -100,9 +121,9 @@ class AuthenticationRepositoryImpl(
     }
 
     override suspend fun saveDraft(draft: ProfileDraft) {
-        authenticationLocalDataSource.saveDraft(draft)
         val current = _state.value as? RootAuthenticationState.OnboardingRequired ?: return
         _state.value = current.copy(draft = draft)
+        localMutationMutex.withLock { authenticationLocalDataSource.saveDraft(draft) }
     }
 
     override suspend fun saveProfile(draft: ProfileDraft): Result<AuthenticationResult> {
@@ -110,16 +131,23 @@ class AuthenticationRepositoryImpl(
         val current = (_state.value as? RootAuthenticationState.OnboardingRequired)?.session
             ?: return Result.failure(IllegalStateException("No authenticated session"))
         return try {
-            authenticationLocalDataSource.saveDraft(draft)
+            localMutationMutex.withLock { authenticationLocalDataSource.saveDraft(draft) }
             val saved = telegramAuthApiDataSource.saveProfile(current.accessToken, draft)
-            authenticationLocalDataSource.save(saved)
-            authenticationLocalDataSource.clearDraft()
+            localMutationMutex.withLock {
+                authenticationLocalDataSource.save(saved)
+                authenticationLocalDataSource.clearDraft()
+            }
             _state.value = route(saved, null)
             Result.success(saved)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
-            Result.failure(error.toAuthenticationError())
+            val mapped = error.toAuthenticationError()
+            if (mapped is AuthenticationError.AuthorizationRejected) {
+                localMutationMutex.withLock { authenticationLocalDataSource.clear() }
+                _state.value = RootAuthenticationState.Unauthenticated(sessionExpired = true)
+            }
+            Result.failure(mapped)
         }
     }
 
@@ -133,8 +161,18 @@ class AuthenticationRepositoryImpl(
             topics = profile.topics.toSet(),
             avatarSource = profile.avatarSource
         )
-        authenticationLocalDataSource.saveDraft(draft)
+        localMutationMutex.withLock { authenticationLocalDataSource.saveDraft(draft) }
         _state.value = RootAuthenticationState.OnboardingRequired(current, draft)
+    }
+
+    override suspend fun cancelProfileEditing() {
+        val current = _state.value as? RootAuthenticationState.OnboardingRequired ?: return
+        if (current.session.profile == null) return
+        localMutationMutex.withLock { authenticationLocalDataSource.clearDraft() }
+        _state.value = RootAuthenticationState.Authenticated(
+            session = current.session,
+            isOffline = current.isOffline
+        )
     }
 
     override suspend fun logout() {
@@ -147,7 +185,7 @@ class AuthenticationRepositoryImpl(
             if (session != null) runCatching {
                 telegramAuthApiDataSource.revokeSession(session.accessToken)
             }.onFailure { if (it is CancellationException) throw it }
-            authenticationLocalDataSource.clear()
+            localMutationMutex.withLock { authenticationLocalDataSource.clear() }
             _state.value = RootAuthenticationState.Unauthenticated()
         } catch (error: CancellationException) {
             throw error
@@ -177,3 +215,15 @@ class AuthenticationRepositoryImpl(
         }
     )
 }
+
+private val RootAuthenticationState.isProfileEditing: Boolean
+    get() = this is RootAuthenticationState.OnboardingRequired && session.profile != null
+
+private val RootAuthenticationState.sessionOrNull: AuthenticationResult?
+    get() = when (this) {
+        is RootAuthenticationState.Authenticated -> session
+        is RootAuthenticationState.OnboardingRequired -> session
+        is RootAuthenticationState.RecoverableError -> cachedSession
+        RootAuthenticationState.Loading,
+        is RootAuthenticationState.Unauthenticated -> null
+    }

@@ -97,7 +97,8 @@ class MainActivity : ComponentActivity() {
                                         isOffline = state.isOffline,
                                         messages = profileViewModel.messages,
                                         onDraftChanged = profileViewModel::updateDraft,
-                                        onSave = profileViewModel::saveProfile
+                                        onSave = profileViewModel::saveProfile,
+                                        onCancel = profileViewModel::cancelProfileEditing
                                     )
                                 }
                                 RootAuthenticationState.Loading -> SessionRestoringScreen()

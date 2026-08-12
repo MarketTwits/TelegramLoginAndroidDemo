@@ -41,6 +41,10 @@ class ProfileScreenViewModel(
         viewModelScope.launch { authenticationRepository.beginProfileEditing() }
     }
 
+    fun cancelProfileEditing() {
+        viewModelScope.launch { authenticationRepository.cancelProfileEditing() }
+    }
+
     fun logout() {
         if (actionJob?.isActive == true) return
         actionJob = viewModelScope.launch {

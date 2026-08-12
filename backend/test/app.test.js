@@ -35,7 +35,10 @@ const startServer = async (context, verifyTelegramToken, customConfig = config) 
     database.close();
     resolve();
   })));
-  return `http://127.0.0.1:${server.address().port}`;
+  return {
+    baseUrl: `http://127.0.0.1:${server.address().port}`,
+    database
+  };
 };
 
 const login = async (baseUrl) => {
@@ -49,7 +52,7 @@ const login = async (baseUrl) => {
 
 test('new login creates an account, profile PUT is idempotent, and returning login restores it', async (context) => {
   let currentProfile = telegramProfile();
-  const baseUrl = await startServer(context, async () => currentProfile);
+  const { baseUrl } = await startServer(context, async () => currentProfile);
 
   const first = await login(baseUrl);
   assert.equal(first.response.status, 200);
@@ -111,7 +114,7 @@ test('new login creates an account, profile PUT is idempotent, and returning log
 });
 
 test('profile validation and session authentication return typed public errors', async (context) => {
-  const baseUrl = await startServer(context, async () => telegramProfile());
+  const { baseUrl } = await startServer(context, async () => telegramProfile());
   const { body } = await login(baseUrl);
   const invalid = await fetch(`${baseUrl}/me/profile`, {
     method: 'PUT',
@@ -125,7 +128,7 @@ test('profile validation and session authentication return typed public errors',
 
 test('Backend starts without Telegram configuration and reports setup mode', async (context) => {
   const setupConfig = { ...config, telegramConfigured: false };
-  const baseUrl = await startServer(context, async () => {
+  const { baseUrl } = await startServer(context, async () => {
     throw new Error('Verifier must not be called in setup mode');
   }, setupConfig);
   const healthResponse = await fetch(`${baseUrl}/api/health/ready`);
@@ -138,4 +141,33 @@ test('Backend starts without Telegram configuration and reports setup mode', asy
     body: JSON.stringify({ idToken: 'x'.repeat(40) })
   });
   assert.equal(response.status, 503);
+});
+
+test('disabled account cannot restore, edit, or create another successful login', async (context) => {
+  const { baseUrl, database } = await startServer(context, async () => telegramProfile());
+  const first = await login(baseUrl);
+  database.disableAccount(first.body.account.id);
+
+  const sessionResponse = await fetch(`${baseUrl}/auth/session`, {
+    headers: { Authorization: `Bearer ${first.body.sessionToken}` }
+  });
+  assert.equal(sessionResponse.status, 403);
+  assert.equal((await sessionResponse.json()).code, 'ACCOUNT_DISABLED');
+
+  const profileResponse = await fetch(`${baseUrl}/me/profile`, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${first.body.sessionToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      displayName: 'Disabled', headline: 'Must not be saved', intent: 'BUILDING',
+      topics: ['ANDROID'], avatarSource: 'BLOOM'
+    })
+  });
+  assert.equal(profileResponse.status, 403);
+
+  const repeated = await login(baseUrl);
+  assert.equal(repeated.response.status, 403);
+  assert.equal(database.getAccount(first.body.account.id).account.login_count, 1);
 });

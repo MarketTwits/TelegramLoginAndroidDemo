@@ -109,6 +109,8 @@
 
     <string name="bloom_setup_title">Create your Bloom</string>
     <string name="bloom_setup_subtitle">Telegram has verified your identity. Add one personal touch to complete your profile.</string>
+    <string name="bloom_edit_title">Edit your Bloom</string>
+    <string name="bloom_edit_subtitle">Update your service-owned profile. Telegram identity data remains separate.</string>
     <string name="bloom_display_name">Display name</string>
     <string name="bloom_intent_title">What is your current signal?</string>
     <string name="bloom_intent_building">Building something</string>
@@ -119,6 +121,7 @@
     <string name="bloom_prompt_exploring">What are you exploring?</string>
     <string name="bloom_topics_title">Topics</string>
     <string name="bloom_topics_hint">Choose one to three topics.</string>
+    <string name="bloom_topics_limit">You can select up to three topics.</string>
     <string name="bloom_topic_android">Android</string>
     <string name="bloom_topic_backend">Backend</string>
     <string name="bloom_topic_design">Design</string>

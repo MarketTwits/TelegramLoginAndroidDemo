@@ -19,6 +19,7 @@ import com.markettwits.devx.tgsignin.data.model.ServiceProfile
 import com.markettwits.devx.tgsignin.data.model.TelegramIdentity
 import com.markettwits.devx.tgsignin.data.model.TelegramScope
 import java.io.IOException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -29,6 +30,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AuthenticationRepositoryTest {
@@ -61,7 +63,9 @@ class AuthenticationRepositoryTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         val repository = AuthenticationRepositoryImpl(
             FakeTelegramLoginDataSource(),
-            FakeTelegramAuthApiDataSource(failure = BackendNetworkException(IOException("offline"))),
+            FakeTelegramAuthApiDataSource(
+                validationFailure = BackendNetworkException(IOException("offline"))
+            ),
             local,
             scope
         )
@@ -79,7 +83,7 @@ class AuthenticationRepositoryTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         val repository = AuthenticationRepositoryImpl(
             FakeTelegramLoginDataSource(),
-            FakeTelegramAuthApiDataSource(failure = BackendHttpException(401)),
+            FakeTelegramAuthApiDataSource(validationFailure = BackendHttpException(401)),
             local,
             scope
         )
@@ -88,6 +92,114 @@ class AuthenticationRepositoryTest {
         }
         assertEquals(RootAuthenticationState.Unauthenticated(sessionExpired = true), state)
         assertNull(local.sessionValue.value)
+        scope.cancel()
+    }
+
+    @Test
+    fun `cancelling profile editing restores persisted profile and clears draft`() = runBlocking {
+        val cached = session("Original profile")
+        val local = FakeAuthenticationLocalDataSource(cached)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val repository = AuthenticationRepositoryImpl(
+            FakeTelegramLoginDataSource(), FakeTelegramAuthApiDataSource(cached), local, scope
+        )
+        repository.state.first { it is RootAuthenticationState.Authenticated }
+
+        repository.beginProfileEditing()
+        val changed = ProfileDraft(
+            displayName = "Unsaved name",
+            headline = "Unsaved headline",
+            topics = setOf(ProfileTopic.SECURITY)
+        )
+        repository.saveDraft(changed)
+        repository.cancelProfileEditing()
+
+        val restored = repository.state.value as RootAuthenticationState.Authenticated
+        assertEquals("Original profile", restored.session.profile?.displayName)
+        assertNull(local.draftValue.value)
+        scope.cancel()
+    }
+
+    @Test
+    fun `profile save rejected by expired session clears local state`() = runBlocking {
+        val cached = session("Original profile")
+        val local = FakeAuthenticationLocalDataSource(cached)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val repository = AuthenticationRepositoryImpl(
+            FakeTelegramLoginDataSource(),
+            FakeTelegramAuthApiDataSource(verified = cached, saveFailure = BackendHttpException(401)),
+            local,
+            scope
+        )
+        repository.state.first { it is RootAuthenticationState.Authenticated }
+        repository.beginProfileEditing()
+        val result = repository.saveProfile(
+            ProfileDraft(
+                displayName = "Valid",
+                headline = "A valid updated signal",
+                topics = setOf(ProfileTopic.ANDROID)
+            )
+        )
+
+        assertTrue(result.isFailure)
+        assertEquals(
+            RootAuthenticationState.Unauthenticated(sessionExpired = true),
+            repository.state.value
+        )
+        assertNull(local.sessionValue.value)
+        scope.cancel()
+    }
+
+    @Test
+    fun `late bootstrap response cannot restore a session after logout`() = runBlocking {
+        val cached = session("Cached")
+        val gate = CompletableDeferred<AuthenticationResult>()
+        val local = FakeAuthenticationLocalDataSource(cached)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val repository = AuthenticationRepositoryImpl(
+            FakeTelegramLoginDataSource(),
+            FakeTelegramAuthApiDataSource(validationGate = gate),
+            local,
+            scope
+        )
+        repository.state.first { it is RootAuthenticationState.Authenticated }
+
+        repository.logout()
+        gate.complete(session("Late server response"))
+
+        assertEquals(RootAuthenticationState.Unauthenticated(), repository.state.value)
+        assertNull(local.sessionValue.value)
+        scope.cancel()
+    }
+
+    @Test
+    fun `background refresh preserves an active profile draft`() = runBlocking {
+        val cached = session("Cached")
+        val gate = CompletableDeferred<AuthenticationResult>()
+        val local = FakeAuthenticationLocalDataSource(cached)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val repository = AuthenticationRepositoryImpl(
+            FakeTelegramLoginDataSource(),
+            FakeTelegramAuthApiDataSource(validationGate = gate),
+            local,
+            scope
+        )
+        repository.state.first { it is RootAuthenticationState.Authenticated }
+        repository.beginProfileEditing()
+        val draft = ProfileDraft(
+            displayName = "Work in progress",
+            headline = "This must survive refresh",
+            topics = setOf(ProfileTopic.PRODUCT)
+        )
+        repository.saveDraft(draft)
+
+        gate.complete(session("Refreshed server profile"))
+        val state = repository.state.first {
+            it is RootAuthenticationState.OnboardingRequired &&
+                it.session.profile?.displayName == "Refreshed server profile"
+        } as RootAuthenticationState.OnboardingRequired
+
+        assertEquals(draft, state.draft)
         scope.cancel()
     }
 }
@@ -129,17 +241,23 @@ private class FakeAuthenticationLocalDataSource(session: AuthenticationResult?) 
 
 private class FakeTelegramAuthApiDataSource(
     private val verified: AuthenticationResult = session("Verified"),
-    private val failure: Throwable? = null
+    private val validationFailure: Throwable? = null,
+    private val saveFailure: Throwable? = null,
+    private val validationGate: CompletableDeferred<AuthenticationResult>? = null
 ) : TelegramAuthApiDataSource {
     var revokedToken: String? = null
     var validatedToken: String? = null
     override suspend fun authenticate(idToken: String): AuthenticationResult = verified
     override suspend fun getCurrentSession(accessToken: String): AuthenticationResult {
         validatedToken = accessToken
-        failure?.let { throw it }
+        validationFailure?.let { throw it }
+        validationGate?.let { return it.await() }
         return verified
     }
-    override suspend fun saveProfile(accessToken: String, draft: ProfileDraft): AuthenticationResult = verified
+    override suspend fun saveProfile(accessToken: String, draft: ProfileDraft): AuthenticationResult {
+        saveFailure?.let { throw it }
+        return verified
+    }
     override suspend fun revokeSession(accessToken: String) { revokedToken = accessToken }
 }
 
