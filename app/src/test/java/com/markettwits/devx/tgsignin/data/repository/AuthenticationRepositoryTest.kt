@@ -202,6 +202,54 @@ class AuthenticationRepositoryTest {
         assertEquals(draft, state.draft)
         scope.cancel()
     }
+
+    @Test
+    fun `first profile save shows welcome pager before completed profile`() = runBlocking {
+        val completed = session("New profile")
+        val required = completed.copy(
+            account = completed.account.copy(onboardingState = OnboardingState.PROFILE_REQUIRED),
+            profile = null
+        )
+        val local = FakeAuthenticationLocalDataSource(required)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val repository = AuthenticationRepositoryImpl(
+            FakeTelegramLoginDataSource(),
+            FakeTelegramAuthApiDataSource(verified = required, saveResult = completed),
+            local,
+            scope
+        )
+        repository.state.first { it is RootAuthenticationState.OnboardingRequired }
+        val draft = ProfileDraft(
+            displayName = "New profile",
+            headline = "Building the next iteration",
+            topics = setOf(ProfileTopic.ANDROID),
+            emoji = "🚀"
+        )
+
+        assertTrue(repository.saveProfile(draft).isSuccess)
+        assertTrue(repository.state.value is RootAuthenticationState.ProfileWelcome)
+        repository.completeProfileWelcome()
+        assertTrue(repository.state.value is RootAuthenticationState.Authenticated)
+        scope.cancel()
+    }
+
+    @Test
+    fun `deleting service profile keeps session and returns to setup`() = runBlocking {
+        val completed = session("Delete me")
+        val local = FakeAuthenticationLocalDataSource(completed)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val repository = AuthenticationRepositoryImpl(
+            FakeTelegramLoginDataSource(), FakeTelegramAuthApiDataSource(completed), local, scope
+        )
+        repository.state.first { it is RootAuthenticationState.Authenticated }
+
+        assertTrue(repository.deleteProfile().isSuccess)
+        val state = repository.state.value as RootAuthenticationState.OnboardingRequired
+        assertEquals("session-token", state.session.accessToken)
+        assertNull(state.session.profile)
+        assertEquals(OnboardingState.PROFILE_REQUIRED, state.session.account.onboardingState)
+        scope.cancel()
+    }
 }
 
 private fun session(displayName: String) = AuthenticationResult(
@@ -222,6 +270,7 @@ private fun session(displayName: String) = AuthenticationResult(
         intent = ProfileIntent.BUILDING,
         topics = listOf(ProfileTopic.ANDROID),
         avatarSource = AvatarSource.BLOOM,
+        emoji = "🚀",
         visualSeed = "stable-seed",
         createdAt = "2026-08-01T00:00:00Z",
         updatedAt = "2026-08-12T00:00:00Z"
@@ -241,6 +290,7 @@ private class FakeAuthenticationLocalDataSource(session: AuthenticationResult?) 
 
 private class FakeTelegramAuthApiDataSource(
     private val verified: AuthenticationResult = session("Verified"),
+    private val saveResult: AuthenticationResult = verified,
     private val validationFailure: Throwable? = null,
     private val saveFailure: Throwable? = null,
     private val validationGate: CompletableDeferred<AuthenticationResult>? = null
@@ -256,8 +306,12 @@ private class FakeTelegramAuthApiDataSource(
     }
     override suspend fun saveProfile(accessToken: String, draft: ProfileDraft): AuthenticationResult {
         saveFailure?.let { throw it }
-        return verified
+        return saveResult
     }
+    override suspend fun deleteProfile(accessToken: String): AuthenticationResult = verified.copy(
+        account = verified.account.copy(onboardingState = OnboardingState.PROFILE_REQUIRED),
+        profile = null
+    )
     override suspend fun revokeSession(accessToken: String) { revokedToken = accessToken }
 }
 

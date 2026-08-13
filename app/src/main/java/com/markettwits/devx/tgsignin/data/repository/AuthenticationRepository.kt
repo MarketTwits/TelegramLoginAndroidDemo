@@ -31,6 +31,8 @@ interface AuthenticationRepository {
     suspend fun saveProfile(draft: ProfileDraft): Result<AuthenticationResult>
     suspend fun beginProfileEditing()
     suspend fun cancelProfileEditing()
+    suspend fun completeProfileWelcome()
+    suspend fun deleteProfile(): Result<Unit>
     suspend fun logout()
 }
 
@@ -131,13 +133,18 @@ class AuthenticationRepositoryImpl(
         val current = (_state.value as? RootAuthenticationState.OnboardingRequired)?.session
             ?: return Result.failure(IllegalStateException("No authenticated session"))
         return try {
+            val isNewProfile = current.profile == null
             localMutationMutex.withLock { authenticationLocalDataSource.saveDraft(draft) }
             val saved = telegramAuthApiDataSource.saveProfile(current.accessToken, draft)
             localMutationMutex.withLock {
                 authenticationLocalDataSource.save(saved)
                 authenticationLocalDataSource.clearDraft()
             }
-            _state.value = route(saved, null)
+            _state.value = if (isNewProfile) {
+                RootAuthenticationState.ProfileWelcome(saved)
+            } else {
+                route(saved, null)
+            }
             Result.success(saved)
         } catch (error: CancellationException) {
             throw error
@@ -159,7 +166,8 @@ class AuthenticationRepositoryImpl(
             headline = profile.headline,
             intent = profile.intent,
             topics = profile.topics.toSet(),
-            avatarSource = profile.avatarSource
+            avatarSource = profile.avatarSource,
+            emoji = profile.emoji
         )
         localMutationMutex.withLock { authenticationLocalDataSource.saveDraft(draft) }
         _state.value = RootAuthenticationState.OnboardingRequired(current, draft)
@@ -175,11 +183,41 @@ class AuthenticationRepositoryImpl(
         )
     }
 
+    override suspend fun completeProfileWelcome() {
+        val current = _state.value as? RootAuthenticationState.ProfileWelcome ?: return
+        _state.value = RootAuthenticationState.Authenticated(current.session)
+    }
+
+    override suspend fun deleteProfile(): Result<Unit> {
+        val current = (_state.value as? RootAuthenticationState.Authenticated)?.session
+            ?: return Result.failure(IllegalStateException("No profile to delete"))
+        return try {
+            val deleted = telegramAuthApiDataSource.deleteProfile(current.accessToken)
+            val draft = initialDraft(deleted)
+            localMutationMutex.withLock {
+                authenticationLocalDataSource.save(deleted)
+                authenticationLocalDataSource.saveDraft(draft)
+            }
+            _state.value = RootAuthenticationState.OnboardingRequired(deleted, draft)
+            Result.success(Unit)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            val mapped = error.toAuthenticationError()
+            if (mapped is AuthenticationError.AuthorizationRejected) {
+                localMutationMutex.withLock { authenticationLocalDataSource.clear() }
+                _state.value = RootAuthenticationState.Unauthenticated(sessionExpired = true)
+            }
+            Result.failure(mapped)
+        }
+    }
+
     override suspend fun logout() {
         try {
             val session = when (val current = _state.value) {
                 is RootAuthenticationState.Authenticated -> current.session
                 is RootAuthenticationState.OnboardingRequired -> current.session
+                is RootAuthenticationState.ProfileWelcome -> current.session
                 else -> authenticationLocalDataSource.session.first()
             }
             if (session != null) runCatching {
@@ -208,11 +246,8 @@ class AuthenticationRepositoryImpl(
 
     private fun initialDraft(session: AuthenticationResult) = ProfileDraft(
         displayName = session.telegram.suggestedDisplayName(),
-        avatarSource = if (session.telegram.pictureUrl == null) {
-            com.markettwits.devx.tgsignin.data.model.AvatarSource.BLOOM
-        } else {
-            com.markettwits.devx.tgsignin.data.model.AvatarSource.TELEGRAM
-        }
+        avatarSource = com.markettwits.devx.tgsignin.data.model.AvatarSource.BLOOM,
+        emoji = com.markettwits.devx.tgsignin.data.model.PROFILE_EMOJIS.first()
     )
 }
 
@@ -223,6 +258,7 @@ private val RootAuthenticationState.sessionOrNull: AuthenticationResult?
     get() = when (this) {
         is RootAuthenticationState.Authenticated -> session
         is RootAuthenticationState.OnboardingRequired -> session
+        is RootAuthenticationState.ProfileWelcome -> session
         is RootAuthenticationState.RecoverableError -> cachedSession
         RootAuthenticationState.Loading,
         is RootAuthenticationState.Unauthenticated -> null

@@ -112,7 +112,7 @@ test('SQLite migration upgrades a version-one user without losing the account', 
   database.close();
 });
 
-test('SQLite profile update preserves its stable visual seed across restart', (context) => {
+test('SQLite v2 profile migrates emoji and preserves its stable data', (context) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'telegram-bloom-profile-'));
   const databasePath = path.join(directory, 'auth.sqlite');
   context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
@@ -125,9 +125,14 @@ test('SQLite profile update preserves its stable visual seed across restart', (c
   database.saveProfile(state.account.id, draft, 'profile-id', 'stable-seed');
   database.close();
 
+  const legacy = new DatabaseSync(databasePath);
+  legacy.exec('ALTER TABLE app_profiles DROP COLUMN emoji; PRAGMA user_version = 2;');
+  legacy.close();
+
   database = createDatabase({ databasePath });
   const returning = database.authenticateTelegramUser(profile('unused'));
   assert.equal(returning.profile.visual_seed, 'stable-seed');
+  assert.equal(returning.profile.emoji, '🌱');
   assert.equal(returning.profile.display_name, 'Demo');
   assert.equal(returning.account.onboarding_state, 'PROFILE_COMPLETED');
   database.close();

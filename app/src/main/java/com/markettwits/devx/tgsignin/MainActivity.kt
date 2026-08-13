@@ -35,6 +35,7 @@ import com.markettwits.devx.tgsignin.ui.model.BackendReadinessUiState
 import com.markettwits.devx.tgsignin.ui.screen.ConfigurationDialog
 import com.markettwits.devx.tgsignin.ui.screen.LoginScreen
 import com.markettwits.devx.tgsignin.ui.screen.BloomProfileScreen
+import com.markettwits.devx.tgsignin.ui.screen.ProfileWelcomeScreen
 import com.markettwits.devx.tgsignin.ui.screen.ProfileSetupScreen
 import com.markettwits.devx.tgsignin.ui.theme.AppThemeAnimationScope
 import com.markettwits.devx.tgsignin.ui.theme.TelegramLoginDemoTheme
@@ -86,6 +87,7 @@ class MainActivity : ComponentActivity() {
                                         isOffline = state.isOffline,
                                         messages = profileViewModel.messages,
                                         onEdit = profileViewModel::editProfile,
+                                        onDelete = profileViewModel::deleteProfile,
                                         onLogout = profileViewModel::logout
                                     )
                                 }
@@ -99,6 +101,12 @@ class MainActivity : ComponentActivity() {
                                         onDraftChanged = profileViewModel::updateDraft,
                                         onSave = profileViewModel::saveProfile,
                                         onCancel = profileViewModel::cancelProfileEditing
+                                    )
+                                }
+                                is RootAuthenticationState.ProfileWelcome -> {
+                                    ProfileWelcomeScreen(
+                                        session = state.session,
+                                        onComplete = profileViewModel::completeWelcome
                                     )
                                 }
                                 RootAuthenticationState.Loading -> SessionRestoringScreen()

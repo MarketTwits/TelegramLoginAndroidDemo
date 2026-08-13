@@ -130,10 +130,8 @@
     <string name="bloom_topic_product">Продукт</string>
     <string name="bloom_topic_other">Другое</string>
     <string name="bloom_avatar_title">Визуал профиля</string>
-    <string name="bloom_telegram_photo">Фото Telegram</string>
-    <string name="bloom_my_bloom">Мой Bloom</string>
-    <string name="bloom_telegram_selected">Будет использовано актуальное фото из Telegram.</string>
-    <string name="bloom_service_selected">Будет использован постоянный Bloom, принадлежащий сервису.</string>
+    <string name="bloom_emoji_hint">Выберите эмодзи, который вам подходит. Его всегда можно изменить.</string>
+    <string name="bloom_about_you">О вас</string>
     <string name="bloom_create_profile">Создать мой профиль</string>
     <string name="bloom_save_profile">Сохранить профиль</string>
     <string name="bloom_current_signal">Текущий сигнал</string>
@@ -153,8 +151,19 @@
     <string name="bloom_phone_verified">Телефон подтверждён Telegram</string>
     <string name="bloom_identity_provider">Личность подтверждена Telegram</string>
     <string name="bloom_edit_profile">Редактировать профиль</string>
-    <string name="bloom_visual_description">Персональный визуал Bloom</string>
+    <string name="bloom_delete_profile">Удалить профиль сервиса</string>
+    <string name="bloom_delete_title">Удалить профиль?</string>
+    <string name="bloom_delete_confirmation">Профиль Bloom будет удалён. Подключение Telegram и учётная запись сохранятся, а новый профиль можно будет создать сразу.</string>
+    <string name="bloom_welcome_ready">Ваш профиль готов</string>
+    <string name="bloom_welcome_ready_text">Выбранный эмодзи и сигнал делают это пространство вашим.</string>
+    <string name="bloom_welcome_identity">Telegram остаётся подключён</string>
+    <string name="bloom_welcome_identity_text">Telegram подтверждает вашу личность, а редактируемый профиль Bloom хранится отдельно.</string>
+    <string name="bloom_welcome_signal">Расскажите, что важно сейчас</string>
+    <string name="bloom_welcome_signal_text">Меняйте сигнал и темы каждый раз, когда меняется ваш фокус.</string>
+    <string name="bloom_welcome_next">Далее</string>
+    <string name="bloom_welcome_start">Открыть мой профиль</string>
     <string name="bloom_offline">Нет сети — показаны данные из защищённого кэша.</string>
     <string name="error_profile_save">Не удалось сохранить профиль. Ваши изменения не потеряны.</string>
+    <string name="error_profile_delete">Не удалось удалить профиль. Попробуйте ещё раз.</string>
     <string name="session_expired">Сессия завершилась. Войдите снова.</string>
 </resources>

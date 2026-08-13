@@ -11,6 +11,7 @@ import com.markettwits.devx.tgsignin.data.model.OnboardingState
 import com.markettwits.devx.tgsignin.data.model.ProfileDraft
 import com.markettwits.devx.tgsignin.data.model.ProfileIntent
 import com.markettwits.devx.tgsignin.data.model.ProfileTopic
+import com.markettwits.devx.tgsignin.data.model.PROFILE_EMOJIS
 import com.markettwits.devx.tgsignin.data.model.ServiceAccount
 import com.markettwits.devx.tgsignin.data.model.ServiceProfile
 import com.markettwits.devx.tgsignin.data.model.TelegramIdentity
@@ -100,6 +101,7 @@ class AuthenticationLocalDataSourceImpl(
                 put("intent", profile.intent.name)
                 put("topics", JSONArray(profile.topics.map(ProfileTopic::name)))
                 put("avatarSource", profile.avatarSource.name)
+                put("emoji", profile.emoji)
                 put("visualSeed", profile.visualSeed)
                 put("createdAt", profile.createdAt)
                 put("updatedAt", profile.updatedAt)
@@ -137,6 +139,7 @@ class AuthenticationLocalDataSourceImpl(
                     intent = ProfileIntent.valueOf(profile.getString("intent")),
                     topics = profile.getJSONArray("topics").strings().map(ProfileTopic::valueOf),
                     avatarSource = AvatarSource.valueOf(profile.getString("avatarSource")),
+                    emoji = profile.optString("emoji", PROFILE_EMOJIS.first()),
                     visualSeed = profile.getString("visualSeed"),
                     createdAt = profile.getString("createdAt"),
                     updatedAt = profile.getString("updatedAt")
@@ -151,6 +154,7 @@ class AuthenticationLocalDataSourceImpl(
         put("intent", value.intent.name)
         put("topics", JSONArray(value.topics.map(ProfileTopic::name)))
         put("avatarSource", value.avatarSource.name)
+        put("emoji", value.emoji)
     }.toString()
 
     private fun decodeDraft(value: String): ProfileDraft = JSONObject(value).let { json ->
@@ -159,7 +163,8 @@ class AuthenticationLocalDataSourceImpl(
             headline = json.getString("headline"),
             intent = ProfileIntent.valueOf(json.getString("intent")),
             topics = json.getJSONArray("topics").strings().map(ProfileTopic::valueOf).toSet(),
-            avatarSource = AvatarSource.valueOf(json.getString("avatarSource"))
+            avatarSource = AvatarSource.valueOf(json.getString("avatarSource")),
+            emoji = json.optString("emoji", PROFILE_EMOJIS.first())
         )
     }
 

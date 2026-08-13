@@ -29,6 +29,8 @@ enum class AvatarSource {
     BLOOM
 }
 
+val PROFILE_EMOJIS = listOf("🌱", "🚀", "💡", "🛠️", "✨")
+
 data class ServiceAccount(
     val id: String,
     val memberNumber: Long,
@@ -60,6 +62,7 @@ data class ServiceProfile(
     val intent: ProfileIntent,
     val topics: List<ProfileTopic>,
     val avatarSource: AvatarSource,
+    val emoji: String,
     val visualSeed: String,
     val createdAt: String,
     val updatedAt: String
@@ -70,12 +73,13 @@ data class ProfileDraft(
     val headline: String = "",
     val intent: ProfileIntent = ProfileIntent.BUILDING,
     val topics: Set<ProfileTopic> = emptySet(),
-    val avatarSource: AvatarSource = AvatarSource.TELEGRAM
+    val avatarSource: AvatarSource = AvatarSource.BLOOM,
+    val emoji: String = PROFILE_EMOJIS.first()
 ) {
     val isValid: Boolean
         get() = displayName.isNotBlank() && displayName.trim().length <= 80 &&
             headline.isNotBlank() && headline.trim().length <= 120 &&
-            topics.size in 1..3
+            topics.size in 1..3 && emoji in PROFILE_EMOJIS
 }
 
 data class AuthenticationResult(
@@ -97,6 +101,9 @@ sealed interface RootAuthenticationState {
     data class Authenticated(
         val session: AuthenticationResult,
         val isOffline: Boolean = false
+    ) : RootAuthenticationState
+    data class ProfileWelcome(
+        val session: AuthenticationResult
     ) : RootAuthenticationState
     data class RecoverableError(val cachedSession: AuthenticationResult?) : RootAuthenticationState
 }

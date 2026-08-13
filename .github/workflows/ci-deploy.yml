@@ -1,0 +1,145 @@
+name: CI and production deploy
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  backend:
+    name: Backend tests and image
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run backend tests
+        run: npm test
+
+      - name: Build production image
+        run: docker build --build-arg "BUILD_REVISION=$GITHUB_SHA" --tag telegram-bloom-backend:ci .
+
+  android:
+    name: Android tests and lint
+    runs-on: ubuntu-24.04
+    env:
+      # These are build-time placeholders. Production values are configured in the app release process.
+      TELEGRAM_CLIENT_ID: "000000000"
+      TELEGRAM_REDIRECT_HOST_DEBUG: ci-debug-login.tg.dev
+      TELEGRAM_REDIRECT_HOST_RELEASE: ci-release-login.tg.dev
+      TELEGRAM_BACKEND_URL: https://example.invalid
+      GITHUB_USERNAME: ${{ vars.PACKAGES_USERNAME }}
+      GITHUB_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Validate package credentials
+        run: |
+          test -n "$GITHUB_USERNAME"
+          test -n "$GITHUB_TOKEN"
+
+      - name: Run Android tests and lint
+        run: ./gradlew testDebugUnitTest lintDebug lintVitalRelease --no-daemon
+
+  deploy:
+    name: Deploy production backend
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: [backend, android]
+    runs-on: ubuntu-24.04
+    environment:
+      name: production
+    concurrency:
+      group: telegram-bloom-production
+      cancel-in-progress: false
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+      DEPLOY_APP_DIRECTORY: ${{ secrets.DEPLOY_APP_DIRECTORY }}
+      DEPLOY_STACK_DIRECTORY: ${{ secrets.DEPLOY_STACK_DIRECTORY }}
+      DEPLOY_LOCAL_HEALTH_URL: ${{ secrets.DEPLOY_LOCAL_HEALTH_URL }}
+      PRODUCTION_HEALTH_URL: ${{ secrets.PRODUCTION_HEALTH_URL }}
+      DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Validate deployment configuration
+        run: |
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_USER"
+          test -n "$DEPLOY_PORT"
+          test -n "$DEPLOY_APP_DIRECTORY"
+          test -n "$DEPLOY_STACK_DIRECTORY"
+          test -n "$DEPLOY_LOCAL_HEALTH_URL"
+          test -n "$PRODUCTION_HEALTH_URL"
+          test -n "$DEPLOY_SSH_PRIVATE_KEY"
+          test -n "$DEPLOY_KNOWN_HOSTS"
+
+      - name: Configure SSH
+        run: |
+          install -d -m 700 "$RUNNER_TEMP/ssh"
+          printf '%s\n' "$DEPLOY_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/ssh/deploy_key"
+          chmod 600 "$RUNNER_TEMP/ssh/deploy_key"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/ssh/known_hosts"
+          chmod 600 "$RUNNER_TEMP/ssh/known_hosts"
+
+      - name: Deploy exact commit
+        env:
+          REVISION: ${{ github.sha }}
+        run: |
+          app_directory="$(printf '%s' "$DEPLOY_APP_DIRECTORY" | base64 -w 0)"
+          stack_directory="$(printf '%s' "$DEPLOY_STACK_DIRECTORY" | base64 -w 0)"
+          local_health_url="$(printf '%s' "$DEPLOY_LOCAL_HEALTH_URL" | base64 -w 0)"
+          ssh \
+            -i "$RUNNER_TEMP/ssh/deploy_key" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$RUNNER_TEMP/ssh/known_hosts" \
+            -p "$DEPLOY_PORT" \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "bash -s -- '$REVISION' '$app_directory' '$stack_directory' '$local_health_url'" \
+            < scripts/deploy-production.sh
+
+      - name: Verify public endpoint
+        env:
+          REVISION: ${{ github.sha }}
+        run: |
+          response="$(curl --fail --silent --show-error \
+            --retry 8 --retry-all-errors --retry-delay 3 \
+            "$PRODUCTION_HEALTH_URL")"
+          printf '%s\n' "$response"
+          grep -Eq '"status"[[:space:]]*:[[:space:]]*"ready"' <<< "$response"
+          grep -Eq '"apiVersion"[[:space:]]*:[[:space:]]*3' <<< "$response"
+          grep -Fq "\"revision\":\"$REVISION\"" <<< "$response"

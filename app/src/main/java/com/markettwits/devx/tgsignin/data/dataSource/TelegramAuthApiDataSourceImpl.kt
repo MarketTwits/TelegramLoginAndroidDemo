@@ -54,7 +54,14 @@ class TelegramAuthApiDataSourceImpl(
             put("intent", draft.intent.name)
             put("topics", JSONArray(draft.topics.map(ProfileTopic::name)))
             put("avatarSource", draft.avatarSource.name)
+            put("emoji", draft.emoji)
         }
+    ) { json -> parseAuthenticationResult(json, accessToken) }
+
+    override suspend fun deleteProfile(accessToken: String): AuthenticationResult = request(
+        path = "/me/profile",
+        method = "DELETE",
+        accessToken = accessToken
     ) { json -> parseAuthenticationResult(json, accessToken) }
 
     override suspend fun revokeSession(accessToken: String) {
@@ -164,6 +171,7 @@ class TelegramAuthApiDataSourceImpl(
                     intent = ProfileIntent.valueOf(profile.getString("intent")),
                     topics = profile.getJSONArray("topics").toStrings().map(ProfileTopic::valueOf),
                     avatarSource = AvatarSource.valueOf(profile.getString("avatarSource")),
+                    emoji = profile.optString("emoji", "🌱"),
                     visualSeed = profile.getString("visualSeed"),
                     createdAt = profile.getString("createdAt"),
                     updatedAt = profile.getString("updatedAt")
@@ -174,7 +182,7 @@ class TelegramAuthApiDataSourceImpl(
 }
 
 private const val API_VERSION_HEADER = "X-Telegram-Bloom-Api-Version"
-private const val REQUIRED_API_VERSION = 2
+private const val REQUIRED_API_VERSION = 3
 
 private fun JSONObject.optionalString(key: String): String? =
     optString(key).takeIf { it.isNotBlank() && it != JSONObject.NULL.toString() }
