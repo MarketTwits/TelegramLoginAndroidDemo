@@ -75,6 +75,7 @@
     <string name="logout_confirmation">Are you sure you want to sign out?</string>
     <string name="logout_data_warning">Saved authorization data will be removed from this device.</string>
     <string name="cancel">Cancel</string>
+    <string name="back">Back</string>
     <string name="unavailable">Unavailable</string>
     <string name="backend_service">Backend service</string>
     <string name="backend_checking">Checking server configuration…</string>
@@ -151,9 +152,9 @@
     <string name="bloom_phone_verified">Phone verified by Telegram</string>
     <string name="bloom_identity_provider">Identity provided by Telegram</string>
     <string name="bloom_edit_profile">Edit profile</string>
-    <string name="bloom_delete_profile">Delete service profile</string>
-    <string name="bloom_delete_title">Delete your profile?</string>
-    <string name="bloom_delete_confirmation">Your Bloom profile will be removed. Your Telegram connection and account will stay active, and you can create a new profile right away.</string>
+    <string name="bloom_delete_account">Delete account</string>
+    <string name="bloom_delete_title">Delete your account?</string>
+    <string name="bloom_delete_confirmation">Your Bloom account, profile, and active sessions will be permanently deleted. You will return to Telegram sign-in.</string>
     <string name="bloom_welcome_ready">Your profile is ready</string>
     <string name="bloom_welcome_ready_text">Your chosen emoji and signal now make this space feel like yours.</string>
     <string name="bloom_welcome_identity">Telegram stays connected</string>
@@ -164,6 +165,6 @@
     <string name="bloom_welcome_start">Open my profile</string>
     <string name="bloom_offline">Offline — showing securely cached profile data.</string>
     <string name="error_profile_save">Could not save the profile. Your changes are still here.</string>
-    <string name="error_profile_delete">Could not delete the profile. Try again.</string>
+    <string name="error_account_delete">Could not delete the account. Try again.</string>
     <string name="session_expired">Your session has ended. Sign in again.</string>
 </resources>

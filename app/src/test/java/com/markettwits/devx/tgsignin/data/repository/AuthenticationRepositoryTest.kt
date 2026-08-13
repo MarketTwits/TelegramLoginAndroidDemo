@@ -234,7 +234,7 @@ class AuthenticationRepositoryTest {
     }
 
     @Test
-    fun `deleting service profile keeps session and returns to setup`() = runBlocking {
+    fun `deleting account clears local session and returns to login`() = runBlocking {
         val completed = session("Delete me")
         val local = FakeAuthenticationLocalDataSource(completed)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
@@ -243,11 +243,9 @@ class AuthenticationRepositoryTest {
         )
         repository.state.first { it is RootAuthenticationState.Authenticated }
 
-        assertTrue(repository.deleteProfile().isSuccess)
-        val state = repository.state.value as RootAuthenticationState.OnboardingRequired
-        assertEquals("session-token", state.session.accessToken)
-        assertNull(state.session.profile)
-        assertEquals(OnboardingState.PROFILE_REQUIRED, state.session.account.onboardingState)
+        assertTrue(repository.deleteAccount().isSuccess)
+        assertEquals(RootAuthenticationState.Unauthenticated(), repository.state.value)
+        assertNull(local.sessionValue.value)
         scope.cancel()
     }
 }
@@ -308,10 +306,7 @@ private class FakeTelegramAuthApiDataSource(
         saveFailure?.let { throw it }
         return saveResult
     }
-    override suspend fun deleteProfile(accessToken: String): AuthenticationResult = verified.copy(
-        account = verified.account.copy(onboardingState = OnboardingState.PROFILE_REQUIRED),
-        profile = null
-    )
+    override suspend fun deleteAccount(accessToken: String) = Unit
     override suspend fun revokeSession(accessToken: String) { revokedToken = accessToken }
 }
 

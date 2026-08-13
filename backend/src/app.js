@@ -16,7 +16,7 @@ const PROFILE_TOPICS = new Set([
 ]);
 const AVATAR_SOURCES = new Set(['TELEGRAM', 'BLOOM']);
 const PROFILE_EMOJIS = new Set(['🌱', '🚀', '💡', '🛠️', '✨']);
-const API_VERSION = 3;
+const API_VERSION = 4;
 const APP_REVISION = process.env.APP_REVISION?.trim() || 'development';
 
 const accountResponse = (account) => ({
@@ -196,16 +196,14 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
     response.set('Cache-Control', 'no-store').json(authenticationStateResponse(state, session.expiresAt));
   }));
 
-  app.delete('/me/profile', asyncRoute(async (request, response) => {
+  app.delete('/me/account', asyncRoute(async (request, response) => {
     const session = await authenticatedSession(database, request);
     if (!session) {
       return response.status(401).json({ code: 'SESSION_INVALID', message: 'Session is missing or expired' });
     }
     if (rejectDisabledAccount(session, response)) return;
-    const state = await database.deleteProfile(session.account.id);
-    response.set('Cache-Control', 'no-store').json(
-      authenticationStateResponse(state, session.expiresAt)
-    );
+    await database.deleteAccount(session.account.id);
+    response.set('Cache-Control', 'no-store').status(204).end();
   }));
 
   app.delete('/auth/session', asyncRoute(async (request, response) => {

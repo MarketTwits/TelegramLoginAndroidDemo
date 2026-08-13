@@ -32,7 +32,7 @@ interface AuthenticationRepository {
     suspend fun beginProfileEditing()
     suspend fun cancelProfileEditing()
     suspend fun completeProfileWelcome()
-    suspend fun deleteProfile(): Result<Unit>
+    suspend fun deleteAccount(): Result<Unit>
     suspend fun logout()
 }
 
@@ -188,17 +188,13 @@ class AuthenticationRepositoryImpl(
         _state.value = RootAuthenticationState.Authenticated(current.session)
     }
 
-    override suspend fun deleteProfile(): Result<Unit> {
+    override suspend fun deleteAccount(): Result<Unit> {
         val current = (_state.value as? RootAuthenticationState.Authenticated)?.session
-            ?: return Result.failure(IllegalStateException("No profile to delete"))
+            ?: return Result.failure(IllegalStateException("No account to delete"))
         return try {
-            val deleted = telegramAuthApiDataSource.deleteProfile(current.accessToken)
-            val draft = initialDraft(deleted)
-            localMutationMutex.withLock {
-                authenticationLocalDataSource.save(deleted)
-                authenticationLocalDataSource.saveDraft(draft)
-            }
-            _state.value = RootAuthenticationState.OnboardingRequired(deleted, draft)
+            telegramAuthApiDataSource.deleteAccount(current.accessToken)
+            localMutationMutex.withLock { authenticationLocalDataSource.clear() }
+            _state.value = RootAuthenticationState.Unauthenticated()
             Result.success(Unit)
         } catch (error: CancellationException) {
             throw error
