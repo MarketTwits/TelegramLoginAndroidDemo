@@ -23,8 +23,9 @@ application owns a separate editable signal profile.
   while offline.
 - Sign-out revokes the server session and clears the local encrypted cache while
   preserving the account and profile in SQLite.
-- Profile deletion removes only the application-owned profile. The internal
-  account, Telegram connection, and current application session remain active.
+- Account deletion permanently removes the application-owned account, profile,
+  and all active sessions. The Android client clears its encrypted cache and
+  returns to Telegram sign-in; a later sign-in creates a new internal account.
 
 The complete phone number is private identity metadata. API and profile UI only
 expose whether Telegram verified it.
@@ -94,8 +95,8 @@ All authenticated endpoints use `Authorization: Bearer <sessionToken>`.
   intents are `BUILDING`, `HELPING`, and `EXPLORING`; one to three supported
   topics are required; headline length is 1–120 characters; emoji must be one
   of `🌱`, `🚀`, `💡`, `🛠️`, or `✨`.
-- `DELETE /me/profile` removes the service profile and returns the same account
-  in the `PROFILE_REQUIRED` onboarding state without revoking its session.
+- `DELETE /me/account` permanently removes the authenticated account together
+  with its service profile and sessions, and returns `204 No Content`.
 - `DELETE /auth/session` revokes the current application session.
 - `GET /api/health/live` and `GET /api/health/ready` provide container health.
 

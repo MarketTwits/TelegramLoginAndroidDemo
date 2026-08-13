@@ -42,7 +42,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.HorizontalDivider
@@ -112,6 +111,8 @@ import com.markettwits.devx.tgsignin.R
 import com.markettwits.devx.tgsignin.data.model.TelegramUser
 import com.markettwits.devx.tgsignin.data.telegram.TelegramLoginConfig
 import com.markettwits.devx.tgsignin.ui.component.ConfigurationInfoButton
+import com.markettwits.devx.tgsignin.ui.component.TelegramConfirmationDialog
+import com.markettwits.devx.tgsignin.ui.component.TelegramDialog
 import com.markettwits.devx.tgsignin.ui.component.TelegramSnackbar
 import com.markettwits.devx.tgsignin.ui.model.AppLinkVerificationUiState
 import com.markettwits.devx.tgsignin.ui.model.BackendReadinessUiState
@@ -724,20 +725,19 @@ fun ConfigurationDialog(
         )
     }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(24.dp),
-        containerColor = MaterialTheme.colorScheme.surface,
-        title = { Text(stringResource(R.string.configuration_title)) },
-        text = {
-            SelectionContainer {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 520.dp)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(18.dp)
-                ) {
+    TelegramDialog(
+        title = stringResource(R.string.configuration_title),
+        actionText = stringResource(R.string.close),
+        onDismiss = onDismiss
+    ) {
+        SelectionContainer {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 520.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(18.dp)
+            ) {
                     ConfigurationSection(
                         title = stringResource(R.string.application),
                         values = listOf(
@@ -771,13 +771,9 @@ fun ConfigurationDialog(
                         state = backendReadinessState,
                         onRetry = onRetryBackendReadiness
                     )
-                }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) }
         }
-    )
+    }
 }
 
 @Composable
@@ -971,28 +967,18 @@ private fun LogoutConfirmationDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(24.dp),
-        containerColor = MaterialTheme.colorScheme.surface,
-        title = { Text(stringResource(R.string.logout_title)) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text(stringResource(R.string.logout_confirmation))
-                Text(
-                    stringResource(R.string.logout_data_warning),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+    TelegramConfirmationDialog(
+        title = stringResource(R.string.logout_title),
+        message = buildString {
+            append(stringResource(R.string.logout_confirmation))
+            append("\n\n")
+            append(stringResource(R.string.logout_data_warning))
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
-        },
-        confirmButton = {
-            TextButton(onClick = onConfirm) {
-                Text(stringResource(R.string.logout_title), color = MaterialTheme.colorScheme.error)
-            }
-        }
+        confirmText = stringResource(R.string.logout_title),
+        dismissText = stringResource(R.string.cancel),
+        onConfirm = onConfirm,
+        onDismiss = onDismiss,
+        destructive = true
     )
 }
 

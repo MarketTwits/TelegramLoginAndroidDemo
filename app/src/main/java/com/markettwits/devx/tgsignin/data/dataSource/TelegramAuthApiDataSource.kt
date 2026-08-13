@@ -7,7 +7,7 @@ interface TelegramAuthApiDataSource {
     suspend fun authenticate(idToken: String): AuthenticationResult
     suspend fun getCurrentSession(accessToken: String): AuthenticationResult
     suspend fun saveProfile(accessToken: String, draft: ProfileDraft): AuthenticationResult
-    suspend fun deleteProfile(accessToken: String): AuthenticationResult
+    suspend fun deleteAccount(accessToken: String)
     suspend fun revokeSession(accessToken: String)
 }
 

@@ -87,7 +87,7 @@ class MainActivity : ComponentActivity() {
                                         isOffline = state.isOffline,
                                         messages = profileViewModel.messages,
                                         onEdit = profileViewModel::editProfile,
-                                        onDelete = profileViewModel::deleteProfile,
+                                        onDelete = profileViewModel::deleteAccount,
                                         onLogout = profileViewModel::logout
                                     )
                                 }

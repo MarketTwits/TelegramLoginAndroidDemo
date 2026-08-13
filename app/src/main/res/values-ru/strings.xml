@@ -75,6 +75,7 @@
     <string name="logout_confirmation">Вы уверены, что хотите выйти из аккаунта?</string>
     <string name="logout_data_warning">Сохранённые данные авторизации будут удалены с этого устройства.</string>
     <string name="cancel">Отмена</string>
+    <string name="back">Назад</string>
     <string name="unavailable">Недоступно</string>
     <string name="backend_service">Backend-сервис</string>
     <string name="backend_checking">Проверяем конфигурацию сервера…</string>
@@ -151,9 +152,9 @@
     <string name="bloom_phone_verified">Телефон подтверждён Telegram</string>
     <string name="bloom_identity_provider">Личность подтверждена Telegram</string>
     <string name="bloom_edit_profile">Редактировать профиль</string>
-    <string name="bloom_delete_profile">Удалить профиль сервиса</string>
-    <string name="bloom_delete_title">Удалить профиль?</string>
-    <string name="bloom_delete_confirmation">Профиль Bloom будет удалён. Подключение Telegram и учётная запись сохранятся, а новый профиль можно будет создать сразу.</string>
+    <string name="bloom_delete_account">Удалить аккаунт</string>
+    <string name="bloom_delete_title">Удалить аккаунт?</string>
+    <string name="bloom_delete_confirmation">Аккаунт Bloom, профиль и активные сессии будут удалены безвозвратно. После удаления откроется экран входа через Telegram.</string>
     <string name="bloom_welcome_ready">Ваш профиль готов</string>
     <string name="bloom_welcome_ready_text">Выбранный эмодзи и сигнал делают это пространство вашим.</string>
     <string name="bloom_welcome_identity">Telegram остаётся подключён</string>
@@ -164,6 +165,6 @@
     <string name="bloom_welcome_start">Открыть мой профиль</string>
     <string name="bloom_offline">Нет сети — показаны данные из защищённого кэша.</string>
     <string name="error_profile_save">Не удалось сохранить профиль. Ваши изменения не потеряны.</string>
-    <string name="error_profile_delete">Не удалось удалить профиль. Попробуйте ещё раз.</string>
+    <string name="error_account_delete">Не удалось удалить аккаунт. Попробуйте ещё раз.</string>
     <string name="session_expired">Сессия завершилась. Войдите снова.</string>
 </resources>

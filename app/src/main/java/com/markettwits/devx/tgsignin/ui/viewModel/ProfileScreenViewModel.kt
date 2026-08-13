@@ -49,11 +49,11 @@ class ProfileScreenViewModel(
         viewModelScope.launch { authenticationRepository.completeProfileWelcome() }
     }
 
-    fun deleteProfile() {
+    fun deleteAccount() {
         if (actionJob?.isActive == true) return
         actionJob = viewModelScope.launch {
-            authenticationRepository.deleteProfile()
-                .onFailure { _messages.emit(R.string.error_profile_delete) }
+            authenticationRepository.deleteAccount()
+                .onFailure { _messages.emit(R.string.error_account_delete) }
         }
     }
 

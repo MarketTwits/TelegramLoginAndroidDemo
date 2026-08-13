@@ -1,5 +1,6 @@
 package com.markettwits.devx.tgsignin.ui.screen
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,21 +23,17 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Logout
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -62,8 +59,14 @@ import com.markettwits.devx.tgsignin.data.model.ProfileDraft
 import com.markettwits.devx.tgsignin.data.model.ProfileIntent
 import com.markettwits.devx.tgsignin.data.model.ProfileTopic
 import com.markettwits.devx.tgsignin.ui.component.TelegramChoice
+import com.markettwits.devx.tgsignin.ui.component.TelegramConfirmationDialog
+import com.markettwits.devx.tgsignin.ui.component.TelegramDestructiveButton
+import com.markettwits.devx.tgsignin.ui.component.TelegramIconAction
 import com.markettwits.devx.tgsignin.ui.component.TelegramPrimaryButton
 import com.markettwits.devx.tgsignin.ui.component.TelegramSection
+import com.markettwits.devx.tgsignin.ui.component.TelegramSnackbar
+import com.markettwits.devx.tgsignin.ui.component.TelegramTextField
+import com.markettwits.devx.tgsignin.ui.component.TelegramTopBar
 import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -98,46 +101,51 @@ fun ProfileSetupScreen(
             onDraftChanged(draft.copy(avatarSource = AvatarSource.BLOOM))
         }
     }
+    BackHandler(enabled = isEditing && !isSaving, onBack = onCancel)
 
-    Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { padding ->
+    Scaffold(
+        topBar = {
+            TelegramTopBar(
+                title = stringResource(
+                    if (isEditing) R.string.bloom_edit_title else R.string.bloom_setup_title
+                ),
+                navigation = if (isEditing) {
+                    {
+                        TelegramIconAction(
+                            icon = Icons.AutoMirrored.Outlined.ArrowBack,
+                            contentDescription = stringResource(R.string.back),
+                            onClick = onCancel,
+                            enabled = !isSaving
+                        )
+                    }
+                } else null
+            )
+        },
+        snackbarHost = {
+            SnackbarHost(snackbar) { data ->
+                TelegramSnackbar(message = data.visuals.message, isError = true)
+            }
+        }
+    ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .statusBarsPadding()
                 .navigationBarsPadding()
                 .imePadding()
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Spacer(Modifier.height(42.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        text = stringResource(
-                            if (isEditing) R.string.bloom_edit_title else R.string.bloom_setup_title
-                        ),
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = stringResource(
-                            if (isEditing) R.string.bloom_edit_subtitle else R.string.bloom_setup_subtitle
-                        ),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                if (isEditing) TextButton(onClick = onCancel, enabled = !isSaving) {
-                    Text(stringResource(R.string.cancel))
-                }
-            }
+            Text(
+                text = stringResource(
+                    if (isEditing) R.string.bloom_edit_subtitle else R.string.bloom_setup_subtitle
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
             if (isOffline) OfflineBanner()
 
             TelegramSection(title = stringResource(R.string.bloom_avatar_title)) {
@@ -171,19 +179,18 @@ fun ProfileSetupScreen(
             }
 
             TelegramSection(title = stringResource(R.string.bloom_about_you)) {
-                OutlinedTextField(
+                TelegramTextField(
                     value = draft.displayName,
                     onValueChange = {
                         displayNameTouched = true
                         if (it.length <= 80) onDraftChanged(draft.copy(displayName = it))
                     },
-                    label = { Text(stringResource(R.string.bloom_display_name)) },
+                    label = stringResource(R.string.bloom_display_name),
                     supportingText = if (displayNameTouched && draft.displayName.isBlank()) {
-                        { Text(stringResource(R.string.required_field)) }
+                        stringResource(R.string.required_field)
                     } else null,
                     isError = displayNameTouched && draft.displayName.isBlank(),
                     singleLine = true,
-                    shape = MaterialTheme.shapes.small,
                     modifier = Modifier.fillMaxWidth()
                 )
                 Text(
@@ -203,24 +210,23 @@ fun ProfileSetupScreen(
                         }
                     }
                 }
-                OutlinedTextField(
+                TelegramTextField(
                     value = draft.headline,
                     onValueChange = {
                         headlineTouched = true
                         if (it.length <= 120) onDraftChanged(draft.copy(headline = it))
                     },
-                    label = { Text(intentPrompt(draft.intent)) },
+                    label = intentPrompt(draft.intent),
                     supportingText = when {
                         headlineTouched && draft.headline.isBlank() -> {
-                            { Text(stringResource(R.string.required_field)) }
+                            stringResource(R.string.required_field)
                         }
-                        draft.headline.length >= 100 -> ({ Text("${draft.headline.length}/120") })
+                        draft.headline.length >= 100 -> "${draft.headline.length}/120"
                         else -> null
                     },
                     isError = headlineTouched && draft.headline.isBlank(),
                     minLines = 2,
                     maxLines = 2,
-                    shape = MaterialTheme.shapes.small,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -372,30 +378,40 @@ fun BloomProfileScreen(
         messages.collectLatest { snackbar.showSnackbar(resources.getString(it)) }
     }
 
-    Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { padding ->
+    Scaffold(
+        topBar = {
+            TelegramTopBar(
+                title = stringResource(R.string.profile),
+                navigation = {
+                    TelegramIconAction(
+                        icon = Icons.Outlined.Edit,
+                        contentDescription = stringResource(R.string.bloom_edit_profile),
+                        onClick = onEdit
+                    )
+                    TelegramIconAction(
+                        icon = Icons.AutoMirrored.Outlined.Logout,
+                        contentDescription = stringResource(R.string.logout_account_description),
+                        onClick = { confirmLogout = true }
+                    )
+                }
+            )
+        },
+        snackbarHost = {
+            SnackbarHost(snackbar) { data ->
+                TelegramSnackbar(message = data.visuals.message, isError = true)
+            }
+        }
+    ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .statusBarsPadding()
                 .navigationBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Spacer(Modifier.height(42.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Start
-            ) {
-                IconButton(onClick = onEdit) {
-                    Icon(Icons.Outlined.Edit, stringResource(R.string.bloom_edit_profile))
-                }
-                IconButton(onClick = { confirmLogout = true }) {
-                    Icon(Icons.AutoMirrored.Outlined.Logout, stringResource(R.string.logout_account_description))
-                }
-            }
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -444,46 +460,32 @@ fun BloomProfileScreen(
                 ))
             }
             TelegramIdentitySummary(session)
-            TextButton(
+            TelegramDestructiveButton(
+                text = stringResource(R.string.bloom_delete_account),
                 onClick = { confirmDelete = true },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Outlined.DeleteOutline, null, tint = MaterialTheme.colorScheme.error)
-                Text(
-                    stringResource(R.string.bloom_delete_profile),
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(start = 8.dp)
-                )
-            }
+                icon = Icons.Outlined.DeleteOutline
+            )
             Spacer(Modifier.height(24.dp))
         }
     }
 
-    if (confirmDelete) AlertDialog(
-        onDismissRequest = { confirmDelete = false },
-        title = { Text(stringResource(R.string.bloom_delete_title)) },
-        text = { Text(stringResource(R.string.bloom_delete_confirmation)) },
-        confirmButton = {
-            TextButton(onClick = { confirmDelete = false; onDelete() }) {
-                Text(stringResource(R.string.bloom_delete_profile), color = MaterialTheme.colorScheme.error)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.cancel)) }
-        }
+    if (confirmDelete) TelegramConfirmationDialog(
+        title = stringResource(R.string.bloom_delete_title),
+        message = stringResource(R.string.bloom_delete_confirmation),
+        confirmText = stringResource(R.string.bloom_delete_account),
+        dismissText = stringResource(R.string.cancel),
+        onConfirm = { confirmDelete = false; onDelete() },
+        onDismiss = { confirmDelete = false },
+        destructive = true
     )
-    if (confirmLogout) AlertDialog(
-        onDismissRequest = { confirmLogout = false },
-        title = { Text(stringResource(R.string.logout_title)) },
-        text = { Text(stringResource(R.string.logout_confirmation)) },
-        confirmButton = {
-            TextButton(onClick = { confirmLogout = false; onLogout() }) {
-                Text(stringResource(R.string.logout_title))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = { confirmLogout = false }) { Text(stringResource(R.string.cancel)) }
-        }
+    if (confirmLogout) TelegramConfirmationDialog(
+        title = stringResource(R.string.logout_title),
+        message = stringResource(R.string.logout_confirmation),
+        confirmText = stringResource(R.string.logout_title),
+        dismissText = stringResource(R.string.cancel),
+        onConfirm = { confirmLogout = false; onLogout() },
+        onDismiss = { confirmLogout = false },
+        destructive = true
     )
 }
 

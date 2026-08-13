@@ -216,10 +216,7 @@ export const createDatabase = (config) => {
   const completeOnboarding = database.prepare(`
     UPDATE app_users SET onboarding_state = 'PROFILE_COMPLETED', updated_at = ? WHERE id = ?
   `);
-  const deleteUserProfile = database.prepare('DELETE FROM app_profiles WHERE user_id = ?');
-  const requireOnboarding = database.prepare(`
-    UPDATE app_users SET onboarding_state = 'PROFILE_REQUIRED', updated_at = ? WHERE id = ?
-  `);
+  const deleteUserAccount = database.prepare('DELETE FROM app_users WHERE id = ?');
   const cleanupSessions = database.prepare(`
     DELETE FROM app_sessions WHERE expires_at <= ? OR (revoked_at IS NOT NULL AND revoked_at < ?)
   `);
@@ -283,11 +280,7 @@ export const createDatabase = (config) => {
     return readAccount(selectAccountWithProfile.get(userId));
   });
 
-  const deleteProfile = transaction((userId) => {
-    deleteUserProfile.run(userId);
-    requireOnboarding.run(Date.now(), userId);
-    return readAccount(selectAccountWithProfile.get(userId));
-  });
+  const deleteAccount = transaction((userId) => deleteUserAccount.run(userId).changes === 1);
 
   return {
     path: databasePath,
@@ -308,7 +301,7 @@ export const createDatabase = (config) => {
       return readAccount(selectAccountWithProfile.get(userId));
     },
     saveProfile,
-    deleteProfile,
+    deleteAccount,
     disableAccount(userId) {
       disableUser.run(Date.now(), userId);
     },

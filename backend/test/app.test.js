@@ -50,7 +50,7 @@ const login = async (baseUrl) => {
   return { response, body: await response.json() };
 };
 
-test('new login creates an account, profile PUT is idempotent, and returning login restores it', async (context) => {
+test('new login creates an account, profile PUT is idempotent, and account deletion is final', async (context) => {
   let currentProfile = telegramProfile();
   const { baseUrl } = await startServer(context, async () => currentProfile);
 
@@ -105,23 +105,19 @@ test('new login creates an account, profile PUT is idempotent, and returning log
   assert.equal(session.status, 200);
   assert.equal((await session.json()).profile.displayName, 'Bloom Demo');
 
-  const deleted = await fetch(`${baseUrl}/me/profile`, {
+  const deleted = await fetch(`${baseUrl}/me/account`, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${returning.body.sessionToken}` }
   });
-  assert.equal(deleted.status, 200);
-  const deletedBody = await deleted.json();
-  assert.equal(deletedBody.profile, null);
-  assert.equal(deletedBody.account.onboardingState, 'PROFILE_REQUIRED');
-
-  const logout = await fetch(`${baseUrl}/auth/session`, {
-    method: 'DELETE',
-    headers: { Authorization: `Bearer ${returning.body.sessionToken}` }
-  });
-  assert.equal(logout.status, 204);
+  assert.equal(deleted.status, 204);
   assert.equal((await fetch(`${baseUrl}/auth/session`, {
     headers: { Authorization: `Bearer ${returning.body.sessionToken}` }
   })).status, 401);
+
+  const registeredAgain = await login(baseUrl);
+  assert.notEqual(registeredAgain.body.account.id, first.body.account.id);
+  assert.equal(registeredAgain.body.account.onboardingState, 'PROFILE_REQUIRED');
+  assert.equal(registeredAgain.body.profile, null);
 });
 
 test('profile validation and session authentication return typed public errors', async (context) => {
@@ -149,9 +145,9 @@ test('Backend starts without Telegram configuration and reports setup mode', asy
   assert.equal(healthResponse.status, 200);
   assert.deepEqual(await healthResponse.json(), {
     status: 'ready', database: 'connected', telegram: 'configuration_required',
-    apiVersion: 3, revision: 'development'
+    apiVersion: 4, revision: 'development'
   });
-  assert.equal(healthResponse.headers.get('x-telegram-bloom-api-version'), '3');
+  assert.equal(healthResponse.headers.get('x-telegram-bloom-api-version'), '4');
   const response = await fetch(`${baseUrl}/auth/telegram`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ idToken: 'x'.repeat(40) })

@@ -58,11 +58,13 @@ class TelegramAuthApiDataSourceImpl(
         }
     ) { json -> parseAuthenticationResult(json, accessToken) }
 
-    override suspend fun deleteProfile(accessToken: String): AuthenticationResult = request(
-        path = "/me/profile",
-        method = "DELETE",
-        accessToken = accessToken
-    ) { json -> parseAuthenticationResult(json, accessToken) }
+    override suspend fun deleteAccount(accessToken: String) {
+        request(
+            path = "/me/account",
+            method = "DELETE",
+            accessToken = accessToken
+        ) { Unit }
+    }
 
     override suspend fun revokeSession(accessToken: String) {
         request(path = "/auth/session", method = "DELETE", accessToken = accessToken) { Unit }
@@ -182,7 +184,7 @@ class TelegramAuthApiDataSourceImpl(
 }
 
 private const val API_VERSION_HEADER = "X-Telegram-Bloom-Api-Version"
-private const val REQUIRED_API_VERSION = 3
+private const val REQUIRED_API_VERSION = 4
 
 private fun JSONObject.optionalString(key: String): String? =
     optString(key).takeIf { it.isNotBlank() && it != JSONObject.NULL.toString() }
