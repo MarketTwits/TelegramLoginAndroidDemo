@@ -15,7 +15,9 @@ const PROFILE_TOPICS = new Set([
   'ANDROID', 'BACKEND', 'DESIGN', 'SECURITY', 'OPEN_SOURCE', 'AI', 'PRODUCT', 'TELEGRAM', 'OTHER'
 ]);
 const AVATAR_SOURCES = new Set(['TELEGRAM', 'BLOOM']);
-const API_VERSION = 2;
+const PROFILE_EMOJIS = new Set(['🌱', '🚀', '💡', '🛠️', '✨']);
+const API_VERSION = 3;
+const APP_REVISION = process.env.APP_REVISION?.trim() || 'development';
 
 const accountResponse = (account) => ({
   id: account.id,
@@ -42,6 +44,7 @@ const profileResponse = (profile) => profile ? ({
   intent: profile.intent,
   topics: profile.topics,
   avatarSource: profile.avatar_source,
+  emoji: profile.emoji,
   visualSeed: profile.visual_seed,
   createdAt: profile.created_at.toISOString(),
   updatedAt: profile.updated_at.toISOString()
@@ -72,9 +75,13 @@ const profileDraft = (body) => {
   if (displayName.length < 1 || displayName.length > 80) return null;
   if (headline.length < 1 || headline.length > 120) return null;
   if (!PROFILE_INTENTS.has(body?.intent) || !AVATAR_SOURCES.has(body?.avatarSource)) return null;
+  if (!PROFILE_EMOJIS.has(body?.emoji)) return null;
   if (topics.length < 1 || topics.length > 3 || new Set(topics).size !== topics.length) return null;
   if (!topics.every((topic) => PROFILE_TOPICS.has(topic))) return null;
-  return { displayName, headline, intent: body.intent, topics, avatarSource: body.avatarSource };
+  return {
+    displayName, headline, intent: body.intent, topics,
+    avatarSource: body.avatarSource, emoji: body.emoji
+  };
 };
 
 export const createApp = ({ config, database, verifyTelegramToken }) => {
@@ -117,7 +124,8 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
       status: 'ready',
       database: 'connected',
       telegram: config.telegramConfigured ? 'configured' : 'configuration_required',
-      apiVersion: API_VERSION
+      apiVersion: API_VERSION,
+      revision: APP_REVISION
     });
   }));
 
@@ -186,6 +194,18 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
       session.profile?.visual_seed ?? crypto.randomBytes(16).toString('hex')
     );
     response.set('Cache-Control', 'no-store').json(authenticationStateResponse(state, session.expiresAt));
+  }));
+
+  app.delete('/me/profile', asyncRoute(async (request, response) => {
+    const session = await authenticatedSession(database, request);
+    if (!session) {
+      return response.status(401).json({ code: 'SESSION_INVALID', message: 'Session is missing or expired' });
+    }
+    if (rejectDisabledAccount(session, response)) return;
+    const state = await database.deleteProfile(session.account.id);
+    response.set('Cache-Control', 'no-store').json(
+      authenticationStateResponse(state, session.expiresAt)
+    );
   }));
 
   app.delete('/auth/session', asyncRoute(async (request, response) => {

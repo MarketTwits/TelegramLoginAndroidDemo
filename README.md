@@ -11,9 +11,11 @@ application owns a separate editable signal profile.
 ## Telegram Bloom flow
 
 - First Telegram sign-in creates one internal account keyed only by the stable
-  Telegram `sub` claim and routes to a one-screen profile setup.
+  Telegram `sub` claim and routes to a compact Telegram-like profile setup.
 - The service stores display name, current intent, headline, up to three topics,
-  avatar choice, membership number, and a stable generated Bloom visual.
+  one of five editable profile emoji, and a membership number.
+- After first profile creation, a short three-page introduction explains the
+  service profile, separate Telegram identity, and editable signal.
 - Returning sign-ins refresh only Telegram identity metadata. They never
   overwrite the application-owned profile.
 - The encrypted Android cache restores completed profiles or interrupted drafts
@@ -21,6 +23,8 @@ application owns a separate editable signal profile.
   while offline.
 - Sign-out revokes the server session and clears the local encrypted cache while
   preserving the account and profile in SQLite.
+- Profile deletion removes only the application-owned profile. The internal
+  account, Telegram connection, and current application session remain active.
 
 The complete phone number is private identity metadata. API and profile UI only
 expose whether Telegram verified it.
@@ -88,7 +92,10 @@ All authenticated endpoints use `Authorization: Bearer <sessionToken>`.
   and optional service profile.
 - `PUT /me/profile` creates or idempotently updates the service profile. Valid
   intents are `BUILDING`, `HELPING`, and `EXPLORING`; one to three supported
-  topics are required; headline length is 1–120 characters.
+  topics are required; headline length is 1–120 characters; emoji must be one
+  of `🌱`, `🚀`, `💡`, `🛠️`, or `✨`.
+- `DELETE /me/profile` removes the service profile and returns the same account
+  in the `PROFILE_REQUIRED` onboarding state without revoking its session.
 - `DELETE /auth/session` revokes the current application session.
 - `GET /api/health/live` and `GET /api/health/ready` provide container health.
 
@@ -99,6 +106,57 @@ cd backend && npm test
 cd .. && ./gradlew testDebugUnitTest assembleDebug
 docker compose config
 ```
+
+## GitHub Actions deployment
+
+The workflow in `.github/workflows/ci-deploy.yml` runs backend tests, builds the
+production Docker image, runs Android unit tests and lint, and deploys only an
+exact tested commit from `main`. Production deployments are serialized and
+verified through both the server-local and public readiness endpoints. If the
+new container starts but does not become ready, the server rebuilds the previous
+revision. The readiness response includes the exact deployed Git commit in its
+`revision` field.
+
+Create a GitHub environment named `production`, restrict its deployment branch
+to `main`, and keep all host identity, network coordinates, filesystem paths,
+and health endpoints exclusively in encrypted Environment Secrets:
+
+- `DEPLOY_HOST`, `DEPLOY_USER`, and `DEPLOY_PORT`
+- `DEPLOY_APP_DIRECTORY` and `DEPLOY_STACK_DIRECTORY`
+- `DEPLOY_LOCAL_HEALTH_URL` and `PRODUCTION_HEALTH_URL`
+- `DEPLOY_SSH_PRIVATE_KEY`: the complete private deployment key
+- `DEPLOY_KNOWN_HOSTS`: the independently verified SSH host-key line
+
+Add the repository variable `PACKAGES_USERNAME` with the GitHub username that
+owns the package token, and the repository secret `PACKAGES_READ_TOKEN` with a
+classic GitHub PAT limited to `read:packages`. The Android CI job uses these only
+to resolve the official Telegram Login SDK from GitHub Packages.
+
+One-time server preparation uses values known only to the operator:
+
+```bash
+sudo usermod -aG docker DEPLOY_USER
+sudo install -d -o DEPLOY_USER -g DEPLOY_USER -m 700 /home/DEPLOY_USER/.ssh
+sudo -u DEPLOY_USER touch /home/DEPLOY_USER/.ssh/authorized_keys
+sudo chmod 600 /home/DEPLOY_USER/.ssh/authorized_keys
+```
+
+Append the public half of the dedicated deployment key to
+the deployment user's `authorized_keys`, then start a new SSH session so Docker
+group membership is applied. Confirm that deployment can run without a password:
+
+```bash
+git -C "$DEPLOY_APP_DIRECTORY" fetch origin main
+docker compose -f "$DEPLOY_STACK_DIRECTORY/compose.yml" config --quiet
+test -f "$DEPLOY_STACK_DIRECTORY/.env"
+curl --fail "$DEPLOY_LOCAL_HEALTH_URL"
+```
+
+The production `TELEGRAM_CLIENT_ID` remains only in the server-side stack
+`.env`; it is not copied into GitHub.
+Before storing `DEPLOY_KNOWN_HOSTS`, compare `ssh-keyscan` output with the
+fingerprint printed directly on the server by
+`sudo ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`.
 
 ## Network diagnostics
 

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
 const SQLITE_BUSY_TIMEOUT_MS = 5_000;
-const DATABASE_SCHEMA_VERSION = 2;
+const DATABASE_SCHEMA_VERSION = 3;
 const REVOKED_SESSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_ACTIVE_SESSIONS_PER_USER = 5;
 
@@ -62,6 +62,7 @@ const schema = `
     intent TEXT NOT NULL CHECK (intent IN ('BUILDING', 'HELPING', 'EXPLORING')),
     topics_json TEXT NOT NULL,
     avatar_source TEXT NOT NULL CHECK (avatar_source IN ('TELEGRAM', 'BLOOM')),
+    emoji TEXT NOT NULL DEFAULT '🌱',
     visual_seed TEXT NOT NULL,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
@@ -94,6 +95,13 @@ const migrateLegacyUsers = (database) => {
   `);
 };
 
+const migrateLegacyProfiles = (database) => {
+  const columns = new Set(database.prepare('PRAGMA table_info(app_profiles)').all().map((row) => row.name));
+  if (columns.size > 0 && !columns.has('emoji')) {
+    database.exec("ALTER TABLE app_profiles ADD COLUMN emoji TEXT NOT NULL DEFAULT '🌱'");
+  }
+};
+
 const normalizeUserRow = (row) => row ? ({
   ...row,
   phone_verified: row.phone_verified === 1,
@@ -111,6 +119,7 @@ const normalizeProfileRow = (row) => row?.profile_id ? ({
   intent: row.intent,
   topics: JSON.parse(row.topics_json),
   avatar_source: row.avatar_source,
+  emoji: row.emoji,
   visual_seed: row.visual_seed,
   created_at: new Date(row.profile_created_at),
   updated_at: new Date(row.profile_updated_at)
@@ -133,6 +142,7 @@ export const createDatabase = (config) => {
   database.exec(baseUserSchema);
   migrateLegacyUsers(database);
   database.exec(schema);
+  migrateLegacyProfiles(database);
 
   const selectUserBySubject = database.prepare(
     'SELECT * FROM app_users WHERE telegram_subject = ?'
@@ -171,7 +181,7 @@ export const createDatabase = (config) => {
   const accountProfileProjection = `
     SELECT account.*, session.expires_at,
            profile.id AS profile_id, profile.display_name, profile.headline,
-           profile.intent, profile.topics_json, profile.avatar_source, profile.visual_seed,
+           profile.intent, profile.topics_json, profile.avatar_source, profile.emoji, profile.visual_seed,
            profile.created_at AS profile_created_at, profile.updated_at AS profile_updated_at
     FROM app_sessions AS session
     JOIN app_users AS account ON account.id = session.user_id
@@ -183,7 +193,7 @@ export const createDatabase = (config) => {
   const selectAccountWithProfile = database.prepare(`
     SELECT account.*, NULL AS expires_at,
            profile.id AS profile_id, profile.display_name, profile.headline,
-           profile.intent, profile.topics_json, profile.avatar_source, profile.visual_seed,
+           profile.intent, profile.topics_json, profile.avatar_source, profile.emoji, profile.visual_seed,
            profile.created_at AS profile_created_at, profile.updated_at AS profile_updated_at
     FROM app_users AS account
     LEFT JOIN app_profiles AS profile ON profile.user_id = account.id
@@ -192,18 +202,23 @@ export const createDatabase = (config) => {
   const upsertProfile = database.prepare(`
     INSERT INTO app_profiles (
       id, user_id, display_name, headline, intent, topics_json, avatar_source,
-      visual_seed, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      emoji, visual_seed, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT (user_id) DO UPDATE SET
       display_name = excluded.display_name,
       headline = excluded.headline,
       intent = excluded.intent,
       topics_json = excluded.topics_json,
       avatar_source = excluded.avatar_source,
+      emoji = excluded.emoji,
       updated_at = excluded.updated_at
   `);
   const completeOnboarding = database.prepare(`
     UPDATE app_users SET onboarding_state = 'PROFILE_COMPLETED', updated_at = ? WHERE id = ?
+  `);
+  const deleteUserProfile = database.prepare('DELETE FROM app_profiles WHERE user_id = ?');
+  const requireOnboarding = database.prepare(`
+    UPDATE app_users SET onboarding_state = 'PROFILE_REQUIRED', updated_at = ? WHERE id = ?
   `);
   const cleanupSessions = database.prepare(`
     DELETE FROM app_sessions WHERE expires_at <= ? OR (revoked_at IS NOT NULL AND revoked_at < ?)
@@ -262,9 +277,15 @@ export const createDatabase = (config) => {
     const now = Date.now();
     upsertProfile.run(
       profileId, userId, draft.displayName, draft.headline, draft.intent,
-      JSON.stringify(draft.topics), draft.avatarSource, visualSeed, now, now
+      JSON.stringify(draft.topics), draft.avatarSource, draft.emoji ?? '🌱', visualSeed, now, now
     );
     completeOnboarding.run(now, userId);
+    return readAccount(selectAccountWithProfile.get(userId));
+  });
+
+  const deleteProfile = transaction((userId) => {
+    deleteUserProfile.run(userId);
+    requireOnboarding.run(Date.now(), userId);
     return readAccount(selectAccountWithProfile.get(userId));
   });
 
@@ -273,6 +294,7 @@ export const createDatabase = (config) => {
     migrate() {
       migrateLegacyUsers(database);
       database.exec(schema);
+      migrateLegacyProfiles(database);
       database.exec(`PRAGMA user_version = ${DATABASE_SCHEMA_VERSION}`);
     },
     ping: () => database.prepare('SELECT 1 AS ok').get(),
@@ -286,6 +308,7 @@ export const createDatabase = (config) => {
       return readAccount(selectAccountWithProfile.get(userId));
     },
     saveProfile,
+    deleteProfile,
     disableAccount(userId) {
       disableUser.run(Date.now(), userId);
     },

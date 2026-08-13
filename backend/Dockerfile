@@ -4,7 +4,9 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
 FROM node:22-alpine AS runtime
+ARG BUILD_REVISION=development
 ENV NODE_ENV=production
+ENV APP_REVISION=$BUILD_REVISION
 WORKDIR /app
 RUN apk add --no-cache tini
 RUN mkdir -p /app/data && chown node:node /app/data && chmod 700 /app/data

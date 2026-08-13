@@ -132,10 +132,8 @@
     <string name="bloom_topic_product">Product</string>
     <string name="bloom_topic_other">Other</string>
     <string name="bloom_avatar_title">Profile visual</string>
-    <string name="bloom_telegram_photo">Telegram photo</string>
-    <string name="bloom_my_bloom">My Bloom</string>
-    <string name="bloom_telegram_selected">Your latest Telegram photo will be used.</string>
-    <string name="bloom_service_selected">Your stable service-owned Bloom will be used.</string>
+    <string name="bloom_emoji_hint">Choose an emoji that feels like you. You can change it anytime.</string>
+    <string name="bloom_about_you">About you</string>
     <string name="bloom_create_profile">Create my profile</string>
     <string name="bloom_save_profile">Save profile</string>
     <string name="bloom_current_signal">Current signal</string>
@@ -153,8 +151,19 @@
     <string name="bloom_phone_verified">Phone verified by Telegram</string>
     <string name="bloom_identity_provider">Identity provided by Telegram</string>
     <string name="bloom_edit_profile">Edit profile</string>
-    <string name="bloom_visual_description">Personal Bloom visual</string>
+    <string name="bloom_delete_profile">Delete service profile</string>
+    <string name="bloom_delete_title">Delete your profile?</string>
+    <string name="bloom_delete_confirmation">Your Bloom profile will be removed. Your Telegram connection and account will stay active, and you can create a new profile right away.</string>
+    <string name="bloom_welcome_ready">Your profile is ready</string>
+    <string name="bloom_welcome_ready_text">Your chosen emoji and signal now make this space feel like yours.</string>
+    <string name="bloom_welcome_identity">Telegram stays connected</string>
+    <string name="bloom_welcome_identity_text">Telegram verifies who you are. Your editable Bloom profile remains separate.</string>
+    <string name="bloom_welcome_signal">Share what matters now</string>
+    <string name="bloom_welcome_signal_text">Update your signal and topics whenever your focus changes.</string>
+    <string name="bloom_welcome_next">Next</string>
+    <string name="bloom_welcome_start">Open my profile</string>
     <string name="bloom_offline">Offline — showing securely cached profile data.</string>
     <string name="error_profile_save">Could not save the profile. Your changes are still here.</string>
+    <string name="error_profile_delete">Could not delete the profile. Try again.</string>
     <string name="session_expired">Your session has ended. Sign in again.</string>
 </resources>

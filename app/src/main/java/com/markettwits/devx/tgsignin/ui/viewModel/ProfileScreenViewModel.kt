@@ -45,6 +45,18 @@ class ProfileScreenViewModel(
         viewModelScope.launch { authenticationRepository.cancelProfileEditing() }
     }
 
+    fun completeWelcome() {
+        viewModelScope.launch { authenticationRepository.completeProfileWelcome() }
+    }
+
+    fun deleteProfile() {
+        if (actionJob?.isActive == true) return
+        actionJob = viewModelScope.launch {
+            authenticationRepository.deleteProfile()
+                .onFailure { _messages.emit(R.string.error_profile_delete) }
+        }
+    }
+
     fun logout() {
         if (actionJob?.isActive == true) return
         actionJob = viewModelScope.launch {

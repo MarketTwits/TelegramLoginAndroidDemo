@@ -69,7 +69,8 @@ test('new login creates an account, profile PUT is idempotent, and returning log
     headline: 'Building a privacy-first Android application',
     intent: 'BUILDING',
     topics: ['ANDROID', 'SECURITY'],
-    avatarSource: 'BLOOM'
+    avatarSource: 'BLOOM',
+    emoji: '🚀'
   };
   const save = () => fetch(`${baseUrl}/me/profile`, {
     method: 'PUT',
@@ -104,6 +105,15 @@ test('new login creates an account, profile PUT is idempotent, and returning log
   assert.equal(session.status, 200);
   assert.equal((await session.json()).profile.displayName, 'Bloom Demo');
 
+  const deleted = await fetch(`${baseUrl}/me/profile`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${returning.body.sessionToken}` }
+  });
+  assert.equal(deleted.status, 200);
+  const deletedBody = await deleted.json();
+  assert.equal(deletedBody.profile, null);
+  assert.equal(deletedBody.account.onboardingState, 'PROFILE_REQUIRED');
+
   const logout = await fetch(`${baseUrl}/auth/session`, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${returning.body.sessionToken}` }
@@ -120,7 +130,10 @@ test('profile validation and session authentication return typed public errors',
   const invalid = await fetch(`${baseUrl}/me/profile`, {
     method: 'PUT',
     headers: { Authorization: `Bearer ${body.sessionToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ displayName: '', headline: 'x', intent: 'UNKNOWN', topics: [], avatarSource: 'BLOOM' })
+    body: JSON.stringify({
+      displayName: '', headline: 'x', intent: 'UNKNOWN', topics: [],
+      avatarSource: 'BLOOM', emoji: '🌱'
+    })
   });
   assert.equal(invalid.status, 422);
   assert.equal((await invalid.json()).code, 'INVALID_PROFILE');
@@ -135,9 +148,10 @@ test('Backend starts without Telegram configuration and reports setup mode', asy
   const healthResponse = await fetch(`${baseUrl}/api/health/ready`);
   assert.equal(healthResponse.status, 200);
   assert.deepEqual(await healthResponse.json(), {
-    status: 'ready', database: 'connected', telegram: 'configuration_required', apiVersion: 2
+    status: 'ready', database: 'connected', telegram: 'configuration_required',
+    apiVersion: 3, revision: 'development'
   });
-  assert.equal(healthResponse.headers.get('x-telegram-bloom-api-version'), '2');
+  assert.equal(healthResponse.headers.get('x-telegram-bloom-api-version'), '3');
   const response = await fetch(`${baseUrl}/auth/telegram`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ idToken: 'x'.repeat(40) })
@@ -164,7 +178,7 @@ test('disabled account cannot restore, edit, or create another successful login'
     },
     body: JSON.stringify({
       displayName: 'Disabled', headline: 'Must not be saved', intent: 'BUILDING',
-      topics: ['ANDROID'], avatarSource: 'BLOOM'
+      topics: ['ANDROID'], avatarSource: 'BLOOM', emoji: '🌱'
     })
   });
   assert.equal(profileResponse.status, 403);
