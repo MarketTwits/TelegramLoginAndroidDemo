@@ -9,48 +9,54 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.Composable
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.unit.dp
-import org.koin.androidx.viewmodel.ext.android.viewModel
-import org.koin.android.ext.android.inject
 import com.markettwits.devx.tgsignin.data.model.RootAuthenticationState
 import com.markettwits.devx.tgsignin.data.telegram.TelegramLoginConfig
 import com.markettwits.devx.tgsignin.ui.component.AppearanceToggleButton
 import com.markettwits.devx.tgsignin.ui.component.ConfigurationInfoButton
 import com.markettwits.devx.tgsignin.ui.component.TelegramConfirmationDialog
 import com.markettwits.devx.tgsignin.ui.component.TelegramIconAction
+import com.markettwits.devx.tgsignin.ui.component.TelegramSnackbarHost
+import com.markettwits.devx.tgsignin.ui.component.showTelegramSnackbar
 import com.markettwits.devx.tgsignin.ui.model.AppLinkVerificationUiState
 import com.markettwits.devx.tgsignin.ui.model.BackendReadinessUiState
+import com.markettwits.devx.tgsignin.ui.screen.BloomProfileScreen
 import com.markettwits.devx.tgsignin.ui.screen.ConfigurationDialog
 import com.markettwits.devx.tgsignin.ui.screen.LoginScreen
-import com.markettwits.devx.tgsignin.ui.screen.BloomProfileScreen
 import com.markettwits.devx.tgsignin.ui.screen.ProfileSetupScreen
 import com.markettwits.devx.tgsignin.ui.theme.AppThemeAnimationScope
 import com.markettwits.devx.tgsignin.ui.theme.TelegramLoginDemoTheme
 import com.markettwits.devx.tgsignin.ui.theme.rememberAppThemeAnimationState
-import com.markettwits.devx.tgsignin.ui.viewModel.AppearanceViewModel
 import com.markettwits.devx.tgsignin.ui.viewModel.AppLinkVerificationViewModel
+import com.markettwits.devx.tgsignin.ui.viewModel.AppearanceViewModel
 import com.markettwits.devx.tgsignin.ui.viewModel.BackendReadinessViewModel
 import com.markettwits.devx.tgsignin.ui.viewModel.LoginScreenViewModel
 import com.markettwits.devx.tgsignin.ui.viewModel.ProfileScreenViewModel
+import kotlinx.coroutines.flow.collectLatest
+import org.koin.android.ext.android.inject
+import org.koin.androidx.viewmodel.ext.android.viewModel
 
 class MainActivity : ComponentActivity() {
     private val loginViewModel: LoginScreenViewModel by viewModel()
@@ -73,6 +79,8 @@ class MainActivity : ComponentActivity() {
             val appLinkVerificationState by appLinkVerificationViewModel.uiState.collectAsState()
             var showLoginConfiguration by rememberSaveable { mutableStateOf(false) }
             var showLogoutConfirmation by rememberSaveable { mutableStateOf(false) }
+            val snackbarHostState = remember { SnackbarHostState() }
+            val resources = LocalResources.current
             val systemDark = isSystemInDarkTheme()
             val expressiveAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
             val animationState = rememberAppThemeAnimationState(
@@ -81,6 +89,23 @@ class MainActivity : ComponentActivity() {
                 useDynamicContent = true
             )
             val animatedThemeMode = animationState.uiMode
+            val snackbarBottomContentPadding = when (authenticationState) {
+                is RootAuthenticationState.Unauthenticated,
+                is RootAuthenticationState.RecoverableError -> LOGIN_BOTTOM_ACTION_CLEARANCE
+
+                is RootAuthenticationState.OnboardingRequired -> SETUP_BOTTOM_ACTION_CLEARANCE
+                is RootAuthenticationState.Authenticated,
+                RootAuthenticationState.Loading -> 0.dp
+            }
+
+            androidx.compose.runtime.LaunchedEffect(profileViewModel.messages, resources) {
+                profileViewModel.messages.collectLatest { messageRes ->
+                    snackbarHostState.showTelegramSnackbar(
+                        message = resources.getString(messageRes),
+                        isError = true
+                    )
+                }
+            }
 
             Box(Modifier.fillMaxSize()) {
                 AppThemeAnimationScope(state = animationState) {
@@ -92,7 +117,6 @@ class MainActivity : ComponentActivity() {
                                     BloomProfileScreen(
                                         session = state.session,
                                         isOffline = state.isOffline,
-                                        messages = profileViewModel.messages,
                                         onBadgeChanged = profileViewModel::updateBadge,
                                         onDelete = profileViewModel::deleteAccount
                                     )
@@ -103,7 +127,6 @@ class MainActivity : ComponentActivity() {
                                         draft = state.draft,
                                         isSaving = isSavingProfile,
                                         isOffline = state.isOffline,
-                                        messages = profileViewModel.messages,
                                         onDraftChanged = profileViewModel::updateDraft,
                                         onSave = profileViewModel::saveProfile,
                                         onCancel = profileViewModel::cancelProfileEditing
@@ -114,6 +137,7 @@ class MainActivity : ComponentActivity() {
                                 is RootAuthenticationState.RecoverableError -> {
                                     LoginScreen(
                                         uiState = loginUiState,
+                                        snackbarHostState = snackbarHostState,
                                         sessionExpired = (state as? RootAuthenticationState.Unauthenticated)
                                             ?.sessionExpired == true,
                                         onScopesChanged = loginViewModel::updateScopes,
@@ -168,6 +192,11 @@ class MainActivity : ComponentActivity() {
                             .statusBarsPadding()
                             .padding(top = 6.dp, end = 8.dp)
                     )
+                    TelegramSnackbarHost(
+                        hostState = snackbarHostState,
+                        bottomContentPadding = snackbarBottomContentPadding,
+                        modifier = Modifier.align(Alignment.BottomCenter)
+                    )
                     if (showLoginConfiguration) {
                         ConfigurationDialog(
                             telegramConfig = telegramLoginConfig,
@@ -200,6 +229,8 @@ class MainActivity : ComponentActivity() {
 
     private companion object {
         const val THEME_ANIMATION_DURATION_MS = 700
+        val LOGIN_BOTTOM_ACTION_CLEARANCE = 92.dp
+        val SETUP_BOTTOM_ACTION_CLEARANCE = 60.dp
     }
 
     override fun onNewIntent(intent: Intent) {

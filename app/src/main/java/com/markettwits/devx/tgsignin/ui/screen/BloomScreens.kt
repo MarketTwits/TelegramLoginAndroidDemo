@@ -40,8 +40,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -72,7 +70,6 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -110,10 +107,7 @@ import com.markettwits.devx.tgsignin.ui.component.TelegramDestructiveButton
 import com.markettwits.devx.tgsignin.ui.component.TelegramIconAction
 import com.markettwits.devx.tgsignin.ui.component.TelegramPrimaryButton
 import com.markettwits.devx.tgsignin.ui.component.TelegramSection
-import com.markettwits.devx.tgsignin.ui.component.TelegramSnackbar
 import com.markettwits.devx.tgsignin.ui.component.TelegramTextField
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -132,7 +126,6 @@ fun ProfileSetupScreen(
     draft: ProfileDraft,
     isSaving: Boolean,
     isOffline: Boolean,
-    messages: Flow<Int>,
     onDraftChanged: (ProfileDraft) -> Unit,
     onSave: (ProfileDraft) -> Unit,
     onCancel: () -> Unit
@@ -143,14 +136,9 @@ fun ProfileSetupScreen(
     val isEditing = session.profile != null
     val pagerState = rememberPagerState(pageCount = { SETUP_PAGE_COUNT })
     val scope = rememberCoroutineScope()
-    val snackbar = remember { SnackbarHostState() }
-    val resources = LocalResources.current
     var showPageError by rememberSaveable { mutableStateOf(false) }
     var topicLimitReached by rememberSaveable { mutableStateOf(false) }
 
-    LaunchedEffect(messages) {
-        messages.collectLatest { snackbar.showSnackbar(resources.getString(it)) }
-    }
     LaunchedEffect(pagerState.currentPage) { showPageError = false }
 
     fun goBack() {
@@ -164,12 +152,7 @@ fun ProfileSetupScreen(
     BackHandler(enabled = !isSaving && (isEditing || pagerState.currentPage > 0), onBack = ::goBack)
 
     Scaffold(
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        snackbarHost = {
-            SnackbarHost(snackbar) { data ->
-                TelegramSnackbar(message = data.visuals.message, isError = true)
-            }
-        }
+        contentWindowInsets = WindowInsets(0, 0, 0, 0)
     ) { padding ->
         Box(
             Modifier
@@ -523,7 +506,6 @@ private fun isSetupPageValid(page: Int, draft: ProfileDraft): Boolean = when (pa
 fun BloomProfileScreen(
     session: AuthenticationResult,
     isOffline: Boolean,
-    messages: Flow<Int>,
     onBadgeChanged: (String) -> Unit,
     onDelete: () -> Unit
 ) {
@@ -531,8 +513,6 @@ fun BloomProfileScreen(
     val badgeCatalog by badgeRepository.catalog.collectAsState()
     val badges = badgeCatalog?.badges.orEmpty()
     val profile = requireNotNull(session.profile)
-    val snackbar = remember { SnackbarHostState() }
-    val resources = LocalResources.current
     var confirmDelete by rememberSaveable { mutableStateOf(false) }
     var showBadgePicker by rememberSaveable { mutableStateOf(false) }
     var initialCollapseApplied by rememberSaveable { mutableStateOf(false) }
@@ -566,9 +546,6 @@ fun BloomProfileScreen(
         }
     }
 
-    LaunchedEffect(messages) {
-        messages.collectLatest { snackbar.showSnackbar(resources.getString(it)) }
-    }
     LaunchedEffect(scrollState, collapsedScrollPosition, initialCollapseApplied) {
         if (!initialCollapseApplied) {
             snapshotFlow { scrollState.maxValue }
@@ -602,12 +579,7 @@ fun BloomProfileScreen(
     }
 
     Scaffold(
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        snackbarHost = {
-            SnackbarHost(snackbar) { data ->
-                TelegramSnackbar(message = data.visuals.message, isError = true)
-            }
-        }
+        contentWindowInsets = WindowInsets(0, 0, 0, 0)
     ) { padding ->
         Box(
             Modifier

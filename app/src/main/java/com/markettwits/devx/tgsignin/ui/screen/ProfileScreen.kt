@@ -49,8 +49,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -62,9 +60,9 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -98,14 +96,6 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.SubcomposeAsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
-import java.security.MessageDigest
-import java.util.Locale
-import kotlin.math.roundToInt
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
 import com.markettwits.devx.tgsignin.BuildConfig
 import com.markettwits.devx.tgsignin.R
 import com.markettwits.devx.tgsignin.data.model.TelegramUser
@@ -113,9 +103,14 @@ import com.markettwits.devx.tgsignin.data.telegram.TelegramLoginConfig
 import com.markettwits.devx.tgsignin.ui.component.ConfigurationInfoButton
 import com.markettwits.devx.tgsignin.ui.component.TelegramConfirmationDialog
 import com.markettwits.devx.tgsignin.ui.component.TelegramDialog
-import com.markettwits.devx.tgsignin.ui.component.TelegramSnackbar
 import com.markettwits.devx.tgsignin.ui.model.AppLinkVerificationUiState
 import com.markettwits.devx.tgsignin.ui.model.BackendReadinessUiState
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import java.security.MessageDigest
+import java.util.Locale
+import kotlin.math.roundToInt
 
 @Composable
 @Suppress("unused")
@@ -124,7 +119,7 @@ fun ProfileScreen(
     telegramConfig: TelegramLoginConfig,
     backendReadinessState: BackendReadinessUiState,
     appLinkVerificationState: AppLinkVerificationUiState,
-    messages: Flow<Int>,
+    onMessage: (String) -> Unit,
     onLogout: () -> Unit,
     onRetryBackendReadiness: () -> Unit,
     onRetryAppLinkVerification: () -> Unit
@@ -141,7 +136,6 @@ fun ProfileScreen(
     val haptics = LocalHapticFeedback.current
     val clipboard = LocalClipboard.current
     val resources = LocalResources.current
-    val snackbarHostState = remember { SnackbarHostState() }
     val collapseProgress by remember(scrollState, collapseRangePx) {
         derivedStateOf {
             if (initialCollapseApplied) {
@@ -183,13 +177,6 @@ fun ProfileScreen(
         }
     }
 
-    LaunchedEffect(messages) {
-        messages.collectLatest { messageRes ->
-            snackbarHostState.currentSnackbarData?.dismiss()
-            snackbarHostState.showSnackbar(resources.getString(messageRes))
-        }
-    }
-
     LaunchedEffect(scrollState, collapsedScrollPosition) {
         snapshotFlow { scrollState.isScrollInProgress }
             .distinctUntilChanged()
@@ -225,10 +212,7 @@ fun ProfileScreen(
                             clipboard.setClipEntry(
                                 ClipEntry(ClipData.newPlainText(field.label, value))
                             )
-                            snackbarHostState.currentSnackbarData?.dismiss()
-                            snackbarHostState.showSnackbar(
-                                resources.getString(R.string.copied_message, field.label)
-                            )
+                            onMessage(resources.getString(R.string.copied_message, field.label))
                         }
                     }
                 }
@@ -281,16 +265,6 @@ fun ProfileScreen(
             )
         }
 
-        SnackbarHost(
-            hostState = snackbarHostState,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 16.dp)
-        ) { data ->
-            TelegramSnackbar(message = data.visuals.message)
-        }
     }
 
     if (showLogoutConfirmation) {
@@ -396,7 +370,9 @@ private fun ProfileHero(
         ) {
             RemoteAvatar(
                 user = user,
-                modifier = Modifier.fillMaxSize().clip(CircleShape),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape),
                 contentScale = ContentScale.Crop,
                 shimmer = true
             )
