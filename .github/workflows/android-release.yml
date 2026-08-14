@@ -1,0 +1,168 @@
+name: Publish Android release
+
+on:
+  workflow_dispatch:
+    inputs:
+      prerelease:
+        description: Mark the GitHub release as a pre-release
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: telegram-bloom-android-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build, verify, and publish signed APK
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment:
+      name: android-release
+    steps:
+      - name: Check out selected main revision
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Validate release secrets
+        shell: bash
+        env:
+          TELEGRAM_CLIENT_ID: ${{ secrets.TELEGRAM_CLIENT_ID }}
+          TELEGRAM_REDIRECT_HOST: ${{ secrets.TELEGRAM_REDIRECT_HOST }}
+          TELEGRAM_BACKEND_URL: ${{ secrets.TELEGRAM_BACKEND_URL }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_SIGNING_SHA256: ${{ secrets.ANDROID_SIGNING_SHA256 }}
+          GITHUB_USERNAME: ${{ vars.PACKAGES_USERNAME }}
+          GITHUB_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test -n "$TELEGRAM_CLIENT_ID"
+          test -n "$TELEGRAM_REDIRECT_HOST"
+          test -n "$TELEGRAM_BACKEND_URL"
+          test -n "$ANDROID_KEYSTORE_BASE64"
+          test -n "$ANDROID_KEYSTORE_PASSWORD"
+          test -n "$ANDROID_KEY_ALIAS"
+          test -n "$ANDROID_KEY_PASSWORD"
+          test -n "$ANDROID_SIGNING_SHA256"
+          test -n "$GITHUB_USERNAME"
+          test -n "$GITHUB_TOKEN"
+
+      - name: Restore signing keystore
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          keystore="$RUNNER_TEMP/android-release.keystore"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          chmod 600 "$keystore"
+          echo "ANDROID_KEYSTORE_FILE=$keystore" >> "$GITHUB_ENV"
+
+      - name: Validate keystore and alias
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          keytool -list \
+            -keystore "$ANDROID_KEYSTORE_FILE" \
+            -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+            -alias "$ANDROID_KEY_ALIAS" >/dev/null
+
+      - name: Test and build signed release APK
+        env:
+          TELEGRAM_CLIENT_ID: ${{ secrets.TELEGRAM_CLIENT_ID }}
+          TELEGRAM_REDIRECT_HOST: ${{ secrets.TELEGRAM_REDIRECT_HOST }}
+          TELEGRAM_BACKEND_URL: ${{ secrets.TELEGRAM_BACKEND_URL }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          GITHUB_USERNAME: ${{ vars.PACKAGES_USERNAME }}
+          GITHUB_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
+        run: ./gradlew testDebugUnitTest lintVitalRelease assembleRelease --no-daemon
+
+      - name: Locate and verify signed APK
+        id: apk
+        shell: bash
+        env:
+          ANDROID_SIGNING_SHA256: ${{ secrets.ANDROID_SIGNING_SHA256 }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mapfile -t apks < <(find app/build -type f -name '*release*.apk' | sort)
+          if [[ "${#apks[@]}" -ne 1 ]]; then
+            printf 'Expected exactly one release APK, found %s:\n' "${#apks[@]}" >&2
+            printf '%s\n' "${apks[@]}" >&2
+            exit 1
+          fi
+
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$apksigner"
+          "$apksigner" verify --verbose --print-certs "${apks[0]}"
+
+          actual_sha256="$("$apksigner" verify --print-certs "${apks[0]}" \
+            | sed -n -E 's/^.*certificate SHA-256 digest: //p' \
+            | head -n 1 \
+            | tr -d ':[:space:]' \
+            | tr '[:upper:]' '[:lower:]')"
+          expected_sha256="$(printf '%s' "$ANDROID_SIGNING_SHA256" \
+            | tr -d ':[:space:]' \
+            | tr '[:upper:]' '[:lower:]')"
+          [[ -n "$actual_sha256" && "$actual_sha256" == "$expected_sha256" ]]
+
+          metadata="app/build/outputs/apk/release/output-metadata.json"
+          test -f "$metadata"
+          version_name="$(jq -r '.elements[0].versionName' "$metadata")"
+          version_code="$(jq -r '.elements[0].versionCode' "$metadata")"
+          [[ "$version_name" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$version_code" =~ ^[1-9][0-9]*$ ]]
+
+          tag="$version_name"
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" >/dev/null 2>&1; then
+            echo "Tag $tag already exists." >&2
+            exit 1
+          fi
+
+          release_apk="$RUNNER_TEMP/TelegramLoginAndroidDemo-$version_name.apk"
+          cp "${apks[0]}" "$release_apk"
+          echo "path=$release_apk" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version_name=$version_name" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub release with generated changelog
+        shell: bash
+        env:
+          APK_PATH: ${{ steps.apk.outputs.path }}
+          RELEASE_TAG: ${{ steps.apk.outputs.tag }}
+          RELEASE_VERSION_NAME: ${{ steps.apk.outputs.version_name }}
+          PRERELEASE: ${{ inputs.prerelease }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          release_flags=()
+          if [[ "$PRERELEASE" == "true" ]]; then
+            release_flags+=(--prerelease)
+          fi
+
+          gh release create "$RELEASE_TAG" "$APK_PATH" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "TelegramLoginAndroidDemo $RELEASE_VERSION_NAME" \
+            --generate-notes \
+            "${release_flags[@]}"

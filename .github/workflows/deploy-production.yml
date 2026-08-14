@@ -1,85 +1,22 @@
-name: CI and production deploy
+name: Deploy production backend
 
 on:
-  pull_request:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: telegram-bloom-production
+  cancel-in-progress: false
 
 jobs:
-  backend:
-    name: Backend tests and image
-    runs-on: ubuntu-24.04
-    defaults:
-      run:
-        working-directory: backend
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: backend/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run backend tests
-        run: npm test
-
-      - name: Build production image
-        run: docker build --build-arg "BUILD_REVISION=$GITHUB_SHA" --tag telegram-bloom-backend:ci .
-
-  android:
-    name: Android tests and lint
-    runs-on: ubuntu-24.04
-    env:
-      # These are build-time placeholders. Production values are configured in the app release process.
-      TELEGRAM_CLIENT_ID: "000000000"
-      TELEGRAM_REDIRECT_HOST_DEBUG: ci-debug-login.tg.dev
-      TELEGRAM_REDIRECT_HOST_RELEASE: ci-release-login.tg.dev
-      TELEGRAM_BACKEND_URL: https://example.invalid
-      GITHUB_USERNAME: ${{ vars.PACKAGES_USERNAME }}
-      GITHUB_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-
-      - name: Set up Java
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: 21
-          cache: gradle
-
-      - name: Validate package credentials
-        run: |
-          test -n "$GITHUB_USERNAME"
-          test -n "$GITHUB_TOKEN"
-
-      - name: Run Android tests and lint
-        run: ./gradlew testDebugUnitTest lintDebug lintVitalRelease --no-daemon
-
   deploy:
-    name: Deploy production backend
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    needs: [backend, android]
+    name: Test and deploy selected main revision
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     environment:
       name: production
-    concurrency:
-      group: telegram-bloom-production
-      cancel-in-progress: false
     env:
       DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
       DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
@@ -91,8 +28,22 @@ jobs:
       DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
       DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
     steps:
-      - name: Check out repository
+      - name: Check out selected revision
         uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Test backend
+        working-directory: backend
+        run: |
+          npm ci
+          npm test
+          docker build --build-arg "BUILD_REVISION=$GITHUB_SHA" --tag telegram-bloom-backend:deploy-check .
 
       - name: Validate deployment configuration
         run: |
