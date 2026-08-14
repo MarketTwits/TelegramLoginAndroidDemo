@@ -13,6 +13,7 @@ import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -57,9 +58,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -694,7 +698,7 @@ private fun BloomProfileHero(
     val height = BLOOM_HERO_EXPANDED_HEIGHT -
         ((BLOOM_HERO_EXPANDED_HEIGHT - BLOOM_HERO_COLLAPSED_HEIGHT) * collapseProgress)
 
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
             .height(height)
@@ -702,14 +706,46 @@ private fun BloomProfileHero(
     ) {
         BloomBlurredAvatarBackground(identity)
         if (identity.pictureUrl != null) {
-            BloomRemoteAvatar(
-                identity = identity,
+            val progress = collapseProgress.coerceIn(0f, 1f)
+            val avatarWidth = maxWidth - ((maxWidth - BLOOM_HERO_AVATAR_SIZE) * progress)
+            val avatarHeight = BLOOM_HERO_EXPANDED_HEIGHT -
+                    ((BLOOM_HERO_EXPANDED_HEIGHT - BLOOM_HERO_AVATAR_SIZE) * progress)
+            val avatarShape = RoundedCornerShape(percent = (50f * progress).roundToInt())
+
+            Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer { alpha = 1f - collapseProgress },
-                contentScale = ContentScale.Crop,
-                shimmer = true
-            )
+                    .align(Alignment.Center)
+                    .size(avatarWidth, avatarHeight)
+                    .clip(avatarShape)
+            ) {
+                BloomRemoteAvatar(
+                    identity = identity,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                    shimmer = true
+                )
+                BloomAvatarVerticalEdgeBlur(
+                    identity = identity,
+                    expandedFraction = 1f - progress
+                )
+            }
+        } else {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(BLOOM_HERO_AVATAR_SIZE)
+                    .graphicsLayer { alpha = collapseProgress },
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primary
+            ) {
+                BloomAvatarPlaceholder(
+                    identity = identity,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(CircleShape),
+                    shimmer = false
+                )
+            }
         }
         Box(
             Modifier
@@ -722,28 +758,6 @@ private fun BloomProfileHero(
                     )
                 )
         )
-        Surface(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .size(112.dp)
-                .graphicsLayer {
-                    alpha = collapseProgress
-                    val scale = 0.82f + 0.18f * collapseProgress
-                    scaleX = scale
-                    scaleY = scale
-                },
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.primary
-        ) {
-            BloomRemoteAvatar(
-                identity = identity,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(CircleShape),
-                contentScale = ContentScale.Crop,
-                shimmer = true
-            )
-        }
         Box(
             modifier = Modifier
                 .matchParentSize()
@@ -901,6 +915,46 @@ private fun BloomProfileIdentity(
                 rowHeight + usernameGap
             )
         }
+    }
+}
+
+@Composable
+private fun BloomAvatarVerticalEdgeBlur(
+    identity: TelegramIdentity,
+    expandedFraction: Float
+) {
+    val progress = expandedFraction.coerceIn(0f, 1f)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                alpha = progress
+                compositingStrategy = CompositingStrategy.Offscreen
+            }
+            .drawWithContent {
+                drawContent()
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0f to Color.Black,
+                            0.1f to Color.Transparent,
+                            0.58f to Color.Transparent,
+                            0.82f to Color.Black.copy(alpha = 0.76f),
+                            1f to Color.Black
+                        )
+                    ),
+                    blendMode = BlendMode.DstIn
+                )
+            }
+    ) {
+        BloomRemoteAvatar(
+            identity = identity,
+            modifier = Modifier
+                .fillMaxSize()
+                .blur(BLOOM_AVATAR_EDGE_BLUR_RADIUS * progress),
+            contentScale = ContentScale.Crop,
+            shimmer = false
+        )
     }
 }
 
@@ -1125,3 +1179,5 @@ private fun formatDate(value: String): String = runCatching {
 
 private val BLOOM_HERO_EXPANDED_HEIGHT = 500.dp
 private val BLOOM_HERO_COLLAPSED_HEIGHT = 280.dp
+private val BLOOM_HERO_AVATAR_SIZE = 112.dp
+private val BLOOM_AVATAR_EDGE_BLUR_RADIUS = 28.dp
