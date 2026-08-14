@@ -2,73 +2,78 @@ package com.markettwits.devx.tgsignin.ui.component
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.core.tween
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-
-@Composable
-fun TelegramTopBar(
-    title: String,
-    modifier: Modifier = Modifier,
-    navigation: (@Composable () -> Unit)? = null,
-    actions: @Composable RowScope.() -> Unit = {}
-) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surface,
-        shadowElevation = 1.dp
-    ) {
-        Row(
-            modifier = Modifier.statusBarsPadding().height(56.dp).padding(horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            navigation?.invoke()
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
-            )
-            actions()
-        }
-    }
-}
+import kotlinx.coroutines.delay
+import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
 fun TelegramIconAction(
     icon: ImageVector,
     contentDescription: String,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
     enabled: Boolean = true
 ) {
-    IconButton(onClick = onClick, enabled = enabled) {
-        Icon(icon, contentDescription, tint = MaterialTheme.colorScheme.primary)
+    val haptics = LocalHapticFeedback.current
+    IconButton(
+        onClick = {
+            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            onClick()
+        },
+        enabled = enabled,
+        colors = IconButtonDefaults.iconButtonColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            disabledContainerColor = MaterialTheme.colorScheme.surface,
+            disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+        ),
+        modifier = modifier.shadow(3.dp, CircleShape)
+    ) {
+        Icon(icon, contentDescription)
     }
 }
 
@@ -109,8 +114,12 @@ fun TelegramChoice(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
+    val haptics = LocalHapticFeedback.current
     Surface(
-        onClick = onClick,
+        onClick = {
+            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            onClick()
+        },
         modifier = modifier.heightIn(min = 44.dp),
         shape = RoundedCornerShape(12.dp),
         color = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
@@ -160,15 +169,27 @@ fun TelegramPrimaryButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    secondary: Boolean = false,
     content: (@Composable () -> Unit)? = null
 ) {
+    val haptics = LocalHapticFeedback.current
     Button(
-        onClick = onClick,
+        onClick = {
+            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            onClick()
+        },
         enabled = enabled,
         modifier = modifier.fillMaxWidth().heightIn(min = 50.dp),
         shape = RoundedCornerShape(12.dp),
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+        colors = if (secondary) {
+            ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+        }
     ) {
         if (content != null) content() else Text(text, fontWeight = FontWeight.SemiBold)
     }
@@ -181,8 +202,12 @@ fun TelegramDestructiveButton(
     modifier: Modifier = Modifier,
     icon: ImageVector? = null
 ) {
+    val haptics = LocalHapticFeedback.current
     TextButton(
-        onClick = onClick,
+        onClick = {
+            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            onClick()
+        },
         modifier = modifier.fillMaxWidth().heightIn(min = 48.dp),
         shape = RoundedCornerShape(12.dp)
     ) {
@@ -206,6 +231,7 @@ fun TelegramConfirmationDialog(
     onDismiss: () -> Unit,
     destructive: Boolean = false
 ) {
+    val haptics = LocalHapticFeedback.current
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(dismissOnBackPress = true, dismissOnClickOutside = true)
@@ -232,8 +258,14 @@ fun TelegramConfirmationDialog(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.End
                 ) {
-                    TextButton(onClick = onDismiss) { Text(dismissText) }
-                    TextButton(onClick = onConfirm) {
+                    TextButton(onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onDismiss()
+                    }) { Text(dismissText) }
+                    TextButton(onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onConfirm()
+                    }) {
                         Text(
                             confirmText,
                             color = if (destructive) {
@@ -257,6 +289,7 @@ fun TelegramDialog(
     onDismiss: () -> Unit,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val haptics = LocalHapticFeedback.current
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = RoundedCornerShape(18.dp),
@@ -276,10 +309,104 @@ fun TelegramDialog(
                     content = content
                 )
                 TextButton(
-                    onClick = onDismiss,
+                    onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onDismiss()
+                    },
                     modifier = Modifier.align(Alignment.End).padding(horizontal = 10.dp, vertical = 6.dp)
                 ) {
                     Text(actionText, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun TelegramEmojiDropdown(
+    expanded: Boolean,
+    emojis: List<String>,
+    selectedEmoji: String,
+    onEmojiSelected: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var visibleCount by remember { mutableIntStateOf(0) }
+    val haptics = LocalHapticFeedback.current
+
+    LaunchedEffect(expanded, emojis) {
+        visibleCount = 0
+        if (expanded) {
+            emojis.indices.forEach { index ->
+                delay((if (index == 0) 25 else 45).milliseconds)
+                visibleCount = index + 1
+            }
+        }
+    }
+
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismiss,
+        containerColor = Color.Transparent,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
+        modifier = Modifier.width(272.dp)
+    ) {
+        Surface(
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            shadowElevation = 4.dp
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                emojis.forEachIndexed { index, emoji ->
+                    Box(
+                        modifier = Modifier.size(48.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = index < visibleCount,
+                            enter = fadeIn(tween(140)) +
+                                scaleIn(
+                                    initialScale = 0.72f,
+                                    animationSpec = tween(180)
+                                ) +
+                                slideInHorizontally(
+                                    animationSpec = tween(180),
+                                    initialOffsetX = { it / 2 }
+                                )
+                        ) {
+                            Surface(
+                                onClick = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onEmojiSelected(emoji)
+                                },
+                                modifier = Modifier.fillMaxSize(),
+                                shape = CircleShape,
+                                color = if (emoji == selectedEmoji) {
+                                    MaterialTheme.colorScheme.primaryContainer
+                                } else {
+                                    Color.Transparent
+                                },
+                                contentColor = if (emoji == selectedEmoji) {
+                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                }
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(
+                                        text = emoji,
+                                        style = MaterialTheme.typography.headlineSmall
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

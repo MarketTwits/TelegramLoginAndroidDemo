@@ -45,8 +45,12 @@ class ProfileScreenViewModel(
         viewModelScope.launch { authenticationRepository.cancelProfileEditing() }
     }
 
-    fun completeWelcome() {
-        viewModelScope.launch { authenticationRepository.completeProfileWelcome() }
+    fun updateEmoji(emoji: String) {
+        if (actionJob?.isActive == true) return
+        actionJob = viewModelScope.launch {
+            authenticationRepository.updateProfileEmoji(emoji)
+                .onFailure { _messages.emit(R.string.error_profile_save) }
+        }
     }
 
     fun deleteAccount() {

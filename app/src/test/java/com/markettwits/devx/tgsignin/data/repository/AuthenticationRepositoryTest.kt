@@ -204,7 +204,7 @@ class AuthenticationRepositoryTest {
     }
 
     @Test
-    fun `first profile save shows welcome pager before completed profile`() = runBlocking {
+    fun `first profile save completes pager and opens profile`() = runBlocking {
         val completed = session("New profile")
         val required = completed.copy(
             account = completed.account.copy(onboardingState = OnboardingState.PROFILE_REQUIRED),
@@ -227,9 +227,25 @@ class AuthenticationRepositoryTest {
         )
 
         assertTrue(repository.saveProfile(draft).isSuccess)
-        assertTrue(repository.state.value is RootAuthenticationState.ProfileWelcome)
-        repository.completeProfileWelcome()
         assertTrue(repository.state.value is RootAuthenticationState.Authenticated)
+        scope.cancel()
+    }
+
+    @Test
+    fun `changing bloom emoji preserves Telegram avatar and updates completed profile`() = runBlocking {
+        val completed = session("Emoji profile")
+        val local = FakeAuthenticationLocalDataSource(completed)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val api = FakeTelegramAuthApiDataSource(completed)
+        val repository = AuthenticationRepositoryImpl(
+            FakeTelegramLoginDataSource(), api, local, scope
+        )
+        repository.state.first { it is RootAuthenticationState.Authenticated }
+
+        assertTrue(repository.updateProfileEmoji("✨").isSuccess)
+        val state = repository.state.value as RootAuthenticationState.Authenticated
+        assertEquals("✨", state.session.profile?.emoji)
+        assertEquals(AvatarSource.TELEGRAM, api.lastSavedDraft?.avatarSource)
         scope.cancel()
     }
 
@@ -295,6 +311,7 @@ private class FakeTelegramAuthApiDataSource(
 ) : TelegramAuthApiDataSource {
     var revokedToken: String? = null
     var validatedToken: String? = null
+    var lastSavedDraft: ProfileDraft? = null
     override suspend fun authenticate(idToken: String): AuthenticationResult = verified
     override suspend fun getCurrentSession(accessToken: String): AuthenticationResult {
         validatedToken = accessToken
@@ -303,8 +320,14 @@ private class FakeTelegramAuthApiDataSource(
         return verified
     }
     override suspend fun saveProfile(accessToken: String, draft: ProfileDraft): AuthenticationResult {
+        lastSavedDraft = draft
         saveFailure?.let { throw it }
-        return saveResult
+        return saveResult.copy(
+            profile = saveResult.profile?.copy(
+                avatarSource = draft.avatarSource,
+                emoji = draft.emoji
+            )
+        )
     }
     override suspend fun deleteAccount(accessToken: String) = Unit
     override suspend fun revokeSession(accessToken: String) { revokedToken = accessToken }

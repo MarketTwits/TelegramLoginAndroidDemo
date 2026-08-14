@@ -163,7 +163,8 @@ class AuthenticationLocalDataSourceImpl(
             headline = json.getString("headline"),
             intent = ProfileIntent.valueOf(json.getString("intent")),
             topics = json.getJSONArray("topics").strings().map(ProfileTopic::valueOf).toSet(),
-            avatarSource = AvatarSource.valueOf(json.getString("avatarSource")),
+            // Bloom is a badge beside the name; Telegram always remains the avatar source.
+            avatarSource = AvatarSource.TELEGRAM,
             emoji = json.optString("emoji", PROFILE_EMOJIS.first())
         )
     }

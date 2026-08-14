@@ -10,6 +10,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -21,6 +23,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.Composable
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Logout
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -30,12 +35,13 @@ import com.markettwits.devx.tgsignin.data.model.RootAuthenticationState
 import com.markettwits.devx.tgsignin.data.telegram.TelegramLoginConfig
 import com.markettwits.devx.tgsignin.ui.component.AppearanceToggleButton
 import com.markettwits.devx.tgsignin.ui.component.ConfigurationInfoButton
+import com.markettwits.devx.tgsignin.ui.component.TelegramConfirmationDialog
+import com.markettwits.devx.tgsignin.ui.component.TelegramIconAction
 import com.markettwits.devx.tgsignin.ui.model.AppLinkVerificationUiState
 import com.markettwits.devx.tgsignin.ui.model.BackendReadinessUiState
 import com.markettwits.devx.tgsignin.ui.screen.ConfigurationDialog
 import com.markettwits.devx.tgsignin.ui.screen.LoginScreen
 import com.markettwits.devx.tgsignin.ui.screen.BloomProfileScreen
-import com.markettwits.devx.tgsignin.ui.screen.ProfileWelcomeScreen
 import com.markettwits.devx.tgsignin.ui.screen.ProfileSetupScreen
 import com.markettwits.devx.tgsignin.ui.theme.AppThemeAnimationScope
 import com.markettwits.devx.tgsignin.ui.theme.TelegramLoginDemoTheme
@@ -66,6 +72,7 @@ class MainActivity : ComponentActivity() {
             val backendReadinessState by backendReadinessViewModel.uiState.collectAsState()
             val appLinkVerificationState by appLinkVerificationViewModel.uiState.collectAsState()
             var showLoginConfiguration by rememberSaveable { mutableStateOf(false) }
+            var showLogoutConfirmation by rememberSaveable { mutableStateOf(false) }
             val systemDark = isSystemInDarkTheme()
             val expressiveAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
             val animationState = rememberAppThemeAnimationState(
@@ -86,9 +93,8 @@ class MainActivity : ComponentActivity() {
                                         session = state.session,
                                         isOffline = state.isOffline,
                                         messages = profileViewModel.messages,
-                                        onEdit = profileViewModel::editProfile,
-                                        onDelete = profileViewModel::deleteAccount,
-                                        onLogout = profileViewModel::logout
+                                        onEmojiChanged = profileViewModel::updateEmoji,
+                                        onDelete = profileViewModel::deleteAccount
                                     )
                                 }
                                 is RootAuthenticationState.OnboardingRequired -> {
@@ -101,12 +107,6 @@ class MainActivity : ComponentActivity() {
                                         onDraftChanged = profileViewModel::updateDraft,
                                         onSave = profileViewModel::saveProfile,
                                         onCancel = profileViewModel::cancelProfileEditing
-                                    )
-                                }
-                                is RootAuthenticationState.ProfileWelcome -> {
-                                    ProfileWelcomeScreen(
-                                        session = state.session,
-                                        onComplete = profileViewModel::completeWelcome
                                     )
                                 }
                                 RootAuthenticationState.Loading -> SessionRestoringScreen()
@@ -125,6 +125,26 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 TelegramLoginDemoTheme(themeMode = animatedThemeMode) {
+                    if (authenticationState is RootAuthenticationState.Authenticated) {
+                        Row(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .statusBarsPadding()
+                                .padding(top = 6.dp, start = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            TelegramIconAction(
+                                icon = Icons.Outlined.Edit,
+                                contentDescription = getString(R.string.bloom_edit_profile),
+                                onClick = profileViewModel::editProfile
+                            )
+                            TelegramIconAction(
+                                icon = Icons.AutoMirrored.Outlined.Logout,
+                                contentDescription = getString(R.string.logout_account_description),
+                                onClick = { showLogoutConfirmation = true }
+                            )
+                        }
+                    }
                     if (authenticationState !is RootAuthenticationState.Loading) {
                         ConfigurationInfoButton(
                             hasError = backendReadinessState is BackendReadinessUiState.Error ||
@@ -157,6 +177,20 @@ class MainActivity : ComponentActivity() {
                             onRetryAppLinkVerification =
                                 appLinkVerificationViewModel::checkVerification,
                             onDismiss = { showLoginConfiguration = false }
+                        )
+                    }
+                    if (showLogoutConfirmation) {
+                        TelegramConfirmationDialog(
+                            title = getString(R.string.logout_title),
+                            message = getString(R.string.logout_confirmation),
+                            confirmText = getString(R.string.logout_title),
+                            dismissText = getString(R.string.cancel),
+                            onConfirm = {
+                                showLogoutConfirmation = false
+                                profileViewModel.logout()
+                            },
+                            onDismiss = { showLogoutConfirmation = false },
+                            destructive = true
                         )
                     }
                 }

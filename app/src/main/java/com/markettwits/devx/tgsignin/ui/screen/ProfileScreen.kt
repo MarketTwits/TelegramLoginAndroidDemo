@@ -118,6 +118,7 @@ import com.markettwits.devx.tgsignin.ui.model.AppLinkVerificationUiState
 import com.markettwits.devx.tgsignin.ui.model.BackendReadinessUiState
 
 @Composable
+@Suppress("unused")
 fun ProfileScreen(
     user: TelegramUser,
     telegramConfig: TelegramLoginConfig,
@@ -781,6 +782,7 @@ private fun AppLinkVerificationSection(
     state: AppLinkVerificationUiState,
     onRetry: () -> Unit
 ) {
+    val haptics = LocalHapticFeedback.current
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
             text = stringResource(R.string.app_link_verification),
@@ -838,7 +840,10 @@ private fun AppLinkVerificationSection(
                         style = MaterialTheme.typography.bodySmall
                     )
                     TextButton(
-                        onClick = onRetry,
+                        onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onRetry()
+                        },
                         contentPadding = PaddingValues(0.dp),
                         modifier = Modifier.heightIn(min = 32.dp)
                     ) {
@@ -859,6 +864,7 @@ private fun BackendReadinessSection(
     state: BackendReadinessUiState,
     onRetry: () -> Unit
 ) {
+    val haptics = LocalHapticFeedback.current
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
             text = stringResource(R.string.backend_service),
@@ -916,7 +922,10 @@ private fun BackendReadinessSection(
                         style = MaterialTheme.typography.bodySmall
                     )
                     TextButton(
-                        onClick = onRetry,
+                        onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onRetry()
+                        },
                         contentPadding = PaddingValues(0.dp),
                         modifier = Modifier.heightIn(min = 32.dp)
                     ) {
