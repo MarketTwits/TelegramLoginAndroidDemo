@@ -151,6 +151,7 @@ dependencies {
     implementation(libs.koin.android)
     implementation(libs.koin.androidx.compose)
     implementation(libs.lottie.compose)
+    implementation(libs.libphonenumber)
     implementation(libs.androidx.dataStore.preferences)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)

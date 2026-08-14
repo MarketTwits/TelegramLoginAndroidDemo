@@ -13,6 +13,6 @@ data class BackendReadiness(
         get() = serviceReady && databaseConnected && telegramConfigured && isApiCompatible
 
     private companion object {
-        const val REQUIRED_BACKEND_API_VERSION = 5
+        const val REQUIRED_BACKEND_API_VERSION = 6
     }
 }

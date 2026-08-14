@@ -19,7 +19,7 @@ const telegramProfile = (overrides = {}) => ({
   givenName: 'Demo',
   familyName: 'User',
   username: 'demo',
-  phoneNumber: '+10000000000',
+  phoneNumber: '+14155552671',
   phoneVerified: true,
   picture: 'https://example.test/avatar.jpg',
   ...overrides
@@ -62,7 +62,7 @@ test('new login creates an account, profile PUT is idempotent, and account delet
   assert.equal(first.body.account.loginCount, 1);
   assert.equal(first.body.profile, null);
   assert.equal(first.body.telegram.phoneVerified, true);
-  assert.equal('phoneNumber' in first.body.telegram, false);
+  assert.equal(first.body.telegram.phoneNumber, '+14155552671');
 
   const draft = {
     displayName: 'Bloom Demo',
@@ -70,7 +70,8 @@ test('new login creates an account, profile PUT is idempotent, and account delet
     intent: 'BUILDING',
     topics: ['ANDROID', 'SECURITY'],
     avatarSource: 'BLOOM',
-    badgeId: 'festive-flags'
+    badgeId: 'festive-flags',
+    phoneNumber: '+1 (415) 555-2671'
   };
   const save = () => fetch(`${baseUrl}/me/profile`, {
     method: 'PUT',
@@ -85,11 +86,22 @@ test('new login creates an account, profile PUT is idempotent, and account delet
   const savedBody = await saved.json();
   assert.equal(savedBody.account.onboardingState, 'PROFILE_COMPLETED');
   assert.deepEqual(savedBody.profile.topics, draft.topics);
+  assert.equal(savedBody.profile.phoneNumber, '+14155552671');
   const seed = savedBody.profile.visualSeed;
 
   const repeated = await save();
   assert.equal(repeated.status, 200);
   assert.equal((await repeated.json()).profile.visualSeed, seed);
+
+  const editedPhone = await fetch(`${baseUrl}/me/profile`, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${first.body.sessionToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ ...draft, phoneNumber: '+44 20 7946 0018' })
+  });
+  assert.equal((await editedPhone.json()).profile.phoneNumber, '+442079460018');
 
   currentProfile = telegramProfile({ id: 'unused', username: 'renamed', name: 'Changed Telegram Name' });
   const returning = await login(baseUrl);
@@ -97,13 +109,26 @@ test('new login creates an account, profile PUT is idempotent, and account delet
   assert.equal(returning.body.account.loginCount, 2);
   assert.equal(returning.body.telegram.username, 'renamed');
   assert.equal(returning.body.profile.displayName, 'Bloom Demo');
+  assert.equal(returning.body.profile.phoneNumber, '+442079460018');
   assert.equal(returning.body.profile.visualSeed, seed);
+
+  const clearedPhone = await fetch(`${baseUrl}/me/profile`, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${returning.body.sessionToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ ...draft, phoneNumber: null })
+  });
+  assert.equal((await clearedPhone.json()).profile.phoneNumber, null);
 
   const session = await fetch(`${baseUrl}/auth/session`, {
     headers: { Authorization: `Bearer ${returning.body.sessionToken}` }
   });
   assert.equal(session.status, 200);
-  assert.equal((await session.json()).profile.displayName, 'Bloom Demo');
+  const sessionBody = await session.json();
+  assert.equal(sessionBody.profile.displayName, 'Bloom Demo');
+  assert.equal(sessionBody.profile.phoneNumber, null);
 
   const deleted = await fetch(`${baseUrl}/me/account`, {
     method: 'DELETE',
@@ -134,6 +159,27 @@ test('profile validation and session authentication return typed public errors',
   assert.equal(invalid.status, 422);
   assert.equal((await invalid.json()).code, 'INVALID_PROFILE');
   assert.equal((await fetch(`${baseUrl}/me/profile`, { method: 'PUT' })).status, 401);
+
+  const invalidPhone = await fetch(`${baseUrl}/me/profile`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${body.sessionToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      displayName: 'Valid', headline: 'Valid profile', intent: 'BUILDING', topics: ['ANDROID'],
+      avatarSource: 'TELEGRAM', badgeId: 'outline', phoneNumber: '+999 definitely-not-a-phone'
+    })
+  });
+  assert.equal(invalidPhone.status, 422);
+
+  const withoutPhone = await fetch(`${baseUrl}/me/profile`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${body.sessionToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      displayName: 'Valid', headline: 'Valid profile', intent: 'BUILDING', topics: ['ANDROID'],
+      avatarSource: 'TELEGRAM', badgeId: 'outline', phoneNumber: null
+    })
+  });
+  assert.equal(withoutPhone.status, 200);
+  assert.equal((await withoutPhone.json()).profile.phoneNumber, null);
 });
 
 test('Backend starts without Telegram configuration and reports setup mode', async (context) => {
@@ -145,9 +191,9 @@ test('Backend starts without Telegram configuration and reports setup mode', asy
   assert.equal(healthResponse.status, 200);
   assert.deepEqual(await healthResponse.json(), {
     status: 'ready', database: 'connected', telegram: 'configuration_required',
-    apiVersion: 5, revision: 'development'
+    apiVersion: 6, revision: 'development'
   });
-  assert.equal(healthResponse.headers.get('x-telegram-bloom-api-version'), '5');
+  assert.equal(healthResponse.headers.get('x-telegram-bloom-api-version'), '6');
   const response = await fetch(`${baseUrl}/auth/telegram`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ idToken: 'x'.repeat(40) })

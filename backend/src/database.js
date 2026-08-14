@@ -3,7 +3,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
 const SQLITE_BUSY_TIMEOUT_MS = 5_000;
-const DATABASE_SCHEMA_VERSION = 4;
+const DATABASE_SCHEMA_VERSION = 5;
 const DEFAULT_PROFILE_BADGE_ID = 'outline';
 const REVOKED_SESSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_ACTIVE_SESSIONS_PER_USER = 5;
@@ -64,6 +64,7 @@ const schema = `
     topics_json TEXT NOT NULL,
     avatar_source TEXT NOT NULL CHECK (avatar_source IN ('TELEGRAM', 'BLOOM')),
     badge_id TEXT NOT NULL DEFAULT 'outline',
+    phone_number TEXT,
     visual_seed TEXT NOT NULL,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
@@ -113,6 +114,9 @@ const migrateLegacyProfiles = (database) => {
       `);
     }
   }
+  if (columns.size > 0 && !columns.has('phone_number')) {
+    database.exec('ALTER TABLE app_profiles ADD COLUMN phone_number TEXT');
+  }
 };
 
 const normalizeUserRow = (row) => row ? ({
@@ -133,6 +137,7 @@ const normalizeProfileRow = (row) => row?.profile_id ? ({
   topics: JSON.parse(row.topics_json),
   avatar_source: row.avatar_source,
   badge_id: row.badge_id,
+  phone_number: row.profile_phone_number,
   visual_seed: row.visual_seed,
   created_at: new Date(row.profile_created_at),
   updated_at: new Date(row.profile_updated_at)
@@ -195,6 +200,7 @@ export const createDatabase = (config) => {
     SELECT account.*, session.expires_at,
            profile.id AS profile_id, profile.display_name, profile.headline,
            profile.intent, profile.topics_json, profile.avatar_source, profile.badge_id, profile.visual_seed,
+           profile.phone_number AS profile_phone_number,
            profile.created_at AS profile_created_at, profile.updated_at AS profile_updated_at
     FROM app_sessions AS session
     JOIN app_users AS account ON account.id = session.user_id
@@ -207,6 +213,7 @@ export const createDatabase = (config) => {
     SELECT account.*, NULL AS expires_at,
            profile.id AS profile_id, profile.display_name, profile.headline,
            profile.intent, profile.topics_json, profile.avatar_source, profile.badge_id, profile.visual_seed,
+           profile.phone_number AS profile_phone_number,
            profile.created_at AS profile_created_at, profile.updated_at AS profile_updated_at
     FROM app_users AS account
     LEFT JOIN app_profiles AS profile ON profile.user_id = account.id
@@ -215,8 +222,8 @@ export const createDatabase = (config) => {
   const upsertProfile = database.prepare(`
     INSERT INTO app_profiles (
       id, user_id, display_name, headline, intent, topics_json, avatar_source,
-      badge_id, visual_seed, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      badge_id, phone_number, visual_seed, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT (user_id) DO UPDATE SET
       display_name = excluded.display_name,
       headline = excluded.headline,
@@ -224,6 +231,7 @@ export const createDatabase = (config) => {
       topics_json = excluded.topics_json,
       avatar_source = excluded.avatar_source,
       badge_id = excluded.badge_id,
+      phone_number = excluded.phone_number,
       updated_at = excluded.updated_at
   `);
   const completeOnboarding = database.prepare(`
@@ -288,7 +296,7 @@ export const createDatabase = (config) => {
     upsertProfile.run(
       profileId, userId, draft.displayName, draft.headline, draft.intent,
       JSON.stringify(draft.topics), draft.avatarSource,
-      draft.badgeId ?? DEFAULT_PROFILE_BADGE_ID, visualSeed, now, now
+      draft.badgeId ?? DEFAULT_PROFILE_BADGE_ID, draft.phoneNumber, visualSeed, now, now
     );
     completeOnboarding.run(now, userId);
     return readAccount(selectAccountWithProfile.get(userId));

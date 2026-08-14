@@ -42,7 +42,7 @@ docker compose up --detach --no-deps backend
 for attempt in $(seq 1 30); do
   response="$(curl --fail --silent --show-error "$health_url" 2>/dev/null || true)"
   if grep -Eq '"status"[[:space:]]*:[[:space:]]*"ready"' <<< "$response" &&
-    grep -Eq '"apiVersion"[[:space:]]*:[[:space:]]*5' <<< "$response" &&
+    grep -Eq '"apiVersion"[[:space:]]*:[[:space:]]*6' <<< "$response" &&
     grep -Fq "\"revision\":\"$revision\"" <<< "$response"; then
     echo "Deployed $revision"
     printf '%s\n' "$response"

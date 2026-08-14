@@ -11,6 +11,7 @@ import com.markettwits.devx.tgsignin.data.model.OnboardingState
 import com.markettwits.devx.tgsignin.data.model.ProfileDraft
 import com.markettwits.devx.tgsignin.data.model.RootAuthenticationState
 import com.markettwits.devx.tgsignin.data.model.TelegramScope
+import com.markettwits.devx.tgsignin.data.model.isValidOptionalInternationalPhoneNumber
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -250,6 +251,9 @@ class AuthenticationRepositoryImpl(
 
     private fun initialDraft(session: AuthenticationResult) = ProfileDraft(
         displayName = session.telegram.suggestedDisplayName(),
+        phoneNumber = session.telegram.phoneNumber
+            ?.takeIf { it.isValidOptionalInternationalPhoneNumber() }
+            .orEmpty(),
         avatarSource = com.markettwits.devx.tgsignin.data.model.AvatarSource.TELEGRAM,
         badgeId = com.markettwits.devx.tgsignin.data.model.DEFAULT_PROFILE_BADGE_ID
     )
@@ -261,7 +265,8 @@ private fun com.markettwits.devx.tgsignin.data.model.ServiceProfile.toDraft() = 
     intent = intent,
     topics = topics.toSet(),
     avatarSource = com.markettwits.devx.tgsignin.data.model.AvatarSource.TELEGRAM,
-    badgeId = badgeId
+    badgeId = badgeId,
+    phoneNumber = phoneNumber.orEmpty()
 )
 
 private val RootAuthenticationState.isProfileEditing: Boolean

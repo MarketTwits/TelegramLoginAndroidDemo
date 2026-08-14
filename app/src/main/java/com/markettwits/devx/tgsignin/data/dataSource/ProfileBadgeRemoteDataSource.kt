@@ -2,12 +2,12 @@ package com.markettwits.devx.tgsignin.data.dataSource
 
 import com.markettwits.devx.tgsignin.data.model.ProfileBadge
 import com.markettwits.devx.tgsignin.data.telegram.TelegramLoginConfig
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
-import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.withContext
 
 interface ProfileBadgeRemoteDataSource {
     suspend fun fetchCatalog(): String
@@ -76,7 +76,7 @@ class ProfileBadgeRemoteDataSourceImpl(
 
     private companion object {
         const val API_VERSION_HEADER = "X-Telegram-Bloom-Api-Version"
-        const val REQUIRED_API_VERSION = 5
+        const val REQUIRED_API_VERSION = 6
         const val MAX_CATALOG_BYTES = 64 * 1024
         const val MAX_ASSET_BYTES = 64 * 1024
     }

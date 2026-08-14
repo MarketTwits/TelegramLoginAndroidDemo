@@ -9,17 +9,18 @@ import com.markettwits.devx.tgsignin.data.model.ProfileTopic
 import com.markettwits.devx.tgsignin.data.model.ServiceAccount
 import com.markettwits.devx.tgsignin.data.model.ServiceProfile
 import com.markettwits.devx.tgsignin.data.model.TelegramIdentity
+import com.markettwits.devx.tgsignin.data.model.normalizedInternationalPhoneNumberOrNull
 import com.markettwits.devx.tgsignin.data.telegram.TelegramLoginConfig
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.IOException
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
-import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
 
 /** Real backend client. Telegram credentials are never interpreted on-device. */
 class TelegramAuthApiDataSourceImpl(
@@ -55,6 +56,7 @@ class TelegramAuthApiDataSourceImpl(
             put("topics", JSONArray(draft.topics.map(ProfileTopic::name)))
             put("avatarSource", draft.avatarSource.name)
             put("badgeId", draft.badgeId)
+            put("phoneNumber", draft.phoneNumber.normalizedInternationalPhoneNumberOrNull())
         }
     ) { json -> parseAuthenticationResult(json, accessToken) }
 
@@ -163,6 +165,7 @@ class TelegramAuthApiDataSourceImpl(
                 familyName = telegram.optionalString("familyName"),
                 username = telegram.optionalString("username"),
                 pictureUrl = telegram.optionalString("picture"),
+                phoneNumber = telegram.optionalString("phoneNumber"),
                 phoneVerified = telegram.optBoolean("phoneVerified"),
                 syncedAt = telegram.optionalString("syncedAt")
             ),
@@ -174,6 +177,7 @@ class TelegramAuthApiDataSourceImpl(
                     topics = profile.getJSONArray("topics").toStrings().map(ProfileTopic::valueOf),
                     avatarSource = AvatarSource.valueOf(profile.getString("avatarSource")),
                     badgeId = profile.getString("badgeId"),
+                    phoneNumber = profile.optionalString("phoneNumber"),
                     visualSeed = profile.getString("visualSeed"),
                     createdAt = profile.getString("createdAt"),
                     updatedAt = profile.getString("updatedAt")
@@ -184,7 +188,7 @@ class TelegramAuthApiDataSourceImpl(
 }
 
 private const val API_VERSION_HEADER = "X-Telegram-Bloom-Api-Version"
-private const val REQUIRED_API_VERSION = 5
+private const val REQUIRED_API_VERSION = 6
 
 private fun JSONObject.optionalString(key: String): String? =
     optString(key).takeIf { it.isNotBlank() && it != JSONObject.NULL.toString() }
