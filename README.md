@@ -12,8 +12,9 @@ application owns a separate editable signal profile.
 
 - First Telegram sign-in creates one internal account keyed only by the stable
   Telegram `sub` claim and routes to a compact Telegram-like profile setup.
-- A four-step pager collects the display name, current intent and headline,
-  topics, and a server-managed Bloom badge without presenting one long form.
+- A four-step pager collects the display name, optional international phone,
+  current intent and headline, topics, and a server-managed Bloom badge without
+  presenting one long form.
 - The Telegram profile photo remains the avatar. The Bloom badge is a separate
   badge beside the display name and can be changed from its compact menu.
 - Returning sign-ins refresh only Telegram identity metadata. They never
@@ -27,8 +28,12 @@ application owns a separate editable signal profile.
   and all active sessions. The Android client clears its encrypted cache and
   returns to Telegram sign-in; a later sign-in creates a new internal account.
 
-The complete phone number is private identity metadata. API and profile UI only
-expose whether Telegram verified it.
+When the person grants Telegram phone access, the number is offered as the
+initial value of the private Bloom profile field. It can be edited or cleared,
+is stored in canonical E.164 form, and is formatted by country for display.
+Returning Telegram sign-ins do not overwrite it. Both the Telegram claim and
+profile phone are returned only to their authenticated owner; request logs and
+public badge endpoints never contain them.
 
 ## Setup
 
@@ -96,7 +101,9 @@ All authenticated endpoints use `Authorization: Bearer <sessionToken>`.
 - `PUT /me/profile` creates or idempotently updates the service profile. Valid
   intents are `BUILDING`, `HELPING`, and `EXPLORING`; one to three supported
   topics are required; headline length is 1–120 characters; `badgeId` must be
-  an enabled entry from the current badge catalog.
+  an enabled entry from the current badge catalog. `phoneNumber` is optional;
+  when present it must be a valid international number with a country code and
+  is normalized to E.164.
 - `DELETE /me/account` permanently removes the authenticated account together
   with its service profile and sessions, and returns `204 No Content`.
 - `DELETE /auth/session` revokes the current application session.

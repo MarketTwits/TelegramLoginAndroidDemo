@@ -129,7 +129,12 @@
     <string name="bloom_topic_product">Product</string>
     <string name="bloom_topic_other">Other</string>
     <string name="bloom_step_name_title">How should people see you?</string>
-    <string name="bloom_step_name_subtitle">Your Telegram photo stays as your avatar. Choose the display name for your Bloom profile.</string>
+    <string name="bloom_step_name_subtitle">Your Telegram photo stays as your avatar. Choose a name and optionally add a phone number.</string>
+    <string name="bloom_phone_optional">Phone number (optional)</string>
+    <string name="bloom_phone_hint">International format with country code, for example +1 415 555 2671</string>
+    <string name="bloom_phone_invalid">Enter a valid international number with country code</string>
+    <string name="bloom_phone_profile">Bloom profile phone</string>
+    <string name="bloom_contact">Contact</string>
     <string name="bloom_step_signal_title">What are you focused on?</string>
     <string name="bloom_step_signal_subtitle">Choose your current intent and add one short signal.</string>
     <string name="bloom_step_topics_title">Pick your topics</string>

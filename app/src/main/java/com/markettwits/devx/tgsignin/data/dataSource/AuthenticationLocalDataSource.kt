@@ -7,20 +7,20 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.markettwits.devx.tgsignin.data.model.AuthenticationResult
 import com.markettwits.devx.tgsignin.data.model.AvatarSource
+import com.markettwits.devx.tgsignin.data.model.DEFAULT_PROFILE_BADGE_ID
 import com.markettwits.devx.tgsignin.data.model.OnboardingState
 import com.markettwits.devx.tgsignin.data.model.ProfileDraft
 import com.markettwits.devx.tgsignin.data.model.ProfileIntent
 import com.markettwits.devx.tgsignin.data.model.ProfileTopic
-import com.markettwits.devx.tgsignin.data.model.DEFAULT_PROFILE_BADGE_ID
 import com.markettwits.devx.tgsignin.data.model.ServiceAccount
 import com.markettwits.devx.tgsignin.data.model.ServiceProfile
 import com.markettwits.devx.tgsignin.data.model.TelegramIdentity
-import java.io.IOException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
 
 private const val AUTH_DATA_STORE_NAME = "authenticated_account"
 private val Context.authDataStore by preferencesDataStore(AUTH_DATA_STORE_NAME)
@@ -91,6 +91,7 @@ class AuthenticationLocalDataSourceImpl(
             put("familyName", value.telegram.familyName)
             put("username", value.telegram.username)
             put("picture", value.telegram.pictureUrl)
+            put("phoneNumber", value.telegram.phoneNumber)
             put("phoneVerified", value.telegram.phoneVerified)
             put("syncedAt", value.telegram.syncedAt)
         })
@@ -102,6 +103,7 @@ class AuthenticationLocalDataSourceImpl(
                 put("topics", JSONArray(profile.topics.map(ProfileTopic::name)))
                 put("avatarSource", profile.avatarSource.name)
                 put("badgeId", profile.badgeId)
+                put("phoneNumber", profile.phoneNumber)
                 put("visualSeed", profile.visualSeed)
                 put("createdAt", profile.createdAt)
                 put("updatedAt", profile.updatedAt)
@@ -129,6 +131,7 @@ class AuthenticationLocalDataSourceImpl(
                 familyName = telegram.nullableString("familyName"),
                 username = telegram.nullableString("username"),
                 pictureUrl = telegram.nullableString("picture"),
+                phoneNumber = telegram.nullableString("phoneNumber"),
                 phoneVerified = telegram.optBoolean("phoneVerified"),
                 syncedAt = telegram.nullableString("syncedAt")
             ),
@@ -142,6 +145,7 @@ class AuthenticationLocalDataSourceImpl(
                     badgeId = profile.optString("badgeId").ifBlank {
                         profile.optString("emoji").legacyBadgeId()
                     },
+                    phoneNumber = profile.nullableString("phoneNumber"),
                     visualSeed = profile.getString("visualSeed"),
                     createdAt = profile.getString("createdAt"),
                     updatedAt = profile.getString("updatedAt")
@@ -157,6 +161,7 @@ class AuthenticationLocalDataSourceImpl(
         put("topics", JSONArray(value.topics.map(ProfileTopic::name)))
         put("avatarSource", value.avatarSource.name)
         put("badgeId", value.badgeId)
+        put("phoneNumber", value.phoneNumber)
     }.toString()
 
     private fun decodeDraft(value: String): ProfileDraft = JSONObject(value).let { json ->
@@ -169,7 +174,8 @@ class AuthenticationLocalDataSourceImpl(
             avatarSource = AvatarSource.TELEGRAM,
             badgeId = json.optString("badgeId").ifBlank {
                 json.optString("emoji").legacyBadgeId()
-            }
+            },
+            phoneNumber = json.optString("phoneNumber")
         )
     }
 

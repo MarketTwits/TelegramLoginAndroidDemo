@@ -127,7 +127,12 @@
     <string name="bloom_topic_product">Продукт</string>
     <string name="bloom_topic_other">Другое</string>
     <string name="bloom_step_name_title">Как вас будут видеть?</string>
-    <string name="bloom_step_name_subtitle">Фото из Telegram останется аватаром. Выберите имя для профиля Bloom.</string>
+    <string name="bloom_step_name_subtitle">Фото из Telegram останется аватаром. Выберите имя и при желании добавьте телефон.</string>
+    <string name="bloom_phone_optional">Номер телефона (необязательно)</string>
+    <string name="bloom_phone_hint">Международный формат с кодом страны, например +7 999 123 45 67</string>
+    <string name="bloom_phone_invalid">Введите корректный международный номер с кодом страны</string>
+    <string name="bloom_phone_profile">Телефон профиля Bloom</string>
+    <string name="bloom_contact">Контакт</string>
     <string name="bloom_step_signal_title">На чём вы сейчас сосредоточены?</string>
     <string name="bloom_step_signal_subtitle">Выберите текущее намерение и добавьте короткий сигнал.</string>
     <string name="bloom_step_topics_title">Выберите темы</string>

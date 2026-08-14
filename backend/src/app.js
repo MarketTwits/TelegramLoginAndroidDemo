@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import helmet from 'helmet';
 import { rateLimit } from 'express-rate-limit';
+import { parsePhoneNumberFromString } from 'libphonenumber-js/max';
 import { createSession, bearerToken, hashSessionToken } from './sessions.js';
 import {
   PROFILE_BADGE_IDS,
@@ -20,7 +21,7 @@ const PROFILE_TOPICS = new Set([
   'ANDROID', 'BACKEND', 'DESIGN', 'SECURITY', 'OPEN_SOURCE', 'AI', 'PRODUCT', 'TELEGRAM', 'OTHER'
 ]);
 const AVATAR_SOURCES = new Set(['TELEGRAM', 'BLOOM']);
-const API_VERSION = 5;
+const API_VERSION = 6;
 const APP_REVISION = process.env.APP_REVISION?.trim() || 'development';
 
 const accountResponse = (account) => ({
@@ -38,6 +39,7 @@ const telegramResponse = (account) => ({
   ...(account.family_name && { familyName: account.family_name }),
   ...(account.username && { username: account.username }),
   ...(account.picture_url && { picture: account.picture_url }),
+  ...(account.phone_number && { phoneNumber: account.phone_number }),
   phoneVerified: account.phone_verified,
   syncedAt: account.telegram_synced_at.toISOString()
 });
@@ -49,6 +51,7 @@ const profileResponse = (profile) => profile ? ({
   topics: profile.topics,
   avatarSource: profile.avatar_source,
   badgeId: profile.badge_id,
+  phoneNumber: profile.phone_number,
   visualSeed: profile.visual_seed,
   createdAt: profile.created_at.toISOString(),
   updatedAt: profile.updated_at.toISOString()
@@ -76,6 +79,19 @@ const profileDraft = (body) => {
   const displayName = typeof body?.displayName === 'string' ? body.displayName.trim() : '';
   const headline = typeof body?.headline === 'string' ? body.headline.trim() : '';
   const topics = Array.isArray(body?.topics) ? body.topics : [];
+  const phoneInput = body?.phoneNumber;
+  let phoneNumber = null;
+  if (phoneInput != null) {
+    if (typeof phoneInput !== 'string' || phoneInput.length > 40) return null;
+    const trimmedPhone = phoneInput.trim();
+    if (trimmedPhone.length === 0) {
+      phoneNumber = null;
+    } else {
+      const parsedPhone = parsePhoneNumberFromString(trimmedPhone, { extract: false });
+      if (!parsedPhone?.isValid()) return null;
+      phoneNumber = parsedPhone.number;
+    }
+  }
   if (displayName.length < 1 || displayName.length > 80) return null;
   if (headline.length < 1 || headline.length > 120) return null;
   if (!PROFILE_INTENTS.has(body?.intent) || !AVATAR_SOURCES.has(body?.avatarSource)) return null;
@@ -84,7 +100,7 @@ const profileDraft = (body) => {
   if (!topics.every((topic) => PROFILE_TOPICS.has(topic))) return null;
   return {
     displayName, headline, intent: body.intent, topics,
-    avatarSource: body.avatarSource, badgeId: body.badgeId
+    avatarSource: body.avatarSource, badgeId: body.badgeId, phoneNumber
   };
 };
 

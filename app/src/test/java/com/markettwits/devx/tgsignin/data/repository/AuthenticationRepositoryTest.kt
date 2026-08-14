@@ -18,7 +18,6 @@ import com.markettwits.devx.tgsignin.data.model.ServiceAccount
 import com.markettwits.devx.tgsignin.data.model.ServiceProfile
 import com.markettwits.devx.tgsignin.data.model.TelegramIdentity
 import com.markettwits.devx.tgsignin.data.model.TelegramScope
-import java.io.IOException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +31,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.IOException
 
 class AuthenticationRepositoryTest {
     @Test
@@ -106,6 +106,10 @@ class AuthenticationRepositoryTest {
         repository.state.first { it is RootAuthenticationState.Authenticated }
 
         repository.beginProfileEditing()
+        assertEquals(
+            "+442079460018",
+            (repository.state.value as RootAuthenticationState.OnboardingRequired).draft.phoneNumber
+        )
         val changed = ProfileDraft(
             displayName = "Unsaved name",
             headline = "Unsaved headline",
@@ -232,6 +236,32 @@ class AuthenticationRepositoryTest {
     }
 
     @Test
+    fun `new profile draft is prefilled with a scoped Telegram phone`() = runBlocking {
+        val required = session("New profile").copy(
+            account = session("New profile").account.copy(
+                onboardingState = OnboardingState.PROFILE_REQUIRED
+            ),
+            telegram = TelegramIdentity(
+                username = "demo",
+                phoneNumber = "+14155552671",
+                phoneVerified = true
+            ),
+            profile = null
+        )
+        val local = FakeAuthenticationLocalDataSource(required)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val repository = AuthenticationRepositoryImpl(
+            FakeTelegramLoginDataSource(), FakeTelegramAuthApiDataSource(required), local, scope
+        )
+
+        val state = repository.state.first {
+            it is RootAuthenticationState.OnboardingRequired
+        } as RootAuthenticationState.OnboardingRequired
+        assertEquals("+14155552671", state.draft.phoneNumber)
+        scope.cancel()
+    }
+
+    @Test
     fun `changing bloom badge preserves Telegram avatar and updates completed profile`() = runBlocking {
         val completed = session("Badge profile")
         val local = FakeAuthenticationLocalDataSource(completed)
@@ -277,7 +307,11 @@ private fun session(displayName: String) = AuthenticationResult(
         lastLoginAt = "2026-08-12T00:00:00Z",
         loginCount = 3
     ),
-    telegram = TelegramIdentity(username = "demo", phoneVerified = true),
+    telegram = TelegramIdentity(
+        username = "demo",
+        phoneNumber = "+14155552671",
+        phoneVerified = true
+    ),
     profile = ServiceProfile(
         displayName = displayName,
         headline = "Building a demo",
@@ -287,7 +321,8 @@ private fun session(displayName: String) = AuthenticationResult(
         badgeId = "festive-flags",
         visualSeed = "stable-seed",
         createdAt = "2026-08-01T00:00:00Z",
-        updatedAt = "2026-08-12T00:00:00Z"
+        updatedAt = "2026-08-12T00:00:00Z",
+        phoneNumber = "+442079460018"
     )
 )
 

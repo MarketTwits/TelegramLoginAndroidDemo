@@ -71,6 +71,7 @@ data class TelegramIdentity(
     val familyName: String? = null,
     val username: String? = null,
     val pictureUrl: String? = null,
+    val phoneNumber: String? = null,
     val phoneVerified: Boolean = false,
     val syncedAt: String? = null
 ) {
@@ -90,7 +91,8 @@ data class ServiceProfile(
     val badgeId: String,
     val visualSeed: String,
     val createdAt: String,
-    val updatedAt: String
+    val updatedAt: String,
+    val phoneNumber: String? = null
 )
 
 data class ProfileDraft(
@@ -99,12 +101,14 @@ data class ProfileDraft(
     val intent: ProfileIntent = ProfileIntent.BUILDING,
     val topics: Set<ProfileTopic> = emptySet(),
     val avatarSource: AvatarSource = AvatarSource.TELEGRAM,
-    val badgeId: String = DEFAULT_PROFILE_BADGE_ID
+    val badgeId: String = DEFAULT_PROFILE_BADGE_ID,
+    val phoneNumber: String = ""
 ) {
     val isValid: Boolean
         get() = displayName.isNotBlank() && displayName.trim().length <= 80 &&
             headline.isNotBlank() && headline.trim().length <= 120 &&
-            topics.size in 1..3 && badgeId.isNotBlank()
+                topics.size in 1..3 && badgeId.isNotBlank() &&
+                phoneNumber.isValidOptionalInternationalPhoneNumber()
 }
 
 data class AuthenticationResult(

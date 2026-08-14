@@ -120,7 +120,8 @@ test('SQLite v3 profile migrates its legacy emoji to a stable badge id', (contex
   const state = database.authenticateTelegramUser(profile('user-id'));
   const draft = {
     displayName: 'Demo', headline: 'Building a demo', intent: 'BUILDING',
-    topics: ['ANDROID'], avatarSource: 'BLOOM', badgeId: 'festive-flags'
+    topics: ['ANDROID'], avatarSource: 'BLOOM', badgeId: 'festive-flags',
+    phoneNumber: '+14155552671'
   };
   database.saveProfile(state.account.id, draft, 'profile-id', 'stable-seed');
   database.close();
@@ -138,6 +139,32 @@ test('SQLite v3 profile migrates its legacy emoji to a stable badge id', (contex
   assert.equal(returning.profile.visual_seed, 'stable-seed');
   assert.equal(returning.profile.badge_id, 'festive-flags');
   assert.equal(returning.profile.display_name, 'Demo');
+  assert.equal(returning.profile.phone_number, '+14155552671');
+  assert.equal(returning.account.onboarding_state, 'PROFILE_COMPLETED');
+  database.close();
+});
+
+test('SQLite v4 profile gains an optional phone without losing existing data', (context) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'telegram-bloom-phone-'));
+  const databasePath = path.join(directory, 'auth.sqlite');
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  let database = createDatabase({ databasePath });
+  const state = database.authenticateTelegramUser(profile('user-id'));
+  database.saveProfile(state.account.id, {
+    displayName: 'Existing profile', headline: 'Before phone support', intent: 'EXPLORING',
+    topics: ['BACKEND'], avatarSource: 'TELEGRAM', badgeId: 'outline', phoneNumber: null
+  }, 'profile-id', 'stable-seed');
+  database.close();
+
+  const legacy = new DatabaseSync(databasePath);
+  legacy.exec('ALTER TABLE app_profiles DROP COLUMN phone_number; PRAGMA user_version = 4;');
+  legacy.close();
+
+  database = createDatabase({ databasePath });
+  database.migrate();
+  const returning = database.authenticateTelegramUser(profile('unused'));
+  assert.equal(returning.profile.display_name, 'Existing profile');
+  assert.equal(returning.profile.phone_number, null);
   assert.equal(returning.account.onboarding_state, 'PROFILE_COMPLETED');
   database.close();
 });

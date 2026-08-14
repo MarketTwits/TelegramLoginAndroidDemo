@@ -7,30 +7,31 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
-import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -51,9 +52,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -67,21 +68,22 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.Layout
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.SubcomposeAsyncImage
 import coil3.request.ImageRequest
@@ -93,27 +95,31 @@ import com.markettwits.devx.tgsignin.data.model.ProfileDraft
 import com.markettwits.devx.tgsignin.data.model.ProfileIntent
 import com.markettwits.devx.tgsignin.data.model.ProfileTopic
 import com.markettwits.devx.tgsignin.data.model.TelegramIdentity
-import com.markettwits.devx.tgsignin.ui.component.TelegramChoice
-import com.markettwits.devx.tgsignin.ui.component.TelegramConfirmationDialog
-import com.markettwits.devx.tgsignin.ui.component.TelegramDestructiveButton
+import com.markettwits.devx.tgsignin.data.model.asPhoneNumberInput
+import com.markettwits.devx.tgsignin.data.model.formattedInternationalPhoneNumber
+import com.markettwits.devx.tgsignin.data.model.isValidOptionalInternationalPhoneNumber
+import com.markettwits.devx.tgsignin.data.model.normalizedInternationalPhoneNumberOrNull
 import com.markettwits.devx.tgsignin.data.repository.ProfileBadgeRepository
 import com.markettwits.devx.tgsignin.ui.component.ProfileBadgeImage
 import com.markettwits.devx.tgsignin.ui.component.TelegramBadgeDropdown
+import com.markettwits.devx.tgsignin.ui.component.TelegramChoice
+import com.markettwits.devx.tgsignin.ui.component.TelegramConfirmationDialog
+import com.markettwits.devx.tgsignin.ui.component.TelegramDestructiveButton
 import com.markettwits.devx.tgsignin.ui.component.TelegramIconAction
 import com.markettwits.devx.tgsignin.ui.component.TelegramPrimaryButton
 import com.markettwits.devx.tgsignin.ui.component.TelegramSection
 import com.markettwits.devx.tgsignin.ui.component.TelegramSnackbar
 import com.markettwits.devx.tgsignin.ui.component.TelegramTextField
-import java.text.DateFormat
-import java.text.SimpleDateFormat
-import java.util.Locale
-import java.util.TimeZone
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
+import java.text.DateFormat
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 import kotlin.math.roundToInt
 
 private const val SETUP_PAGE_COUNT = 4
@@ -195,7 +201,9 @@ fun ProfileSetupScreen(
                 HorizontalPager(
                     state = pagerState,
                     userScrollEnabled = false,
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
                     verticalAlignment = Alignment.Top
                 ) { page ->
                     Column(
@@ -229,7 +237,9 @@ fun ProfileSetupScreen(
                     }
                 }
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     if (pagerState.currentPage > 0) {
@@ -276,7 +286,9 @@ fun ProfileSetupScreen(
                     contentDescription = stringResource(R.string.back),
                     onClick = ::goBack,
                     enabled = !isSaving,
-                    modifier = Modifier.align(Alignment.TopStart).statusBarsPadding()
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .statusBarsPadding()
                         .padding(top = 6.dp, start = 8.dp)
                 )
             }
@@ -321,6 +333,18 @@ private fun NameSetupPage(
         } else null,
         isError = showError && draft.displayName.isBlank(),
         singleLine = true
+    )
+    val invalidPhone = !draft.phoneNumber.isValidOptionalInternationalPhoneNumber()
+    TelegramTextField(
+        value = draft.phoneNumber,
+        onValueChange = { onDraftChanged(draft.copy(phoneNumber = it.asPhoneNumberInput())) },
+        label = stringResource(R.string.bloom_phone_optional),
+        supportingText = stringResource(
+            if (showError && invalidPhone) R.string.bloom_phone_invalid else R.string.bloom_phone_hint
+        ),
+        isError = showError && invalidPhone,
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone)
     )
 }
 
@@ -430,7 +454,9 @@ private fun BloomSetupPage(
                         badge = badge,
                         animate = draft.badgeId == badge.id,
                         contentDescription = badge.label(language),
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp).size(38.dp)
+                        modifier = Modifier
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                            .size(38.dp)
                     )
                 }
             }
@@ -444,7 +470,10 @@ private fun BloomSetupPage(
             ProfileBadgeImage(
                 badge = badges.firstOrNull { it.id == draft.badgeId },
                 animate = true,
-                modifier = Modifier.padding(start = 7.dp).size(32.dp).clip(CircleShape)
+                modifier = Modifier
+                    .padding(start = 7.dp)
+                    .size(32.dp)
+                    .clip(CircleShape)
             )
         }
         Text(
@@ -476,7 +505,8 @@ private fun SetupPageHeader(title: Int, subtitle: Int) {
 }
 
 private fun isSetupPageValid(page: Int, draft: ProfileDraft): Boolean = when (page) {
-    0 -> draft.displayName.isNotBlank() && draft.displayName.trim().length <= 80
+    0 -> draft.displayName.isNotBlank() && draft.displayName.trim().length <= 80 &&
+            draft.phoneNumber.isValidOptionalInternationalPhoneNumber()
     1 -> draft.headline.isNotBlank() && draft.headline.trim().length <= 120
     2 -> draft.topics.size in 1..3
     else -> draft.isValid
@@ -573,7 +603,10 @@ fun BloomProfileScreen(
         }
     ) { padding ->
         Box(
-            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(padding)
+            Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .padding(padding)
         ) {
             Column(
                 modifier = Modifier
@@ -610,7 +643,7 @@ fun BloomProfileScreen(
                         session.account.loginCount
                     ))
                 }
-                TelegramIdentitySummary(session)
+                TelegramIdentitySummary(session, profile.phoneNumber)
                 TelegramDestructiveButton(
                     text = stringResource(R.string.bloom_delete_account),
                     onClick = { confirmDelete = true },
@@ -692,33 +725,42 @@ private fun BloomProfileHero(
         if (identity.pictureUrl != null) {
             BloomRemoteAvatar(
                 identity = identity,
-                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = 1f - collapseProgress },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = 1f - collapseProgress },
                 contentScale = ContentScale.Crop,
                 shimmer = true
             )
         }
         Box(
-            Modifier.fillMaxSize().background(
-                Brush.verticalGradient(
-                    0f to Color.Black.copy(alpha = 0.04f + 0.06f * collapseProgress),
-                    0.55f to Color.Transparent,
-                    1f to Color.Black.copy(alpha = 0.72f)
+            Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color.Black.copy(alpha = 0.04f + 0.06f * collapseProgress),
+                        0.55f to Color.Transparent,
+                        1f to Color.Black.copy(alpha = 0.72f)
+                    )
                 )
-            )
         )
         Surface(
-            modifier = Modifier.align(Alignment.Center).size(112.dp).graphicsLayer {
-                alpha = collapseProgress
-                val scale = 0.82f + 0.18f * collapseProgress
-                scaleX = scale
-                scaleY = scale
-            },
+            modifier = Modifier
+                .align(Alignment.Center)
+                .size(112.dp)
+                .graphicsLayer {
+                    alpha = collapseProgress
+                    val scale = 0.82f + 0.18f * collapseProgress
+                    scaleX = scale
+                    scaleY = scale
+                },
             shape = CircleShape,
             color = MaterialTheme.colorScheme.primary
         ) {
             BloomRemoteAvatar(
                 identity = identity,
-                modifier = Modifier.fillMaxSize().clip(CircleShape),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape),
                 contentScale = ContentScale.Crop,
                 shimmer = true
             )
@@ -727,25 +769,25 @@ private fun BloomProfileHero(
             modifier = Modifier
                 .matchParentSize()
                 .pointerInput(scrollState, onToggle, onDragStopped) {
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    val dragStart = awaitTouchSlopOrCancellation(down.id) { change, overSlop ->
-                        change.consume()
-                        scrollState.dispatchRawDelta(-overSlop.y)
-                    }
-                    if (dragStart == null) {
-                        onToggle()
-                    } else {
-                        drag(dragStart.id) { change ->
-                            val delta = change.positionChange().y
-                            if (delta != 0f) {
-                                change.consume()
-                                scrollState.dispatchRawDelta(-delta)
-                            }
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val dragStart = awaitTouchSlopOrCancellation(down.id) { change, overSlop ->
+                            change.consume()
+                            scrollState.dispatchRawDelta(-overSlop.y)
                         }
-                        onDragStopped()
+                        if (dragStart == null) {
+                            onToggle()
+                        } else {
+                            drag(dragStart.id) { change ->
+                                val delta = change.positionChange().y
+                                if (delta != 0f) {
+                                    change.consume()
+                                    scrollState.dispatchRawDelta(-delta)
+                                }
+                            }
+                            onDragStopped()
+                        }
                     }
-                }
                 }
                 .semantics {
                     role = Role.Button
@@ -768,7 +810,9 @@ private fun BloomProfileHero(
             badgeMenuExpanded = badgeMenuExpanded,
             onBadgeMenuDismiss = onBadgeMenuDismiss,
             onBadgeSelected = onBadgeSelected,
-            modifier = Modifier.align(Alignment.BottomStart).padding(bottom = 24.dp)
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(bottom = 24.dp)
         )
     }
 }
@@ -813,7 +857,10 @@ private fun BloomProfileIdentity(
                         badge = badges.firstOrNull { it.id == badgeId },
                         animate = true,
                         contentDescription = badges.firstOrNull { it.id == badgeId }?.label(language),
-                        modifier = Modifier.padding(4.dp).size(30.dp).clip(CircleShape)
+                        modifier = Modifier
+                            .padding(4.dp)
+                            .size(30.dp)
+                            .clip(CircleShape)
                     )
                 }
                 TelegramBadgeDropdown(
@@ -883,24 +930,29 @@ private fun BloomBlurredAvatarBackground(identity: TelegramIdentity) {
     if (identity.pictureUrl != null) {
         BloomRemoteAvatar(
             identity = identity,
-            modifier = Modifier.fillMaxSize().graphicsLayer {
-                scaleX = 1.16f
-                scaleY = 1.16f
-            }.blur(36.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = 1.16f
+                    scaleY = 1.16f
+                }
+                .blur(36.dp),
             contentScale = ContentScale.Crop,
             shimmer = false
         )
     } else {
         Box(
-            Modifier.fillMaxSize().background(
-                Brush.linearGradient(
-                    listOf(
-                        MaterialTheme.colorScheme.primary,
-                        MaterialTheme.colorScheme.primaryContainer,
-                        MaterialTheme.colorScheme.secondary
+            Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            MaterialTheme.colorScheme.primary,
+                            MaterialTheme.colorScheme.primaryContainer,
+                            MaterialTheme.colorScheme.secondary
+                        )
                     )
                 )
-            )
         )
     }
 }
@@ -984,7 +1036,9 @@ private fun TelegramAvatar(identity: TelegramIdentity, modifier: Modifier = Modi
                 contentDescription = stringResource(R.string.user_avatar),
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
-                loading = { CircularProgressIndicator(Modifier.align(Alignment.Center).size(24.dp), strokeWidth = 2.dp) },
+                loading = { CircularProgressIndicator(Modifier
+                    .align(Alignment.Center)
+                    .size(24.dp), strokeWidth = 2.dp) },
                 error = {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
@@ -1000,14 +1054,34 @@ private fun TelegramAvatar(identity: TelegramIdentity, modifier: Modifier = Modi
 }
 
 @Composable
-private fun TelegramIdentitySummary(session: AuthenticationResult) {
+private fun TelegramIdentitySummary(session: AuthenticationResult, profilePhoneNumber: String?) {
+    profilePhoneNumber?.let { phoneNumber ->
+        val isTelegramNumber = phoneNumber.normalizedInternationalPhoneNumberOrNull() ==
+                session.telegram.phoneNumber?.normalizedInternationalPhoneNumberOrNull()
+        TelegramSection(title = stringResource(R.string.bloom_contact)) {
+            Text(
+                phoneNumber.formattedInternationalPhoneNumber(),
+                style = MaterialTheme.typography.titleMedium
+            )
+            Text(
+                stringResource(
+                    if (session.telegram.phoneVerified && isTelegramNumber) {
+                        R.string.bloom_phone_verified
+                    } else {
+                        R.string.bloom_phone_profile
+                    }
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
     TelegramSection(title = stringResource(R.string.bloom_telegram_connection)) {
         Text(
             session.telegram.username?.let { stringResource(R.string.bloom_connected_as, "@$it") }
                 ?: stringResource(R.string.bloom_identity_connected),
             fontWeight = FontWeight.Medium
         )
-        if (session.telegram.phoneVerified) Text(stringResource(R.string.bloom_phone_verified))
         Text(
             stringResource(R.string.bloom_identity_provider),
             style = MaterialTheme.typography.bodySmall,
@@ -1024,7 +1098,9 @@ private fun ProfileValue(value: String) {
 @Composable
 private fun OfflineBanner(modifier: Modifier = Modifier) {
     Surface(modifier = modifier, color = MaterialTheme.colorScheme.tertiaryContainer, shape = MaterialTheme.shapes.medium) {
-        Text(stringResource(R.string.bloom_offline), Modifier.fillMaxWidth().padding(12.dp))
+        Text(stringResource(R.string.bloom_offline), Modifier
+            .fillMaxWidth()
+            .padding(12.dp))
     }
 }
 
