@@ -73,7 +73,7 @@ data class ProfileDraft(
     val headline: String = "",
     val intent: ProfileIntent = ProfileIntent.BUILDING,
     val topics: Set<ProfileTopic> = emptySet(),
-    val avatarSource: AvatarSource = AvatarSource.BLOOM,
+    val avatarSource: AvatarSource = AvatarSource.TELEGRAM,
     val emoji: String = PROFILE_EMOJIS.first()
 ) {
     val isValid: Boolean
@@ -101,9 +101,6 @@ sealed interface RootAuthenticationState {
     data class Authenticated(
         val session: AuthenticationResult,
         val isOffline: Boolean = false
-    ) : RootAuthenticationState
-    data class ProfileWelcome(
-        val session: AuthenticationResult
     ) : RootAuthenticationState
     data class RecoverableError(val cachedSession: AuthenticationResult?) : RootAuthenticationState
 }

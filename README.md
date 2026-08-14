@@ -12,10 +12,10 @@ application owns a separate editable signal profile.
 
 - First Telegram sign-in creates one internal account keyed only by the stable
   Telegram `sub` claim and routes to a compact Telegram-like profile setup.
-- The service stores display name, current intent, headline, up to three topics,
-  one of five editable profile emoji, and a membership number.
-- After first profile creation, a short three-page introduction explains the
-  service profile, separate Telegram identity, and editable signal.
+- A four-step pager collects the display name, current intent and headline,
+  topics, and one of five editable Bloom emoji without presenting one long form.
+- The Telegram profile photo remains the avatar. The Bloom emoji is a separate
+  badge beside the display name and can be changed from its compact menu.
 - Returning sign-ins refresh only Telegram identity metadata. They never
   overwrite the application-owned profile.
 - The encrypted Android cache restores completed profiles or interrupted drafts

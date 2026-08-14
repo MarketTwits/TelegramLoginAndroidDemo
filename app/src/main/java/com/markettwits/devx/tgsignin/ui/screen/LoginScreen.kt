@@ -45,6 +45,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -65,6 +67,7 @@ fun LoginScreen(
     onLogin: () -> Unit
 ) {
     var pickerExpanded by remember { mutableStateOf(false) }
+    val haptics = LocalHapticFeedback.current
     val snackbarHostState = remember { SnackbarHostState() }
     val cancelledMessage = stringResource(R.string.login_cancelled)
     val sessionExpiredMessage = stringResource(R.string.session_expired)
@@ -78,7 +81,7 @@ fun LoginScreen(
             snackbarHostState.showSnackbar(sessionExpiredMessage)
             return@LaunchedEffect
         }
-        when (val state = uiState.loginState) {
+        when (uiState.loginState) {
             LoginState.Cancelled -> snackbarHostState.showSnackbar(cancelledMessage)
             is LoginState.Error -> errorMessage?.let { snackbarHostState.showSnackbar(it) }
             else -> Unit
@@ -116,11 +119,17 @@ fun LoginScreen(
             Spacer(Modifier.size(32.dp))
             RequestedDataSelector(
                 scopes = uiState.requestedScopes,
-                onClick = { pickerExpanded = true }
+                onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    pickerExpanded = true
+                }
             )
         }
         Button(
-            onClick = onLogin,
+            onClick = {
+                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onLogin()
+            },
             enabled = uiState.loginState !is LoginState.AwaitingConfirmation &&
                 uiState.loginState !is LoginState.Verifying,
             modifier = Modifier
@@ -230,6 +239,7 @@ private fun RequestedDataBottomSheet(
     onScopesChanged: (Set<TelegramScope>) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val haptics = LocalHapticFeedback.current
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.surface,
@@ -262,17 +272,26 @@ private fun RequestedDataBottomSheet(
                 title = stringResource(R.string.profile),
                 subtitle = stringResource(R.string.profile_scope_description),
                 selected = TelegramScope.Profile in scopes,
-                onClick = { onScopesChanged(scopes.toggle(TelegramScope.Profile)) }
+                onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onScopesChanged(scopes.toggle(TelegramScope.Profile))
+                }
             )
             ScopeRow(
                 icon = Icons.Outlined.PhoneAndroid,
                 title = stringResource(R.string.phone_number),
                 subtitle = stringResource(R.string.phone_scope_description),
                 selected = TelegramScope.Phone in scopes,
-                onClick = { onScopesChanged(scopes.toggle(TelegramScope.Phone)) }
+                onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onScopesChanged(scopes.toggle(TelegramScope.Phone))
+                }
             )
             TextButton(
-                onClick = onDismiss,
+                onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onDismiss()
+                },
                 modifier = Modifier.align(Alignment.End).padding(horizontal = 16.dp, vertical = 4.dp)
             ) {
                 Text(stringResource(R.string.done), fontWeight = FontWeight.Medium)

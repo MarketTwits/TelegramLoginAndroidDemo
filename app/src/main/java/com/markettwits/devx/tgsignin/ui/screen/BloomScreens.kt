@@ -1,6 +1,11 @@
 package com.markettwits.devx.tgsignin.ui.screen
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,19 +18,23 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.DeleteOutline
-import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -36,44 +45,73 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import coil3.compose.SubcomposeAsyncImage
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 import com.markettwits.devx.tgsignin.R
 import com.markettwits.devx.tgsignin.data.model.AuthenticationResult
-import com.markettwits.devx.tgsignin.data.model.AvatarSource
 import com.markettwits.devx.tgsignin.data.model.PROFILE_EMOJIS
 import com.markettwits.devx.tgsignin.data.model.ProfileDraft
 import com.markettwits.devx.tgsignin.data.model.ProfileIntent
 import com.markettwits.devx.tgsignin.data.model.ProfileTopic
+import com.markettwits.devx.tgsignin.data.model.TelegramIdentity
 import com.markettwits.devx.tgsignin.ui.component.TelegramChoice
 import com.markettwits.devx.tgsignin.ui.component.TelegramConfirmationDialog
 import com.markettwits.devx.tgsignin.ui.component.TelegramDestructiveButton
+import com.markettwits.devx.tgsignin.ui.component.TelegramEmojiDropdown
 import com.markettwits.devx.tgsignin.ui.component.TelegramIconAction
 import com.markettwits.devx.tgsignin.ui.component.TelegramPrimaryButton
 import com.markettwits.devx.tgsignin.ui.component.TelegramSection
 import com.markettwits.devx.tgsignin.ui.component.TelegramSnackbar
 import com.markettwits.devx.tgsignin.ui.component.TelegramTextField
-import com.markettwits.devx.tgsignin.ui.component.TelegramTopBar
 import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
+
+private const val SETUP_PAGE_COUNT = 4
 
 @Composable
 fun ProfileSetupScreen(
@@ -87,277 +125,343 @@ fun ProfileSetupScreen(
     onCancel: () -> Unit
 ) {
     val isEditing = session.profile != null
+    val pagerState = rememberPagerState(pageCount = { SETUP_PAGE_COUNT })
+    val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     val resources = LocalResources.current
-    var displayNameTouched by rememberSaveable { mutableStateOf(false) }
-    var headlineTouched by rememberSaveable { mutableStateOf(false) }
+    var showPageError by rememberSaveable { mutableStateOf(false) }
     var topicLimitReached by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(messages) {
         messages.collectLatest { snackbar.showSnackbar(resources.getString(it)) }
     }
-    LaunchedEffect(draft.avatarSource) {
-        if (draft.avatarSource != AvatarSource.BLOOM) {
-            onDraftChanged(draft.copy(avatarSource = AvatarSource.BLOOM))
+    LaunchedEffect(pagerState.currentPage) { showPageError = false }
+
+    fun goBack() {
+        if (pagerState.currentPage > 0) {
+            scope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) }
+        } else if (isEditing) {
+            onCancel()
         }
     }
-    BackHandler(enabled = isEditing && !isSaving, onBack = onCancel)
+
+    BackHandler(enabled = !isSaving && (isEditing || pagerState.currentPage > 0), onBack = ::goBack)
 
     Scaffold(
-        topBar = {
-            TelegramTopBar(
-                title = stringResource(
-                    if (isEditing) R.string.bloom_edit_title else R.string.bloom_setup_title
-                ),
-                navigation = if (isEditing) {
-                    {
-                        TelegramIconAction(
-                            icon = Icons.AutoMirrored.Outlined.ArrowBack,
-                            contentDescription = stringResource(R.string.back),
-                            onClick = onCancel,
-                            enabled = !isSaving
-                        )
-                    }
-                } else null
-            )
-        },
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = {
             SnackbarHost(snackbar) { data ->
                 TelegramSnackbar(message = data.visuals.message, isError = true)
             }
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
+        Box(
+            Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
                 .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .navigationBarsPadding()
-                .imePadding()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Text(
-                text = stringResource(
-                    if (isEditing) R.string.bloom_edit_subtitle else R.string.bloom_setup_subtitle
-                ),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 4.dp)
-            )
-            if (isOffline) OfflineBanner()
-
-            TelegramSection(title = stringResource(R.string.bloom_avatar_title)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .imePadding()
+                    .padding(top = 58.dp, bottom = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
                 Text(
-                    stringResource(R.string.bloom_emoji_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = stringResource(
+                        if (isEditing) R.string.bloom_edit_title else R.string.bloom_setup_title
+                    ),
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 24.dp)
                 )
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    PROFILE_EMOJIS.forEach { emoji ->
-                        TelegramChoice(
-                            selected = draft.emoji == emoji,
-                            onClick = {
-                                onDraftChanged(
-                                    draft.copy(avatarSource = AvatarSource.BLOOM, emoji = emoji)
-                                )
-                            }
-                        ) {
-                            Text(
-                                text = emoji,
-                                style = MaterialTheme.typography.headlineSmall,
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                Spacer(Modifier.height(10.dp))
+                SetupProgress(currentPage = pagerState.currentPage)
+                if (isOffline) {
+                    OfflineBanner(Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                }
+                HorizontalPager(
+                    state = pagerState,
+                    userScrollEnabled = false,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    verticalAlignment = Alignment.Top
+                ) { page ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 16.dp, vertical = 18.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        when (page) {
+                            0 -> NameSetupPage(
+                                session = session,
+                                draft = draft,
+                                showError = showPageError,
+                                onDraftChanged = onDraftChanged
                             )
+                            1 -> SignalSetupPage(
+                                draft = draft,
+                                showError = showPageError,
+                                onDraftChanged = onDraftChanged
+                            )
+                            2 -> TopicsSetupPage(
+                                draft = draft,
+                                showError = showPageError,
+                                topicLimitReached = topicLimitReached,
+                                onTopicLimitChanged = { topicLimitReached = it },
+                                onDraftChanged = onDraftChanged
+                            )
+                            else -> BloomSetupPage(draft, onDraftChanged)
                         }
                     }
                 }
-            }
-
-            TelegramSection(title = stringResource(R.string.bloom_about_you)) {
-                TelegramTextField(
-                    value = draft.displayName,
-                    onValueChange = {
-                        displayNameTouched = true
-                        if (it.length <= 80) onDraftChanged(draft.copy(displayName = it))
-                    },
-                    label = stringResource(R.string.bloom_display_name),
-                    supportingText = if (displayNameTouched && draft.displayName.isBlank()) {
-                        stringResource(R.string.required_field)
-                    } else null,
-                    isError = displayNameTouched && draft.displayName.isBlank(),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Text(
-                    stringResource(R.string.bloom_intent_title),
-                    style = MaterialTheme.typography.labelLarge
-                )
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    ProfileIntent.entries.forEach { intent ->
-                        TelegramChoice(
-                            selected = draft.intent == intent,
-                            onClick = { onDraftChanged(draft.copy(intent = intent)) }
-                        ) {
-                            Text(intentLabel(intent), Modifier.padding(horizontal = 12.dp, vertical = 10.dp))
-                        }
+                    if (pagerState.currentPage > 0) {
+                        TelegramPrimaryButton(
+                            text = stringResource(R.string.back),
+                            onClick = ::goBack,
+                            enabled = !isSaving,
+                            modifier = Modifier.weight(1f),
+                            secondary = true
+                        )
                     }
-                }
-                TelegramTextField(
-                    value = draft.headline,
-                    onValueChange = {
-                        headlineTouched = true
-                        if (it.length <= 120) onDraftChanged(draft.copy(headline = it))
-                    },
-                    label = intentPrompt(draft.intent),
-                    supportingText = when {
-                        headlineTouched && draft.headline.isBlank() -> {
-                            stringResource(R.string.required_field)
-                        }
-                        draft.headline.length >= 100 -> "${draft.headline.length}/120"
-                        else -> null
-                    },
-                    isError = headlineTouched && draft.headline.isBlank(),
-                    minLines = 2,
-                    maxLines = 2,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-
-            TelegramSection(title = stringResource(R.string.bloom_topics_title)) {
-                Text(
-                    stringResource(R.string.bloom_topics_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    ProfileTopic.entries.forEach { topic ->
-                        val selected = topic in draft.topics
-                        TelegramChoice(
-                            selected = selected,
-                            onClick = {
-                                val topics = if (selected) {
-                                    topicLimitReached = false
-                                    draft.topics - topic
-                                } else if (draft.topics.size < 3) {
-                                    topicLimitReached = false
-                                    draft.topics + topic
-                                } else {
-                                    topicLimitReached = true
-                                    draft.topics
-                                }
-                                onDraftChanged(draft.copy(topics = topics))
+                    TelegramPrimaryButton(
+                        text = stringResource(
+                            if (pagerState.currentPage == SETUP_PAGE_COUNT - 1) {
+                                if (isEditing) R.string.bloom_save_profile
+                                else R.string.bloom_create_profile
+                            } else {
+                                R.string.bloom_next
                             }
-                        ) {
-                            Text(topicLabel(topic), Modifier.padding(horizontal = 12.dp, vertical = 10.dp))
-                        }
-                    }
+                        ),
+                        onClick = {
+                            if (!isSetupPageValid(pagerState.currentPage, draft)) {
+                                showPageError = true
+                            } else if (pagerState.currentPage == SETUP_PAGE_COUNT - 1) {
+                                onSave(draft)
+                            } else {
+                                scope.launch {
+                                    pagerState.animateScrollToPage(pagerState.currentPage + 1)
+                                }
+                            }
+                        },
+                        enabled = !isSaving,
+                        modifier = Modifier.weight(1f),
+                        content = if (isSaving) {
+                            { CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) }
+                        } else null
+                    )
                 }
-                if (topicLimitReached) Text(
-                    stringResource(R.string.bloom_topics_limit),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error
-                )
             }
 
-            TelegramIdentitySummary(session)
-            TelegramPrimaryButton(
-                text = stringResource(
-                    if (isEditing) R.string.bloom_save_profile else R.string.bloom_create_profile
-                ),
-                onClick = { onSave(draft) },
-                enabled = draft.isValid && !isSaving,
-                content = if (isSaving) {
-                    { CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) }
-                } else null
-            )
-            Spacer(Modifier.height(16.dp))
+            if (isEditing || pagerState.currentPage > 0) {
+                TelegramIconAction(
+                    icon = Icons.AutoMirrored.Outlined.ArrowBack,
+                    contentDescription = stringResource(R.string.back),
+                    onClick = ::goBack,
+                    enabled = !isSaving,
+                    modifier = Modifier.align(Alignment.TopStart).statusBarsPadding()
+                        .padding(top = 6.dp, start = 8.dp)
+                )
+            }
         }
     }
 }
 
 @Composable
-fun ProfileWelcomeScreen(session: AuthenticationResult, onComplete: () -> Unit) {
-    val profile = requireNotNull(session.profile)
-    val pages = listOf(
-        WelcomePage(profile.emoji, R.string.bloom_welcome_ready, R.string.bloom_welcome_ready_text),
-        WelcomePage("✅", R.string.bloom_welcome_identity, R.string.bloom_welcome_identity_text),
-        WelcomePage("💬", R.string.bloom_welcome_signal, R.string.bloom_welcome_signal_text)
-    )
-    val pagerState = rememberPagerState(pageCount = pages::size)
-    val scope = rememberCoroutineScope()
+private fun SetupProgress(currentPage: Int) {
+    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+        repeat(SETUP_PAGE_COUNT) { page ->
+            Surface(
+                modifier = Modifier.size(if (page == currentPage) 9.dp else 7.dp),
+                shape = CircleShape,
+                color = if (page <= currentPage) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.outlineVariant
+                }
+            ) {}
+        }
+    }
+}
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .padding(horizontal = 24.dp, vertical = 20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Spacer(Modifier.height(48.dp))
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) { index ->
-            val page = pages[index]
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(18.dp)
-            ) {
-                EmojiAvatar(page.emoji, Modifier.size(132.dp))
-                Text(
-                    stringResource(page.title),
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center
-                )
-                Text(
-                    stringResource(page.body),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center
-                )
+@Composable
+private fun NameSetupPage(
+    session: AuthenticationResult,
+    draft: ProfileDraft,
+    showError: Boolean,
+    onDraftChanged: (ProfileDraft) -> Unit
+) {
+    SetupPageHeader(R.string.bloom_step_name_title, R.string.bloom_step_name_subtitle)
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        TelegramAvatar(session.telegram, Modifier.size(104.dp))
+    }
+    TelegramTextField(
+        value = draft.displayName,
+        onValueChange = { if (it.length <= 80) onDraftChanged(draft.copy(displayName = it)) },
+        label = stringResource(R.string.bloom_display_name),
+        supportingText = if (showError && draft.displayName.isBlank()) {
+            stringResource(R.string.required_field)
+        } else null,
+        isError = showError && draft.displayName.isBlank(),
+        singleLine = true
+    )
+}
+
+@Composable
+private fun SignalSetupPage(
+    draft: ProfileDraft,
+    showError: Boolean,
+    onDraftChanged: (ProfileDraft) -> Unit
+) {
+    SetupPageHeader(R.string.bloom_step_signal_title, R.string.bloom_step_signal_subtitle)
+    TelegramSection {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            ProfileIntent.entries.forEach { intent ->
+                TelegramChoice(
+                    selected = draft.intent == intent,
+                    onClick = { onDraftChanged(draft.copy(intent = intent)) }
+                ) {
+                    Text(intentLabel(intent), Modifier.padding(horizontal = 12.dp, vertical = 10.dp))
+                }
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            pages.indices.forEach { index ->
-                Surface(
-                    modifier = Modifier.size(if (index == pagerState.currentPage) 9.dp else 7.dp),
-                    shape = CircleShape,
-                    color = if (index == pagerState.currentPage) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.outline
-                    }
-                ) {}
-            }
-        }
-        Spacer(Modifier.height(24.dp))
-        TelegramPrimaryButton(
-            text = stringResource(
-                if (pagerState.currentPage == pages.lastIndex) R.string.bloom_welcome_start
-                else R.string.bloom_welcome_next
-            ),
-            onClick = {
-                if (pagerState.currentPage == pages.lastIndex) onComplete()
-                else scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
-            }
+        TelegramTextField(
+            value = draft.headline,
+            onValueChange = { if (it.length <= 120) onDraftChanged(draft.copy(headline = it)) },
+            label = intentPrompt(draft.intent),
+            supportingText = when {
+                showError && draft.headline.isBlank() -> stringResource(R.string.required_field)
+                draft.headline.length >= 100 -> "${draft.headline.length}/120"
+                else -> null
+            },
+            isError = showError && draft.headline.isBlank(),
+            minLines = 2,
+            maxLines = 3
         )
     }
+}
+
+@Composable
+private fun TopicsSetupPage(
+    draft: ProfileDraft,
+    showError: Boolean,
+    topicLimitReached: Boolean,
+    onTopicLimitChanged: (Boolean) -> Unit,
+    onDraftChanged: (ProfileDraft) -> Unit
+) {
+    SetupPageHeader(R.string.bloom_step_topics_title, R.string.bloom_topics_hint)
+    TelegramSection {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            ProfileTopic.entries.forEach { topic ->
+                val selected = topic in draft.topics
+                TelegramChoice(
+                    selected = selected,
+                    onClick = {
+                        val topics = when {
+                            selected -> (draft.topics - topic).also { onTopicLimitChanged(false) }
+                            draft.topics.size < 3 -> (draft.topics + topic).also {
+                                onTopicLimitChanged(false)
+                            }
+                            else -> draft.topics.also { onTopicLimitChanged(true) }
+                        }
+                        onDraftChanged(draft.copy(topics = topics))
+                    }
+                ) {
+                    Text(topicLabel(topic), Modifier.padding(horizontal = 12.dp, vertical = 10.dp))
+                }
+            }
+        }
+        if (topicLimitReached || (showError && draft.topics.isEmpty())) {
+            Text(
+                stringResource(
+                    if (topicLimitReached) R.string.bloom_topics_limit
+                    else R.string.bloom_topics_required
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
+    }
+}
+
+@Composable
+private fun BloomSetupPage(draft: ProfileDraft, onDraftChanged: (ProfileDraft) -> Unit) {
+    SetupPageHeader(R.string.bloom_step_emoji_title, R.string.bloom_step_emoji_subtitle)
+    TelegramSection {
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            PROFILE_EMOJIS.forEach { emoji ->
+                TelegramChoice(
+                    selected = draft.emoji == emoji,
+                    onClick = { onDraftChanged(draft.copy(emoji = emoji)) }
+                ) {
+                    Text(
+                        text = emoji,
+                        style = MaterialTheme.typography.headlineSmall,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                    )
+                }
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(draft.displayName, style = MaterialTheme.typography.titleLarge)
+            Text(draft.emoji, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 7.dp))
+        }
+        Text(
+            draft.headline,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+@Composable
+private fun SetupPageHeader(title: Int, subtitle: Int) {
+    Text(
+        stringResource(title),
+        style = MaterialTheme.typography.titleLarge,
+        fontWeight = FontWeight.SemiBold,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth()
+    )
+    Text(
+        stringResource(subtitle),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth()
+    )
+}
+
+private fun isSetupPageValid(page: Int, draft: ProfileDraft): Boolean = when (page) {
+    0 -> draft.displayName.isNotBlank() && draft.displayName.trim().length <= 80
+    1 -> draft.headline.isNotBlank() && draft.headline.trim().length <= 120
+    2 -> draft.topics.size in 1..3
+    else -> draft.isValid
 }
 
 @Composable
@@ -365,107 +469,163 @@ fun BloomProfileScreen(
     session: AuthenticationResult,
     isOffline: Boolean,
     messages: Flow<Int>,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit,
-    onLogout: () -> Unit
+    onEmojiChanged: (String) -> Unit,
+    onDelete: () -> Unit
 ) {
     val profile = requireNotNull(session.profile)
     val snackbar = remember { SnackbarHostState() }
     val resources = LocalResources.current
-    var confirmLogout by rememberSaveable { mutableStateOf(false) }
     var confirmDelete by rememberSaveable { mutableStateOf(false) }
+    var showEmojiPicker by rememberSaveable { mutableStateOf(false) }
+    var initialCollapseApplied by rememberSaveable { mutableStateOf(false) }
+    val scrollState = rememberScrollState()
+    val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
+    val collapseRangePx = with(LocalDensity.current) {
+        (BLOOM_HERO_EXPANDED_HEIGHT - BLOOM_HERO_COLLAPSED_HEIGHT).toPx()
+    }
+    val collapsedScrollPosition = collapseRangePx.roundToInt()
+    val collapseProgress by remember(scrollState, collapseRangePx) {
+        derivedStateOf {
+            if (initialCollapseApplied) {
+                (scrollState.value / collapseRangePx).coerceIn(0f, 1f)
+            } else {
+                1f
+            }
+        }
+    }
+    var lastHeroBoundary by remember { mutableStateOf<Int?>(null) }
+    val settleHeader: () -> Unit = {
+        scope.launch {
+            if (scrollState.value in 1 until collapsedScrollPosition) {
+                val target = if (scrollState.value < collapsedScrollPosition / 2) {
+                    0
+                } else {
+                    collapsedScrollPosition
+                }
+                scrollState.animateScrollTo(target, tween(durationMillis = 260))
+            }
+        }
+    }
+
     LaunchedEffect(messages) {
         messages.collectLatest { snackbar.showSnackbar(resources.getString(it)) }
     }
+    LaunchedEffect(scrollState, collapsedScrollPosition, initialCollapseApplied) {
+        if (!initialCollapseApplied) {
+            snapshotFlow { scrollState.maxValue }
+                .first { it >= collapsedScrollPosition }
+            scrollState.scrollTo(collapsedScrollPosition)
+            initialCollapseApplied = true
+        }
+    }
+    LaunchedEffect(collapseProgress, initialCollapseApplied) {
+        if (!initialCollapseApplied) return@LaunchedEffect
+        val boundary = when {
+            collapseProgress <= 0.05f -> 0
+            collapseProgress >= 0.95f -> 1
+            else -> null
+        }
+        if (boundary != null) {
+            if (lastHeroBoundary != null && boundary != lastHeroBoundary) {
+                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            }
+            lastHeroBoundary = boundary
+        }
+    }
+    LaunchedEffect(scrollState, collapsedScrollPosition) {
+        snapshotFlow { scrollState.isScrollInProgress }
+            .distinctUntilChanged()
+            .collect { scrolling ->
+                if (!scrolling && scrollState.value in 1 until collapsedScrollPosition) {
+                    settleHeader()
+                }
+            }
+    }
 
     Scaffold(
-        topBar = {
-            TelegramTopBar(
-                title = stringResource(R.string.profile),
-                navigation = {
-                    TelegramIconAction(
-                        icon = Icons.Outlined.Edit,
-                        contentDescription = stringResource(R.string.bloom_edit_profile),
-                        onClick = onEdit
-                    )
-                    TelegramIconAction(
-                        icon = Icons.AutoMirrored.Outlined.Logout,
-                        contentDescription = stringResource(R.string.logout_account_description),
-                        onClick = { confirmLogout = true }
-                    )
-                }
-            )
-        },
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = {
             SnackbarHost(snackbar) { data ->
                 TelegramSnackbar(message = data.visuals.message, isError = true)
             }
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .navigationBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+        Box(
+            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(padding)
         ) {
             Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(scrollState)
+                    .navigationBarsPadding()
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                EmojiAvatar(profile.emoji, Modifier.size(104.dp))
-                Text(
-                    profile.displayName,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                session.telegram.username?.let {
-                    Text("@$it", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Text(intentLabel(profile.intent), color = MaterialTheme.colorScheme.primary)
-            }
-            if (isOffline) OfflineBanner()
+                Spacer(Modifier.height(BLOOM_HERO_EXPANDED_HEIGHT))
+                if (isOffline) OfflineBanner()
 
-            TelegramSection(title = stringResource(R.string.bloom_current_signal)) {
-                Text(profile.headline, style = MaterialTheme.typography.titleMedium)
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    profile.topics.forEach { topic ->
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primaryContainer
-                        ) {
-                            Text(topicLabel(topic), Modifier.padding(horizontal = 12.dp, vertical = 7.dp))
+                TelegramSection(title = stringResource(R.string.bloom_current_signal)) {
+                    Text(profile.headline, style = MaterialTheme.typography.titleMedium)
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        profile.topics.forEach { topic ->
+                            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
+                                Text(topicLabel(topic), Modifier.padding(horizontal = 12.dp, vertical = 7.dp))
+                            }
                         }
                     }
                 }
+                TelegramSection(title = stringResource(R.string.bloom_membership)) {
+                    ProfileValue(stringResource(R.string.bloom_member_number, session.account.memberNumber))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                    ProfileValue(stringResource(R.string.bloom_joined, formatDate(session.account.registeredAt)))
+                    ProfileValue(stringResource(R.string.bloom_last_sign_in, formatDate(session.account.lastLoginAt)))
+                    ProfileValue(pluralStringResource(
+                        R.plurals.bloom_login_count,
+                        session.account.loginCount,
+                        session.account.loginCount
+                    ))
+                }
+                TelegramIdentitySummary(session)
+                TelegramDestructiveButton(
+                    text = stringResource(R.string.bloom_delete_account),
+                    onClick = { confirmDelete = true },
+                    icon = Icons.Outlined.DeleteOutline
+                )
+                Spacer(
+                    Modifier.height(
+                        28.dp + (BLOOM_HERO_EXPANDED_HEIGHT - BLOOM_HERO_COLLAPSED_HEIGHT)
+                    )
+                )
             }
-            TelegramSection(title = stringResource(R.string.bloom_membership)) {
-                ProfileValue(stringResource(R.string.bloom_member_number, session.account.memberNumber))
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-                ProfileValue(stringResource(R.string.bloom_joined, formatDate(session.account.registeredAt)))
-                ProfileValue(stringResource(R.string.bloom_last_sign_in, formatDate(session.account.lastLoginAt)))
-                ProfileValue(pluralStringResource(
-                    R.plurals.bloom_login_count,
-                    session.account.loginCount,
-                    session.account.loginCount
-                ))
-            }
-            TelegramIdentitySummary(session)
-            TelegramDestructiveButton(
-                text = stringResource(R.string.bloom_delete_account),
-                onClick = { confirmDelete = true },
-                icon = Icons.Outlined.DeleteOutline
+
+            BloomProfileHero(
+                identity = session.telegram,
+                displayName = profile.displayName,
+                emoji = profile.emoji,
+                collapseProgress = collapseProgress,
+                scrollState = scrollState,
+                onDragStopped = settleHeader,
+                onToggle = {
+                    scope.launch {
+                        val target = if (collapseProgress < 0.5f) collapsedScrollPosition else 0
+                        scrollState.animateScrollTo(target, tween(durationMillis = 420))
+                    }
+                },
+                onEmojiClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    showEmojiPicker = !showEmojiPicker
+                },
+                emojiMenuExpanded = showEmojiPicker,
+                onEmojiMenuDismiss = { showEmojiPicker = false },
+                onEmojiSelected = { emoji ->
+                    showEmojiPicker = false
+                    if (emoji != profile.emoji) onEmojiChanged(emoji)
+                }
             )
-            Spacer(Modifier.height(24.dp))
         }
     }
 
@@ -478,26 +638,336 @@ fun BloomProfileScreen(
         onDismiss = { confirmDelete = false },
         destructive = true
     )
-    if (confirmLogout) TelegramConfirmationDialog(
-        title = stringResource(R.string.logout_title),
-        message = stringResource(R.string.logout_confirmation),
-        confirmText = stringResource(R.string.logout_title),
-        dismissText = stringResource(R.string.cancel),
-        onConfirm = { confirmLogout = false; onLogout() },
-        onDismiss = { confirmLogout = false },
-        destructive = true
+}
+
+@Composable
+private fun BloomProfileHero(
+    identity: TelegramIdentity,
+    displayName: String,
+    emoji: String,
+    collapseProgress: Float,
+    scrollState: androidx.compose.foundation.ScrollState,
+    onDragStopped: () -> Unit,
+    onToggle: () -> Unit,
+    onEmojiClick: () -> Unit,
+    emojiMenuExpanded: Boolean,
+    onEmojiMenuDismiss: () -> Unit,
+    onEmojiSelected: (String) -> Unit
+) {
+    val collapseDescription = stringResource(R.string.collapse_profile_photo)
+    val expandDescription = stringResource(R.string.expand_profile_photo)
+    val height = BLOOM_HERO_EXPANDED_HEIGHT -
+        ((BLOOM_HERO_EXPANDED_HEIGHT - BLOOM_HERO_COLLAPSED_HEIGHT) * collapseProgress)
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(height)
+            .clip(RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp))
+    ) {
+        BloomBlurredAvatarBackground(identity)
+        if (identity.pictureUrl != null) {
+            BloomRemoteAvatar(
+                identity = identity,
+                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = 1f - collapseProgress },
+                contentScale = ContentScale.Crop,
+                shimmer = true
+            )
+        }
+        Box(
+            Modifier.fillMaxSize().background(
+                Brush.verticalGradient(
+                    0f to Color.Black.copy(alpha = 0.04f + 0.06f * collapseProgress),
+                    0.55f to Color.Transparent,
+                    1f to Color.Black.copy(alpha = 0.72f)
+                )
+            )
+        )
+        Surface(
+            modifier = Modifier.align(Alignment.Center).size(112.dp).graphicsLayer {
+                alpha = collapseProgress
+                val scale = 0.82f + 0.18f * collapseProgress
+                scaleX = scale
+                scaleY = scale
+            },
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primary
+        ) {
+            BloomRemoteAvatar(
+                identity = identity,
+                modifier = Modifier.fillMaxSize().clip(CircleShape),
+                contentScale = ContentScale.Crop,
+                shimmer = true
+            )
+        }
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .pointerInput(scrollState, onToggle, onDragStopped) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val dragStart = awaitTouchSlopOrCancellation(down.id) { change, overSlop ->
+                        change.consume()
+                        scrollState.dispatchRawDelta(-overSlop.y)
+                    }
+                    if (dragStart == null) {
+                        onToggle()
+                    } else {
+                        drag(dragStart.id) { change ->
+                            val delta = change.positionChange().y
+                            if (delta != 0f) {
+                                change.consume()
+                                scrollState.dispatchRawDelta(-delta)
+                            }
+                        }
+                        onDragStopped()
+                    }
+                }
+                }
+                .semantics {
+                    role = Role.Button
+                    contentDescription = if (collapseProgress < 0.5f) {
+                        collapseDescription
+                    } else {
+                        expandDescription
+                    }
+                    onClick { onToggle(); true }
+                }
+        )
+
+        BloomProfileIdentity(
+            displayName = displayName,
+            username = identity.username,
+            emoji = emoji,
+            collapseProgress = collapseProgress,
+            onEmojiClick = onEmojiClick,
+            emojiMenuExpanded = emojiMenuExpanded,
+            onEmojiMenuDismiss = onEmojiMenuDismiss,
+            onEmojiSelected = onEmojiSelected,
+            modifier = Modifier.align(Alignment.BottomStart).padding(bottom = 24.dp)
+        )
+    }
+}
+
+@Composable
+private fun BloomProfileIdentity(
+    displayName: String,
+    username: String?,
+    emoji: String,
+    collapseProgress: Float,
+    onEmojiClick: () -> Unit,
+    emojiMenuExpanded: Boolean,
+    onEmojiMenuDismiss: () -> Unit,
+    onEmojiSelected: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val density = LocalDensity.current
+    val startInset = with(density) { 24.dp.roundToPx() }
+    val badgeGap = with(density) { 7.dp.roundToPx() }
+    val usernameGap = with(density) { 4.dp.roundToPx() }
+
+    Layout(
+        modifier = modifier.fillMaxWidth(),
+        content = {
+            Text(
+                text = displayName,
+                color = Color.White,
+                style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Box {
+                Surface(
+                    onClick = onEmojiClick,
+                    shape = CircleShape,
+                    color = Color.Black.copy(alpha = 0.28f)
+                ) {
+                    Text(
+                        text = emoji,
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
+                    )
+                }
+                TelegramEmojiDropdown(
+                    expanded = emojiMenuExpanded,
+                    emojis = PROFILE_EMOJIS,
+                    selectedEmoji = emoji,
+                    onEmojiSelected = onEmojiSelected,
+                    onDismiss = onEmojiMenuDismiss
+                )
+            }
+            username?.let {
+                Text(
+                    text = "@$it",
+                    color = Color.White.copy(alpha = 0.78f),
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    ) { measurables, constraints ->
+        val badge = measurables[1].measure(constraints.copy(minWidth = 0, minHeight = 0))
+        val centeredNameWidth = constraints.maxWidth - (badge.width + badgeGap) * 2
+        val expandedNameWidth = constraints.maxWidth - startInset * 2 - badge.width - badgeGap
+        val nameMaxWidth = minOf(centeredNameWidth, expandedNameWidth).coerceAtLeast(0)
+        val name = measurables[0].measure(
+            constraints.copy(minWidth = 0, maxWidth = nameMaxWidth, minHeight = 0)
+        )
+        val usernamePlaceable = measurables.getOrNull(2)?.measure(
+            constraints.copy(
+                minWidth = 0,
+                maxWidth = (constraints.maxWidth - startInset * 2).coerceAtLeast(0),
+                minHeight = 0
+            )
+        )
+        val rowHeight = maxOf(name.height, badge.height)
+        val contentHeight = rowHeight + if (usernamePlaceable == null) {
+            0
+        } else {
+            usernameGap + usernamePlaceable.height
+        }
+        val progress = collapseProgress.coerceIn(0f, 1f)
+        val collapsedNameX = (constraints.maxWidth - name.width) / 2
+        val nameX = (startInset + (collapsedNameX - startInset) * progress).roundToInt()
+        val expandedUsernameX = usernamePlaceable?.let {
+            startInset + (name.width - it.width) / 2
+        } ?: 0
+        val collapsedUsernameX = usernamePlaceable?.let {
+            (constraints.maxWidth - it.width) / 2
+        } ?: 0
+        val usernameX = (expandedUsernameX +
+            (collapsedUsernameX - expandedUsernameX) * progress).roundToInt()
+
+        layout(constraints.maxWidth, contentHeight) {
+            name.placeRelative(nameX, (rowHeight - name.height) / 2)
+            badge.placeRelative(nameX + name.width + badgeGap, (rowHeight - badge.height) / 2)
+            usernamePlaceable?.placeRelative(
+                usernameX.coerceIn(0, constraints.maxWidth - usernamePlaceable.width),
+                rowHeight + usernameGap
+            )
+        }
+    }
+}
+
+@Composable
+private fun BloomBlurredAvatarBackground(identity: TelegramIdentity) {
+    if (identity.pictureUrl != null) {
+        BloomRemoteAvatar(
+            identity = identity,
+            modifier = Modifier.fillMaxSize().graphicsLayer {
+                scaleX = 1.16f
+                scaleY = 1.16f
+            }.blur(36.dp),
+            contentScale = ContentScale.Crop,
+            shimmer = false
+        )
+    } else {
+        Box(
+            Modifier.fillMaxSize().background(
+                Brush.linearGradient(
+                    listOf(
+                        MaterialTheme.colorScheme.primary,
+                        MaterialTheme.colorScheme.primaryContainer,
+                        MaterialTheme.colorScheme.secondary
+                    )
+                )
+            )
+        )
+    }
+}
+
+@Composable
+private fun BloomRemoteAvatar(
+    identity: TelegramIdentity,
+    modifier: Modifier,
+    contentScale: ContentScale,
+    shimmer: Boolean
+) {
+    val pictureUrl = identity.pictureUrl
+    if (pictureUrl == null) {
+        BloomAvatarPlaceholder(identity, modifier, false)
+        return
+    }
+    SubcomposeAsyncImage(
+        model = ImageRequest.Builder(LocalContext.current).data(pictureUrl).crossfade(true).build(),
+        contentDescription = stringResource(R.string.user_avatar),
+        contentScale = contentScale,
+        modifier = modifier,
+        loading = { BloomAvatarPlaceholder(identity, Modifier.fillMaxSize(), shimmer) },
+        error = { BloomAvatarPlaceholder(identity, Modifier.fillMaxSize(), false) }
     )
 }
 
 @Composable
-private fun EmojiAvatar(emoji: String, modifier: Modifier = Modifier) {
-    Surface(
-        modifier = modifier,
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.primaryContainer
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Text(emoji, style = MaterialTheme.typography.displayMedium)
+private fun BloomAvatarPlaceholder(
+    identity: TelegramIdentity,
+    modifier: Modifier,
+    shimmer: Boolean
+) {
+    val transition = rememberInfiniteTransition(label = "bloomAvatarShimmer")
+    val shimmerOffset by transition.animateFloat(
+        initialValue = -600f,
+        targetValue = 1200f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1_250, easing = LinearEasing)
+        ),
+        label = "bloomAvatarShimmerOffset"
+    )
+    val brush = if (shimmer) {
+        Brush.linearGradient(
+            colors = listOf(
+                MaterialTheme.colorScheme.primary,
+                MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.28f),
+                MaterialTheme.colorScheme.primary
+            ),
+            start = Offset(shimmerOffset - 420f, 0f),
+            end = Offset(shimmerOffset, 420f)
+        )
+    } else {
+        Brush.linearGradient(listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.primary))
+    }
+    Box(modifier.background(brush), contentAlignment = Alignment.Center) {
+        Text(
+            identity.suggestedDisplayName().trim().split(Regex("\\s+")).take(2)
+                .joinToString("") { it.take(1).uppercase() },
+            color = MaterialTheme.colorScheme.onPrimary,
+            style = MaterialTheme.typography.headlineLarge,
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
+@Composable
+private fun TelegramAvatar(identity: TelegramIdentity, modifier: Modifier = Modifier) {
+    val pictureUrl = identity.pictureUrl
+    Surface(modifier = modifier.clip(CircleShape), shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
+        if (pictureUrl == null) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    identity.suggestedDisplayName().take(1).uppercase(),
+                    style = MaterialTheme.typography.displaySmall,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        } else {
+            SubcomposeAsyncImage(
+                model = ImageRequest.Builder(LocalContext.current).data(pictureUrl).crossfade(true).build(),
+                contentDescription = stringResource(R.string.user_avatar),
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+                loading = { CircularProgressIndicator(Modifier.align(Alignment.Center).size(24.dp), strokeWidth = 2.dp) },
+                error = {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            identity.suggestedDisplayName().take(1).uppercase(),
+                            style = MaterialTheme.typography.displaySmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            )
         }
     }
 }
@@ -506,14 +976,11 @@ private fun EmojiAvatar(emoji: String, modifier: Modifier = Modifier) {
 private fun TelegramIdentitySummary(session: AuthenticationResult) {
     TelegramSection(title = stringResource(R.string.bloom_telegram_connection)) {
         Text(
-            session.telegram.username?.let {
-                stringResource(R.string.bloom_connected_as, "@$it")
-            } ?: stringResource(R.string.bloom_identity_connected),
+            session.telegram.username?.let { stringResource(R.string.bloom_connected_as, "@$it") }
+                ?: stringResource(R.string.bloom_identity_connected),
             fontWeight = FontWeight.Medium
         )
-        if (session.telegram.phoneVerified) {
-            Text(stringResource(R.string.bloom_phone_verified))
-        }
+        if (session.telegram.phoneVerified) Text(stringResource(R.string.bloom_phone_verified))
         Text(
             stringResource(R.string.bloom_identity_provider),
             style = MaterialTheme.typography.bodySmall,
@@ -528,8 +995,8 @@ private fun ProfileValue(value: String) {
 }
 
 @Composable
-private fun OfflineBanner() {
-    Surface(color = MaterialTheme.colorScheme.tertiaryContainer, shape = MaterialTheme.shapes.medium) {
+private fun OfflineBanner(modifier: Modifier = Modifier) {
+    Surface(modifier = modifier, color = MaterialTheme.colorScheme.tertiaryContainer, shape = MaterialTheme.shapes.medium) {
         Text(stringResource(R.string.bloom_offline), Modifier.fillMaxWidth().padding(12.dp))
     }
 }
@@ -567,11 +1034,12 @@ private fun topicLabel(value: ProfileTopic): String = stringResource(
     }
 )
 
-private data class WelcomePage(val emoji: String, val title: Int, val body: Int)
-
 private fun formatDate(value: String): String = runCatching {
     val parser = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSX", Locale.US).apply {
         timeZone = TimeZone.getTimeZone("UTC")
     }
     DateFormat.getDateInstance(DateFormat.MEDIUM).format(requireNotNull(parser.parse(value)))
 }.getOrDefault(value.substringBefore('T'))
+
+private val BLOOM_HERO_EXPANDED_HEIGHT = 500.dp
+private val BLOOM_HERO_COLLAPSED_HEIGHT = 280.dp

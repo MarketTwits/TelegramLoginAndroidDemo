@@ -23,8 +23,10 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.unit.dp
@@ -44,9 +46,11 @@ fun AppearanceToggleButton(
     iconTint: Color = MaterialTheme.colorScheme.primary
 ) {
     val nextMode = currentMode.next(expressiveAvailable, systemDark)
+    val haptics = LocalHapticFeedback.current
 
     IconButton(
         onClick = {
+            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             animationState.animateTo(nextMode)
             onModeSelected(nextMode)
         },
