@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.animation.fadeIn
@@ -43,6 +45,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -323,20 +326,22 @@ fun TelegramDialog(
 }
 
 @Composable
-fun TelegramEmojiDropdown(
+fun TelegramBadgeDropdown(
     expanded: Boolean,
-    emojis: List<String>,
-    selectedEmoji: String,
-    onEmojiSelected: (String) -> Unit,
+    badges: List<com.markettwits.devx.tgsignin.data.model.ProfileBadge>,
+    selectedBadgeId: String,
+    onBadgeSelected: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val language = LocalConfiguration.current.locales[0].language
+    val enabledBadges = remember(badges) { badges.filter { it.enabled } }
     var visibleCount by remember { mutableIntStateOf(0) }
     val haptics = LocalHapticFeedback.current
 
-    LaunchedEffect(expanded, emojis) {
+    LaunchedEffect(expanded, enabledBadges) {
         visibleCount = 0
         if (expanded) {
-            emojis.indices.forEach { index ->
+            enabledBadges.indices.forEach { index ->
                 delay((if (index == 0) 25 else 45).milliseconds)
                 visibleCount = index + 1
             }
@@ -359,11 +364,13 @@ fun TelegramEmojiDropdown(
             shadowElevation = 4.dp
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                modifier = Modifier
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                emojis.forEachIndexed { index, emoji ->
+                enabledBadges.forEachIndexed { index, badge ->
                     Box(
                         modifier = Modifier.size(48.dp),
                         contentAlignment = Alignment.Center
@@ -383,25 +390,27 @@ fun TelegramEmojiDropdown(
                             Surface(
                                 onClick = {
                                     haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    onEmojiSelected(emoji)
+                                    onBadgeSelected(badge.id)
                                 },
                                 modifier = Modifier.fillMaxSize(),
                                 shape = CircleShape,
-                                color = if (emoji == selectedEmoji) {
+                                color = if (badge.id == selectedBadgeId) {
                                     MaterialTheme.colorScheme.primaryContainer
                                 } else {
                                     Color.Transparent
                                 },
-                                contentColor = if (emoji == selectedEmoji) {
+                                contentColor = if (badge.id == selectedBadgeId) {
                                     MaterialTheme.colorScheme.onPrimaryContainer
                                 } else {
                                     MaterialTheme.colorScheme.onSurface
                                 }
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
-                                    Text(
-                                        text = emoji,
-                                        style = MaterialTheme.typography.headlineSmall
+                                    ProfileBadgeImage(
+                                        badge = badge,
+                                        animate = badge.id == selectedBadgeId,
+                                        contentDescription = badge.label(language),
+                                        modifier = Modifier.size(34.dp)
                                     )
                                 }
                             }

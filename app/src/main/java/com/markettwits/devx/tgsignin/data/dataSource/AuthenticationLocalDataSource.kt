@@ -11,7 +11,7 @@ import com.markettwits.devx.tgsignin.data.model.OnboardingState
 import com.markettwits.devx.tgsignin.data.model.ProfileDraft
 import com.markettwits.devx.tgsignin.data.model.ProfileIntent
 import com.markettwits.devx.tgsignin.data.model.ProfileTopic
-import com.markettwits.devx.tgsignin.data.model.PROFILE_EMOJIS
+import com.markettwits.devx.tgsignin.data.model.DEFAULT_PROFILE_BADGE_ID
 import com.markettwits.devx.tgsignin.data.model.ServiceAccount
 import com.markettwits.devx.tgsignin.data.model.ServiceProfile
 import com.markettwits.devx.tgsignin.data.model.TelegramIdentity
@@ -101,7 +101,7 @@ class AuthenticationLocalDataSourceImpl(
                 put("intent", profile.intent.name)
                 put("topics", JSONArray(profile.topics.map(ProfileTopic::name)))
                 put("avatarSource", profile.avatarSource.name)
-                put("emoji", profile.emoji)
+                put("badgeId", profile.badgeId)
                 put("visualSeed", profile.visualSeed)
                 put("createdAt", profile.createdAt)
                 put("updatedAt", profile.updatedAt)
@@ -139,7 +139,9 @@ class AuthenticationLocalDataSourceImpl(
                     intent = ProfileIntent.valueOf(profile.getString("intent")),
                     topics = profile.getJSONArray("topics").strings().map(ProfileTopic::valueOf),
                     avatarSource = AvatarSource.valueOf(profile.getString("avatarSource")),
-                    emoji = profile.optString("emoji", PROFILE_EMOJIS.first()),
+                    badgeId = profile.optString("badgeId").ifBlank {
+                        profile.optString("emoji").legacyBadgeId()
+                    },
                     visualSeed = profile.getString("visualSeed"),
                     createdAt = profile.getString("createdAt"),
                     updatedAt = profile.getString("updatedAt")
@@ -154,7 +156,7 @@ class AuthenticationLocalDataSourceImpl(
         put("intent", value.intent.name)
         put("topics", JSONArray(value.topics.map(ProfileTopic::name)))
         put("avatarSource", value.avatarSource.name)
-        put("emoji", value.emoji)
+        put("badgeId", value.badgeId)
     }.toString()
 
     private fun decodeDraft(value: String): ProfileDraft = JSONObject(value).let { json ->
@@ -165,7 +167,9 @@ class AuthenticationLocalDataSourceImpl(
             topics = json.getJSONArray("topics").strings().map(ProfileTopic::valueOf).toSet(),
             // Bloom is a badge beside the name; Telegram always remains the avatar source.
             avatarSource = AvatarSource.TELEGRAM,
-            emoji = json.optString("emoji", PROFILE_EMOJIS.first())
+            badgeId = json.optString("badgeId").ifBlank {
+                json.optString("emoji").legacyBadgeId()
+            }
         )
     }
 
@@ -179,3 +183,11 @@ private fun JSONObject.nullableString(name: String): String? =
     optString(name).takeIf { it.isNotBlank() && it != JSONObject.NULL.toString() }
 
 private fun JSONArray.strings(): List<String> = (0 until length()).map(::getString)
+
+private fun String.legacyBadgeId(): String = when (this) {
+    "🚀" -> "festive-flags"
+    "💡" -> "the-thing"
+    "🛠️" -> "max"
+    "✨" -> "unicorn"
+    else -> DEFAULT_PROFILE_BADGE_ID
+}

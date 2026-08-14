@@ -141,5 +141,5 @@ jobs:
             "$PRODUCTION_HEALTH_URL")"
           printf '%s\n' "$response"
           grep -Eq '"status"[[:space:]]*:[[:space:]]*"ready"' <<< "$response"
-          grep -Eq '"apiVersion"[[:space:]]*:[[:space:]]*4' <<< "$response"
+          grep -Eq '"apiVersion"[[:space:]]*:[[:space:]]*5' <<< "$response"
           grep -Fq "\"revision\":\"$REVISION\"" <<< "$response"

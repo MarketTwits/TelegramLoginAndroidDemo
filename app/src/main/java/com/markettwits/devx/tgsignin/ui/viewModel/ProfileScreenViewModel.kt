@@ -45,10 +45,10 @@ class ProfileScreenViewModel(
         viewModelScope.launch { authenticationRepository.cancelProfileEditing() }
     }
 
-    fun updateEmoji(emoji: String) {
+    fun updateBadge(badgeId: String) {
         if (actionJob?.isActive == true) return
         actionJob = viewModelScope.launch {
-            authenticationRepository.updateProfileEmoji(emoji)
+            authenticationRepository.updateProfileBadge(badgeId)
                 .onFailure { _messages.emit(R.string.error_profile_save) }
         }
     }

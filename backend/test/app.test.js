@@ -70,7 +70,7 @@ test('new login creates an account, profile PUT is idempotent, and account delet
     intent: 'BUILDING',
     topics: ['ANDROID', 'SECURITY'],
     avatarSource: 'BLOOM',
-    emoji: '🚀'
+    badgeId: 'festive-flags'
   };
   const save = () => fetch(`${baseUrl}/me/profile`, {
     method: 'PUT',
@@ -128,7 +128,7 @@ test('profile validation and session authentication return typed public errors',
     headers: { Authorization: `Bearer ${body.sessionToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       displayName: '', headline: 'x', intent: 'UNKNOWN', topics: [],
-      avatarSource: 'BLOOM', emoji: '🌱'
+      avatarSource: 'BLOOM', badgeId: 'outline'
     })
   });
   assert.equal(invalid.status, 422);
@@ -145,9 +145,9 @@ test('Backend starts without Telegram configuration and reports setup mode', asy
   assert.equal(healthResponse.status, 200);
   assert.deepEqual(await healthResponse.json(), {
     status: 'ready', database: 'connected', telegram: 'configuration_required',
-    apiVersion: 4, revision: 'development'
+    apiVersion: 5, revision: 'development'
   });
-  assert.equal(healthResponse.headers.get('x-telegram-bloom-api-version'), '4');
+  assert.equal(healthResponse.headers.get('x-telegram-bloom-api-version'), '5');
   const response = await fetch(`${baseUrl}/auth/telegram`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ idToken: 'x'.repeat(40) })
@@ -174,7 +174,7 @@ test('disabled account cannot restore, edit, or create another successful login'
     },
     body: JSON.stringify({
       displayName: 'Disabled', headline: 'Must not be saved', intent: 'BUILDING',
-      topics: ['ANDROID'], avatarSource: 'BLOOM', emoji: '🌱'
+      topics: ['ANDROID'], avatarSource: 'BLOOM', badgeId: 'outline'
     })
   });
   assert.equal(profileResponse.status, 403);
@@ -182,4 +182,34 @@ test('disabled account cannot restore, edit, or create another successful login'
   const repeated = await login(baseUrl);
   assert.equal(repeated.response.status, 403);
   assert.equal(database.getAccount(first.body.account.id).account.login_count, 1);
+});
+
+test('profile badge catalog exposes immutable verified assets', async (context) => {
+  const { baseUrl } = await startServer(
+    context,
+    async () => telegramProfile(),
+    { ...config, nodeEnv: 'production' }
+  );
+  const response = await fetch(`${baseUrl}/api/profile-badges`);
+  assert.equal(response.status, 200);
+  const catalog = await response.json();
+  assert.equal(catalog.version, 1);
+  assert.equal(catalog.defaultBadgeId, 'outline');
+  assert.equal(catalog.badges.length, 7);
+  assert.equal(new Set(catalog.badges.map(({ id }) => id)).size, 7);
+  for (const badge of catalog.badges) {
+    assert.match(badge.sha256, /^[0-9a-f]{64}$/);
+    const asset = await fetch(`${baseUrl}${badge.assetPath}`);
+    assert.equal(asset.status, 200);
+    assert.match(asset.headers.get('cache-control'), /max-age=31536000/);
+    assert.match(asset.headers.get('cache-control'), /immutable/);
+    const bytes = Buffer.from(await asset.arrayBuffer());
+    assert.equal(bytes.length, badge.sizeBytes);
+    assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'), badge.sha256);
+  }
+  const tgs = catalog.badges.find(({ kind }) => kind === 'LOTTIE_TGS');
+  assert.equal(
+    (await fetch(`${baseUrl}${tgs.assetPath}`)).headers.get('content-type'),
+    'application/x-tgsticker'
+  );
 });

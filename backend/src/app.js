@@ -5,6 +5,11 @@ import express from 'express';
 import helmet from 'helmet';
 import { rateLimit } from 'express-rate-limit';
 import { createSession, bearerToken, hashSessionToken } from './sessions.js';
+import {
+  PROFILE_BADGE_IDS,
+  profileBadgeAssetDirectory,
+  profileBadgeCatalogResponse
+} from './profileBadges.js';
 
 const publicDirectory = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const asyncRoute = (handler) => (request, response, next) =>
@@ -15,8 +20,7 @@ const PROFILE_TOPICS = new Set([
   'ANDROID', 'BACKEND', 'DESIGN', 'SECURITY', 'OPEN_SOURCE', 'AI', 'PRODUCT', 'TELEGRAM', 'OTHER'
 ]);
 const AVATAR_SOURCES = new Set(['TELEGRAM', 'BLOOM']);
-const PROFILE_EMOJIS = new Set(['🌱', '🚀', '💡', '🛠️', '✨']);
-const API_VERSION = 4;
+const API_VERSION = 5;
 const APP_REVISION = process.env.APP_REVISION?.trim() || 'development';
 
 const accountResponse = (account) => ({
@@ -44,7 +48,7 @@ const profileResponse = (profile) => profile ? ({
   intent: profile.intent,
   topics: profile.topics,
   avatarSource: profile.avatar_source,
-  emoji: profile.emoji,
+  badgeId: profile.badge_id,
   visualSeed: profile.visual_seed,
   createdAt: profile.created_at.toISOString(),
   updatedAt: profile.updated_at.toISOString()
@@ -75,12 +79,12 @@ const profileDraft = (body) => {
   if (displayName.length < 1 || displayName.length > 80) return null;
   if (headline.length < 1 || headline.length > 120) return null;
   if (!PROFILE_INTENTS.has(body?.intent) || !AVATAR_SOURCES.has(body?.avatarSource)) return null;
-  if (!PROFILE_EMOJIS.has(body?.emoji)) return null;
+  if (!PROFILE_BADGE_IDS.has(body?.badgeId)) return null;
   if (topics.length < 1 || topics.length > 3 || new Set(topics).size !== topics.length) return null;
   if (!topics.every((topic) => PROFILE_TOPICS.has(topic))) return null;
   return {
     displayName, headline, intent: body.intent, topics,
-    avatarSource: body.avatarSource, emoji: body.emoji
+    avatarSource: body.avatarSource, badgeId: body.badgeId
   };
 };
 
@@ -117,6 +121,11 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
   });
 
   app.get('/api/health/live', (_request, response) => response.json({ status: 'ok' }));
+
+  app.get('/api/profile-badges', (_request, response) => {
+    response.set('Cache-Control', 'public, max-age=300, must-revalidate');
+    response.json(profileBadgeCatalogResponse());
+  });
 
   app.get('/api/health/ready', asyncRoute(async (_request, response) => {
     await database.ping();
@@ -212,6 +221,14 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
     response.status(204).end();
   }));
 
+  app.use('/assets/profile-badges', express.static(profileBadgeAssetDirectory, {
+    maxAge: config.nodeEnv === 'production' ? '1y' : 0,
+    immutable: config.nodeEnv === 'production',
+    etag: true,
+    setHeaders(response, filePath) {
+      if (filePath.endsWith('.tgs')) response.type('application/x-tgsticker');
+    }
+  }));
   app.use(express.static(publicDirectory, {
     extensions: ['html'],
     maxAge: config.nodeEnv === 'production' ? '1h' : 0,

@@ -29,7 +29,32 @@ enum class AvatarSource {
     BLOOM
 }
 
-val PROFILE_EMOJIS = listOf("🌱", "🚀", "💡", "🛠️", "✨")
+const val DEFAULT_PROFILE_BADGE_ID = "outline"
+
+enum class ProfileBadgeKind {
+    LOTTIE_TGS,
+    STATIC_WEBP
+}
+
+data class ProfileBadge(
+    val id: String,
+    val kind: ProfileBadgeKind,
+    val assetPath: String,
+    val sha256: String,
+    val sizeBytes: Int,
+    val width: Int,
+    val height: Int,
+    val labels: Map<String, String>,
+    val enabled: Boolean
+) {
+    fun label(language: String): String = labels[language] ?: labels["en"] ?: id
+}
+
+data class ProfileBadgeCatalog(
+    val version: Int,
+    val defaultBadgeId: String,
+    val badges: List<ProfileBadge>
+)
 
 data class ServiceAccount(
     val id: String,
@@ -62,7 +87,7 @@ data class ServiceProfile(
     val intent: ProfileIntent,
     val topics: List<ProfileTopic>,
     val avatarSource: AvatarSource,
-    val emoji: String,
+    val badgeId: String,
     val visualSeed: String,
     val createdAt: String,
     val updatedAt: String
@@ -74,12 +99,12 @@ data class ProfileDraft(
     val intent: ProfileIntent = ProfileIntent.BUILDING,
     val topics: Set<ProfileTopic> = emptySet(),
     val avatarSource: AvatarSource = AvatarSource.TELEGRAM,
-    val emoji: String = PROFILE_EMOJIS.first()
+    val badgeId: String = DEFAULT_PROFILE_BADGE_ID
 ) {
     val isValid: Boolean
         get() = displayName.isNotBlank() && displayName.trim().length <= 80 &&
             headline.isNotBlank() && headline.trim().length <= 120 &&
-            topics.size in 1..3 && emoji in PROFILE_EMOJIS
+            topics.size in 1..3 && badgeId.isNotBlank()
 }
 
 data class AuthenticationResult(

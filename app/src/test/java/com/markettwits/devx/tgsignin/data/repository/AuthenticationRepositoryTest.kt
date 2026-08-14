@@ -223,7 +223,7 @@ class AuthenticationRepositoryTest {
             displayName = "New profile",
             headline = "Building the next iteration",
             topics = setOf(ProfileTopic.ANDROID),
-            emoji = "🚀"
+            badgeId = "festive-flags"
         )
 
         assertTrue(repository.saveProfile(draft).isSuccess)
@@ -232,8 +232,8 @@ class AuthenticationRepositoryTest {
     }
 
     @Test
-    fun `changing bloom emoji preserves Telegram avatar and updates completed profile`() = runBlocking {
-        val completed = session("Emoji profile")
+    fun `changing bloom badge preserves Telegram avatar and updates completed profile`() = runBlocking {
+        val completed = session("Badge profile")
         val local = FakeAuthenticationLocalDataSource(completed)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         val api = FakeTelegramAuthApiDataSource(completed)
@@ -242,9 +242,9 @@ class AuthenticationRepositoryTest {
         )
         repository.state.first { it is RootAuthenticationState.Authenticated }
 
-        assertTrue(repository.updateProfileEmoji("✨").isSuccess)
+        assertTrue(repository.updateProfileBadge("unicorn").isSuccess)
         val state = repository.state.value as RootAuthenticationState.Authenticated
-        assertEquals("✨", state.session.profile?.emoji)
+        assertEquals("unicorn", state.session.profile?.badgeId)
         assertEquals(AvatarSource.TELEGRAM, api.lastSavedDraft?.avatarSource)
         scope.cancel()
     }
@@ -284,7 +284,7 @@ private fun session(displayName: String) = AuthenticationResult(
         intent = ProfileIntent.BUILDING,
         topics = listOf(ProfileTopic.ANDROID),
         avatarSource = AvatarSource.BLOOM,
-        emoji = "🚀",
+        badgeId = "festive-flags",
         visualSeed = "stable-seed",
         createdAt = "2026-08-01T00:00:00Z",
         updatedAt = "2026-08-12T00:00:00Z"
@@ -325,7 +325,7 @@ private class FakeTelegramAuthApiDataSource(
         return saveResult.copy(
             profile = saveResult.profile?.copy(
                 avatarSource = draft.avatarSource,
-                emoji = draft.emoji
+                badgeId = draft.badgeId
             )
         )
     }

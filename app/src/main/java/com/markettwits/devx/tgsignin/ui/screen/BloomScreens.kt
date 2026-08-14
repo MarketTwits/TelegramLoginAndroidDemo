@@ -45,6 +45,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -67,6 +68,7 @@ import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalResources
@@ -86,7 +88,7 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.markettwits.devx.tgsignin.R
 import com.markettwits.devx.tgsignin.data.model.AuthenticationResult
-import com.markettwits.devx.tgsignin.data.model.PROFILE_EMOJIS
+import com.markettwits.devx.tgsignin.data.model.ProfileBadge
 import com.markettwits.devx.tgsignin.data.model.ProfileDraft
 import com.markettwits.devx.tgsignin.data.model.ProfileIntent
 import com.markettwits.devx.tgsignin.data.model.ProfileTopic
@@ -94,7 +96,9 @@ import com.markettwits.devx.tgsignin.data.model.TelegramIdentity
 import com.markettwits.devx.tgsignin.ui.component.TelegramChoice
 import com.markettwits.devx.tgsignin.ui.component.TelegramConfirmationDialog
 import com.markettwits.devx.tgsignin.ui.component.TelegramDestructiveButton
-import com.markettwits.devx.tgsignin.ui.component.TelegramEmojiDropdown
+import com.markettwits.devx.tgsignin.data.repository.ProfileBadgeRepository
+import com.markettwits.devx.tgsignin.ui.component.ProfileBadgeImage
+import com.markettwits.devx.tgsignin.ui.component.TelegramBadgeDropdown
 import com.markettwits.devx.tgsignin.ui.component.TelegramIconAction
 import com.markettwits.devx.tgsignin.ui.component.TelegramPrimaryButton
 import com.markettwits.devx.tgsignin.ui.component.TelegramSection
@@ -109,6 +113,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import org.koin.compose.koinInject
 import kotlin.math.roundToInt
 
 private const val SETUP_PAGE_COUNT = 4
@@ -124,6 +129,9 @@ fun ProfileSetupScreen(
     onSave: (ProfileDraft) -> Unit,
     onCancel: () -> Unit
 ) {
+    val badgeRepository: ProfileBadgeRepository = koinInject()
+    val badgeCatalog by badgeRepository.catalog.collectAsState()
+    val badges = badgeCatalog?.badges.orEmpty().filter(ProfileBadge::enabled)
     val isEditing = session.profile != null
     val pagerState = rememberPagerState(pageCount = { SETUP_PAGE_COUNT })
     val scope = rememberCoroutineScope()
@@ -216,7 +224,7 @@ fun ProfileSetupScreen(
                                 onTopicLimitChanged = { topicLimitReached = it },
                                 onDraftChanged = onDraftChanged
                             )
-                            else -> BloomSetupPage(draft, onDraftChanged)
+                            else -> BloomSetupPage(draft, badges, onDraftChanged)
                         }
                     }
                 }
@@ -400,7 +408,12 @@ private fun TopicsSetupPage(
 }
 
 @Composable
-private fun BloomSetupPage(draft: ProfileDraft, onDraftChanged: (ProfileDraft) -> Unit) {
+private fun BloomSetupPage(
+    draft: ProfileDraft,
+    badges: List<ProfileBadge>,
+    onDraftChanged: (ProfileDraft) -> Unit
+) {
+    val language = LocalConfiguration.current.locales[0].language
     SetupPageHeader(R.string.bloom_step_emoji_title, R.string.bloom_step_emoji_subtitle)
     TelegramSection {
         FlowRow(
@@ -408,15 +421,16 @@ private fun BloomSetupPage(draft: ProfileDraft, onDraftChanged: (ProfileDraft) -
             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            PROFILE_EMOJIS.forEach { emoji ->
+            badges.forEach { badge ->
                 TelegramChoice(
-                    selected = draft.emoji == emoji,
-                    onClick = { onDraftChanged(draft.copy(emoji = emoji)) }
+                    selected = draft.badgeId == badge.id,
+                    onClick = { onDraftChanged(draft.copy(badgeId = badge.id)) }
                 ) {
-                    Text(
-                        text = emoji,
-                        style = MaterialTheme.typography.headlineSmall,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                    ProfileBadgeImage(
+                        badge = badge,
+                        animate = draft.badgeId == badge.id,
+                        contentDescription = badge.label(language),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp).size(38.dp)
                     )
                 }
             }
@@ -427,7 +441,11 @@ private fun BloomSetupPage(draft: ProfileDraft, onDraftChanged: (ProfileDraft) -
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(draft.displayName, style = MaterialTheme.typography.titleLarge)
-            Text(draft.emoji, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 7.dp))
+            ProfileBadgeImage(
+                badge = badges.firstOrNull { it.id == draft.badgeId },
+                animate = true,
+                modifier = Modifier.padding(start = 7.dp).size(32.dp).clip(CircleShape)
+            )
         }
         Text(
             draft.headline,
@@ -469,14 +487,17 @@ fun BloomProfileScreen(
     session: AuthenticationResult,
     isOffline: Boolean,
     messages: Flow<Int>,
-    onEmojiChanged: (String) -> Unit,
+    onBadgeChanged: (String) -> Unit,
     onDelete: () -> Unit
 ) {
+    val badgeRepository: ProfileBadgeRepository = koinInject()
+    val badgeCatalog by badgeRepository.catalog.collectAsState()
+    val badges = badgeCatalog?.badges.orEmpty()
     val profile = requireNotNull(session.profile)
     val snackbar = remember { SnackbarHostState() }
     val resources = LocalResources.current
     var confirmDelete by rememberSaveable { mutableStateOf(false) }
-    var showEmojiPicker by rememberSaveable { mutableStateOf(false) }
+    var showBadgePicker by rememberSaveable { mutableStateOf(false) }
     var initialCollapseApplied by rememberSaveable { mutableStateOf(false) }
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
@@ -605,7 +626,8 @@ fun BloomProfileScreen(
             BloomProfileHero(
                 identity = session.telegram,
                 displayName = profile.displayName,
-                emoji = profile.emoji,
+                badgeId = profile.badgeId,
+                badges = badges,
                 collapseProgress = collapseProgress,
                 scrollState = scrollState,
                 onDragStopped = settleHeader,
@@ -615,15 +637,15 @@ fun BloomProfileScreen(
                         scrollState.animateScrollTo(target, tween(durationMillis = 420))
                     }
                 },
-                onEmojiClick = {
+                onBadgeClick = {
                     haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    showEmojiPicker = !showEmojiPicker
+                    showBadgePicker = !showBadgePicker
                 },
-                emojiMenuExpanded = showEmojiPicker,
-                onEmojiMenuDismiss = { showEmojiPicker = false },
-                onEmojiSelected = { emoji ->
-                    showEmojiPicker = false
-                    if (emoji != profile.emoji) onEmojiChanged(emoji)
+                badgeMenuExpanded = showBadgePicker,
+                onBadgeMenuDismiss = { showBadgePicker = false },
+                onBadgeSelected = { badgeId ->
+                    showBadgePicker = false
+                    if (badgeId != profile.badgeId) onBadgeChanged(badgeId)
                 }
             )
         }
@@ -644,15 +666,16 @@ fun BloomProfileScreen(
 private fun BloomProfileHero(
     identity: TelegramIdentity,
     displayName: String,
-    emoji: String,
+    badgeId: String,
+    badges: List<ProfileBadge>,
     collapseProgress: Float,
     scrollState: androidx.compose.foundation.ScrollState,
     onDragStopped: () -> Unit,
     onToggle: () -> Unit,
-    onEmojiClick: () -> Unit,
-    emojiMenuExpanded: Boolean,
-    onEmojiMenuDismiss: () -> Unit,
-    onEmojiSelected: (String) -> Unit
+    onBadgeClick: () -> Unit,
+    badgeMenuExpanded: Boolean,
+    onBadgeMenuDismiss: () -> Unit,
+    onBadgeSelected: (String) -> Unit
 ) {
     val collapseDescription = stringResource(R.string.collapse_profile_photo)
     val expandDescription = stringResource(R.string.expand_profile_photo)
@@ -738,12 +761,13 @@ private fun BloomProfileHero(
         BloomProfileIdentity(
             displayName = displayName,
             username = identity.username,
-            emoji = emoji,
+            badgeId = badgeId,
+            badges = badges,
             collapseProgress = collapseProgress,
-            onEmojiClick = onEmojiClick,
-            emojiMenuExpanded = emojiMenuExpanded,
-            onEmojiMenuDismiss = onEmojiMenuDismiss,
-            onEmojiSelected = onEmojiSelected,
+            onBadgeClick = onBadgeClick,
+            badgeMenuExpanded = badgeMenuExpanded,
+            onBadgeMenuDismiss = onBadgeMenuDismiss,
+            onBadgeSelected = onBadgeSelected,
             modifier = Modifier.align(Alignment.BottomStart).padding(bottom = 24.dp)
         )
     }
@@ -753,14 +777,16 @@ private fun BloomProfileHero(
 private fun BloomProfileIdentity(
     displayName: String,
     username: String?,
-    emoji: String,
+    badgeId: String,
+    badges: List<ProfileBadge>,
     collapseProgress: Float,
-    onEmojiClick: () -> Unit,
-    emojiMenuExpanded: Boolean,
-    onEmojiMenuDismiss: () -> Unit,
-    onEmojiSelected: (String) -> Unit,
+    onBadgeClick: () -> Unit,
+    badgeMenuExpanded: Boolean,
+    onBadgeMenuDismiss: () -> Unit,
+    onBadgeSelected: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val language = LocalConfiguration.current.locales[0].language
     val density = LocalDensity.current
     val startInset = with(density) { 24.dp.roundToPx() }
     val badgeGap = with(density) { 7.dp.roundToPx() }
@@ -779,22 +805,23 @@ private fun BloomProfileIdentity(
             )
             Box {
                 Surface(
-                    onClick = onEmojiClick,
+                    onClick = onBadgeClick,
                     shape = CircleShape,
                     color = Color.Black.copy(alpha = 0.28f)
                 ) {
-                    Text(
-                        text = emoji,
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
+                    ProfileBadgeImage(
+                        badge = badges.firstOrNull { it.id == badgeId },
+                        animate = true,
+                        contentDescription = badges.firstOrNull { it.id == badgeId }?.label(language),
+                        modifier = Modifier.padding(4.dp).size(30.dp).clip(CircleShape)
                     )
                 }
-                TelegramEmojiDropdown(
-                    expanded = emojiMenuExpanded,
-                    emojis = PROFILE_EMOJIS,
-                    selectedEmoji = emoji,
-                    onEmojiSelected = onEmojiSelected,
-                    onDismiss = onEmojiMenuDismiss
+                TelegramBadgeDropdown(
+                    expanded = badgeMenuExpanded,
+                    badges = badges,
+                    selectedBadgeId = badgeId,
+                    onBadgeSelected = onBadgeSelected,
+                    onDismiss = onBadgeMenuDismiss
                 )
             }
             username?.let {
