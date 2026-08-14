@@ -133,7 +133,7 @@ jobs:
           [[ "$version_name" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           [[ "$version_code" =~ ^[1-9][0-9]*$ ]]
 
-          tag="$version_name"
+          tag="$version_name.$version_code"
           if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" >/dev/null 2>&1; then
             echo "Tag $tag already exists." >&2
             exit 1
@@ -163,6 +163,6 @@ jobs:
           gh release create "$RELEASE_TAG" "$APK_PATH" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "TelegramLoginAndroidDemo $RELEASE_VERSION_NAME" \
+            --title "v$RELEASE_VERSION_NAME" \
             --generate-notes \
             "${release_flags[@]}"
