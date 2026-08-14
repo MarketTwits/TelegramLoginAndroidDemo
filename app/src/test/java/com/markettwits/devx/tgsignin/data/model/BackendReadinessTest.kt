@@ -11,7 +11,7 @@ class BackendReadinessTest {
             serviceReady = true,
             databaseConnected = true,
             telegramConfigured = true,
-            apiVersion = 4
+            apiVersion = 5
         )
 
         assertTrue(readiness.isReady)
@@ -23,7 +23,7 @@ class BackendReadinessTest {
             serviceReady = true,
             databaseConnected = true,
             telegramConfigured = false,
-            apiVersion = 4
+            apiVersion = 5
         )
 
         assertFalse(readiness.isReady)

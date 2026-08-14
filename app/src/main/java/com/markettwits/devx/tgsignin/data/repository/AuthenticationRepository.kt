@@ -31,7 +31,7 @@ interface AuthenticationRepository {
     suspend fun saveProfile(draft: ProfileDraft): Result<AuthenticationResult>
     suspend fun beginProfileEditing()
     suspend fun cancelProfileEditing()
-    suspend fun updateProfileEmoji(emoji: String): Result<Unit>
+    suspend fun updateProfileBadge(badgeId: String): Result<Unit>
     suspend fun deleteAccount(): Result<Unit>
     suspend fun logout()
 }
@@ -171,10 +171,8 @@ class AuthenticationRepositoryImpl(
         )
     }
 
-    override suspend fun updateProfileEmoji(emoji: String): Result<Unit> {
-        if (emoji !in com.markettwits.devx.tgsignin.data.model.PROFILE_EMOJIS) {
-            return Result.failure(IllegalArgumentException("Unsupported profile emoji"))
-        }
+    override suspend fun updateProfileBadge(badgeId: String): Result<Unit> {
+        if (badgeId.isBlank()) return Result.failure(IllegalArgumentException("Unsupported profile badge"))
         val current = _state.value as? RootAuthenticationState.Authenticated
             ?: return Result.failure(IllegalStateException("No profile to update"))
         val profile = current.session.profile
@@ -182,7 +180,7 @@ class AuthenticationRepositoryImpl(
         return try {
             val saved = telegramAuthApiDataSource.saveProfile(
                 current.session.accessToken,
-                profile.toDraft().copy(emoji = emoji)
+                profile.toDraft().copy(badgeId = badgeId)
             )
             localMutationMutex.withLock { authenticationLocalDataSource.save(saved) }
             _state.value = RootAuthenticationState.Authenticated(saved, current.isOffline)
@@ -253,7 +251,7 @@ class AuthenticationRepositoryImpl(
     private fun initialDraft(session: AuthenticationResult) = ProfileDraft(
         displayName = session.telegram.suggestedDisplayName(),
         avatarSource = com.markettwits.devx.tgsignin.data.model.AvatarSource.TELEGRAM,
-        emoji = com.markettwits.devx.tgsignin.data.model.PROFILE_EMOJIS.first()
+        badgeId = com.markettwits.devx.tgsignin.data.model.DEFAULT_PROFILE_BADGE_ID
     )
 }
 
@@ -263,7 +261,7 @@ private fun com.markettwits.devx.tgsignin.data.model.ServiceProfile.toDraft() = 
     intent = intent,
     topics = topics.toSet(),
     avatarSource = com.markettwits.devx.tgsignin.data.model.AvatarSource.TELEGRAM,
-    emoji = emoji
+    badgeId = badgeId
 )
 
 private val RootAuthenticationState.isProfileEditing: Boolean

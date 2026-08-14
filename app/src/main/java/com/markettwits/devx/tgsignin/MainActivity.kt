@@ -93,7 +93,7 @@ class MainActivity : ComponentActivity() {
                                         session = state.session,
                                         isOffline = state.isOffline,
                                         messages = profileViewModel.messages,
-                                        onEmojiChanged = profileViewModel::updateEmoji,
+                                        onBadgeChanged = profileViewModel::updateBadge,
                                         onDelete = profileViewModel::deleteAccount
                                     )
                                 }

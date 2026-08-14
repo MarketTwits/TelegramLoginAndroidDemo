@@ -54,7 +54,7 @@ class TelegramAuthApiDataSourceImpl(
             put("intent", draft.intent.name)
             put("topics", JSONArray(draft.topics.map(ProfileTopic::name)))
             put("avatarSource", draft.avatarSource.name)
-            put("emoji", draft.emoji)
+            put("badgeId", draft.badgeId)
         }
     ) { json -> parseAuthenticationResult(json, accessToken) }
 
@@ -173,7 +173,7 @@ class TelegramAuthApiDataSourceImpl(
                     intent = ProfileIntent.valueOf(profile.getString("intent")),
                     topics = profile.getJSONArray("topics").toStrings().map(ProfileTopic::valueOf),
                     avatarSource = AvatarSource.valueOf(profile.getString("avatarSource")),
-                    emoji = profile.optString("emoji", "🌱"),
+                    badgeId = profile.getString("badgeId"),
                     visualSeed = profile.getString("visualSeed"),
                     createdAt = profile.getString("createdAt"),
                     updatedAt = profile.getString("updatedAt")
@@ -184,7 +184,7 @@ class TelegramAuthApiDataSourceImpl(
 }
 
 private const val API_VERSION_HEADER = "X-Telegram-Bloom-Api-Version"
-private const val REQUIRED_API_VERSION = 4
+private const val REQUIRED_API_VERSION = 5
 
 private fun JSONObject.optionalString(key: String): String? =
     optString(key).takeIf { it.isNotBlank() && it != JSONObject.NULL.toString() }

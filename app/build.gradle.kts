@@ -150,6 +150,7 @@ dependencies {
     implementation(libs.coil.network.okhttp)
     implementation(libs.koin.android)
     implementation(libs.koin.androidx.compose)
+    implementation(libs.lottie.compose)
     implementation(libs.androidx.dataStore.preferences)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)

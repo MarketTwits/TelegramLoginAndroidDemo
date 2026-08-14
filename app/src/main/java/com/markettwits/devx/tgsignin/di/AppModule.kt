@@ -23,6 +23,8 @@ import com.markettwits.devx.tgsignin.data.dataSource.TelegramAuthApiDataSource
 import com.markettwits.devx.tgsignin.data.dataSource.TelegramAuthApiDataSourceImpl
 import com.markettwits.devx.tgsignin.data.dataSource.TelegramLoginDataSource
 import com.markettwits.devx.tgsignin.data.dataSource.TelegramLoginDataSourceImpl
+import com.markettwits.devx.tgsignin.data.dataSource.ProfileBadgeRemoteDataSource
+import com.markettwits.devx.tgsignin.data.dataSource.ProfileBadgeRemoteDataSourceImpl
 import com.markettwits.devx.tgsignin.data.repository.AuthenticationRepository
 import com.markettwits.devx.tgsignin.data.repository.AuthenticationRepositoryImpl
 import com.markettwits.devx.tgsignin.data.repository.AppLinkVerificationRepository
@@ -31,6 +33,8 @@ import com.markettwits.devx.tgsignin.data.repository.AppearanceRepository
 import com.markettwits.devx.tgsignin.data.repository.AppearanceRepositoryImpl
 import com.markettwits.devx.tgsignin.data.repository.BackendReadinessRepository
 import com.markettwits.devx.tgsignin.data.repository.BackendReadinessRepositoryImpl
+import com.markettwits.devx.tgsignin.data.repository.ProfileBadgeRepository
+import com.markettwits.devx.tgsignin.data.repository.ProfileBadgeRepositoryImpl
 import com.markettwits.devx.tgsignin.data.telegram.TelegramLoginConfig
 import com.markettwits.devx.tgsignin.ui.viewModel.AppearanceViewModel
 import com.markettwits.devx.tgsignin.ui.viewModel.AppLinkVerificationViewModel
@@ -69,6 +73,20 @@ val appModule = module {
         )
     }
     single<BackendReadinessRepository> { BackendReadinessRepositoryImpl(get()) }
+    single<ProfileBadgeRemoteDataSource> {
+        ProfileBadgeRemoteDataSourceImpl(
+            config = get(),
+            ioDispatcher = get(ioDispatcherQualifier)
+        )
+    }
+    single<ProfileBadgeRepository> {
+        ProfileBadgeRepositoryImpl(
+            context = androidContext(),
+            remoteDataSource = get(),
+            ioDispatcher = get(ioDispatcherQualifier),
+            applicationScope = get(applicationScopeQualifier)
+        )
+    }
     single<AppLinkVerificationDataSource> {
         AppLinkVerificationDataSourceImpl(
             context = androidContext(),

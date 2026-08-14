@@ -3,7 +3,8 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
 const SQLITE_BUSY_TIMEOUT_MS = 5_000;
-const DATABASE_SCHEMA_VERSION = 3;
+const DATABASE_SCHEMA_VERSION = 4;
+const DEFAULT_PROFILE_BADGE_ID = 'outline';
 const REVOKED_SESSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_ACTIVE_SESSIONS_PER_USER = 5;
 
@@ -62,7 +63,7 @@ const schema = `
     intent TEXT NOT NULL CHECK (intent IN ('BUILDING', 'HELPING', 'EXPLORING')),
     topics_json TEXT NOT NULL,
     avatar_source TEXT NOT NULL CHECK (avatar_source IN ('TELEGRAM', 'BLOOM')),
-    emoji TEXT NOT NULL DEFAULT '🌱',
+    badge_id TEXT NOT NULL DEFAULT 'outline',
     visual_seed TEXT NOT NULL,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
@@ -97,8 +98,20 @@ const migrateLegacyUsers = (database) => {
 
 const migrateLegacyProfiles = (database) => {
   const columns = new Set(database.prepare('PRAGMA table_info(app_profiles)').all().map((row) => row.name));
-  if (columns.size > 0 && !columns.has('emoji')) {
-    database.exec("ALTER TABLE app_profiles ADD COLUMN emoji TEXT NOT NULL DEFAULT '🌱'");
+  if (columns.size > 0 && !columns.has('badge_id')) {
+    database.exec("ALTER TABLE app_profiles ADD COLUMN badge_id TEXT NOT NULL DEFAULT 'outline'");
+    if (columns.has('emoji')) {
+      database.exec(`
+        UPDATE app_profiles SET badge_id = CASE emoji
+          WHEN '🌱' THEN 'outline'
+          WHEN '🚀' THEN 'festive-flags'
+          WHEN '💡' THEN 'the-thing'
+          WHEN '🛠️' THEN 'max'
+          WHEN '✨' THEN 'unicorn'
+          ELSE 'outline'
+        END
+      `);
+    }
   }
 };
 
@@ -119,7 +132,7 @@ const normalizeProfileRow = (row) => row?.profile_id ? ({
   intent: row.intent,
   topics: JSON.parse(row.topics_json),
   avatar_source: row.avatar_source,
-  emoji: row.emoji,
+  badge_id: row.badge_id,
   visual_seed: row.visual_seed,
   created_at: new Date(row.profile_created_at),
   updated_at: new Date(row.profile_updated_at)
@@ -181,7 +194,7 @@ export const createDatabase = (config) => {
   const accountProfileProjection = `
     SELECT account.*, session.expires_at,
            profile.id AS profile_id, profile.display_name, profile.headline,
-           profile.intent, profile.topics_json, profile.avatar_source, profile.emoji, profile.visual_seed,
+           profile.intent, profile.topics_json, profile.avatar_source, profile.badge_id, profile.visual_seed,
            profile.created_at AS profile_created_at, profile.updated_at AS profile_updated_at
     FROM app_sessions AS session
     JOIN app_users AS account ON account.id = session.user_id
@@ -193,7 +206,7 @@ export const createDatabase = (config) => {
   const selectAccountWithProfile = database.prepare(`
     SELECT account.*, NULL AS expires_at,
            profile.id AS profile_id, profile.display_name, profile.headline,
-           profile.intent, profile.topics_json, profile.avatar_source, profile.emoji, profile.visual_seed,
+           profile.intent, profile.topics_json, profile.avatar_source, profile.badge_id, profile.visual_seed,
            profile.created_at AS profile_created_at, profile.updated_at AS profile_updated_at
     FROM app_users AS account
     LEFT JOIN app_profiles AS profile ON profile.user_id = account.id
@@ -202,7 +215,7 @@ export const createDatabase = (config) => {
   const upsertProfile = database.prepare(`
     INSERT INTO app_profiles (
       id, user_id, display_name, headline, intent, topics_json, avatar_source,
-      emoji, visual_seed, created_at, updated_at
+      badge_id, visual_seed, created_at, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT (user_id) DO UPDATE SET
       display_name = excluded.display_name,
@@ -210,7 +223,7 @@ export const createDatabase = (config) => {
       intent = excluded.intent,
       topics_json = excluded.topics_json,
       avatar_source = excluded.avatar_source,
-      emoji = excluded.emoji,
+      badge_id = excluded.badge_id,
       updated_at = excluded.updated_at
   `);
   const completeOnboarding = database.prepare(`
@@ -274,7 +287,8 @@ export const createDatabase = (config) => {
     const now = Date.now();
     upsertProfile.run(
       profileId, userId, draft.displayName, draft.headline, draft.intent,
-      JSON.stringify(draft.topics), draft.avatarSource, draft.emoji ?? '🌱', visualSeed, now, now
+      JSON.stringify(draft.topics), draft.avatarSource,
+      draft.badgeId ?? DEFAULT_PROFILE_BADGE_ID, visualSeed, now, now
     );
     completeOnboarding.run(now, userId);
     return readAccount(selectAccountWithProfile.get(userId));

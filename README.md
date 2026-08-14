@@ -13,8 +13,8 @@ application owns a separate editable signal profile.
 - First Telegram sign-in creates one internal account keyed only by the stable
   Telegram `sub` claim and routes to a compact Telegram-like profile setup.
 - A four-step pager collects the display name, current intent and headline,
-  topics, and one of five editable Bloom emoji without presenting one long form.
-- The Telegram profile photo remains the avatar. The Bloom emoji is a separate
+  topics, and a server-managed Bloom badge without presenting one long form.
+- The Telegram profile photo remains the avatar. The Bloom badge is a separate
   badge beside the display name and can be changed from its compact menu.
 - Returning sign-ins refresh only Telegram identity metadata. They never
   overwrite the application-owned profile.
@@ -91,10 +91,12 @@ All authenticated endpoints use `Authorization: Bearer <sessionToken>`.
   returns `sessionToken`, `expiresAt`, `account`, `telegram`, and `profile`.
 - `GET /auth/session` restores the account, onboarding state, Telegram summary,
   and optional service profile.
+- `GET /api/profile-badges` returns the versioned public badge catalog. Profiles
+  store a stable `badgeId`; TGS/WebP files use immutable, hash-based asset paths.
 - `PUT /me/profile` creates or idempotently updates the service profile. Valid
   intents are `BUILDING`, `HELPING`, and `EXPLORING`; one to three supported
-  topics are required; headline length is 1–120 characters; emoji must be one
-  of `🌱`, `🚀`, `💡`, `🛠️`, or `✨`.
+  topics are required; headline length is 1–120 characters; `badgeId` must be
+  an enabled entry from the current badge catalog.
 - `DELETE /me/account` permanently removes the authenticated account together
   with its service profile and sessions, and returns `204 No Content`.
 - `DELETE /auth/session` revokes the current application session.

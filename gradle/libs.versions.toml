@@ -12,6 +12,7 @@ loginSdk = "1.0.0"
 coil = "3.5.0"
 koin = "4.2.2"
 dataStore = "1.2.1"
+lottie = "6.7.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -35,6 +36,7 @@ coil-network-okhttp = { module = "io.coil-kt.coil3:coil-network-okhttp", version
 koin-android = { module = "io.insert-koin:koin-android", version.ref = "koin" }
 koin-androidx-compose = { module = "io.insert-koin:koin-androidx-compose", version.ref = "koin" }
 androidx-dataStore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "dataStore" }
+lottie-compose = { module = "com.airbnb.android:lottie-compose", version.ref = "lottie" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
