@@ -131,7 +131,8 @@ Open **Actions**, select the required workflow, and press **Run workflow** on
   then verifies the public readiness endpoint.
 - **Publish Android release** reads `versionName` and `versionCode` from
   `gradle/libs.versions.toml`, accepts only a pre-release flag, builds and
-  verifies a signed APK, creates the `<versionName>` tag, and publishes
+  verifies a signed APK, creates the `<versionName>.<versionCode>` tag, uses the
+  concise release title `v<versionName>`, and publishes
   `TelegramLoginAndroidDemo-<versionName>.apk` in GitHub Releases. GitHub
   generates the changelog automatically from merged changes using
   `.github/release.yml`.
