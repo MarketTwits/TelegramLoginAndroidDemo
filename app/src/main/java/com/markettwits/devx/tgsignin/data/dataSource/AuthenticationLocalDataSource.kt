@@ -162,6 +162,7 @@ class AuthenticationLocalDataSourceImpl(
         put("avatarSource", value.avatarSource.name)
         put("badgeId", value.badgeId)
         put("phoneNumber", value.phoneNumber)
+        put("phoneNumberEdited", value.phoneNumberEdited)
     }.toString()
 
     private fun decodeDraft(value: String): ProfileDraft = JSONObject(value).let { json ->
@@ -175,7 +176,8 @@ class AuthenticationLocalDataSourceImpl(
             badgeId = json.optString("badgeId").ifBlank {
                 json.optString("emoji").legacyBadgeId()
             },
-            phoneNumber = json.optString("phoneNumber")
+            phoneNumber = json.optString("phoneNumber"),
+            phoneNumberEdited = json.optBoolean("phoneNumberEdited")
         )
     }
 

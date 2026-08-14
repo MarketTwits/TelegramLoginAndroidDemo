@@ -102,7 +102,8 @@ data class ProfileDraft(
     val topics: Set<ProfileTopic> = emptySet(),
     val avatarSource: AvatarSource = AvatarSource.TELEGRAM,
     val badgeId: String = DEFAULT_PROFILE_BADGE_ID,
-    val phoneNumber: String = ""
+    val phoneNumber: String = "",
+    val phoneNumberEdited: Boolean = false
 ) {
     val isValid: Boolean
         get() = displayName.isNotBlank() && displayName.trim().length <= 80 &&
