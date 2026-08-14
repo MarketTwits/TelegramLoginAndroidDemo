@@ -42,9 +42,8 @@ public badge endpoints never contain them.
 ## Setup
 
 1. Register the Android app in BotFather using package name
-   `com.markettwits.devx.tgsignin`. Add the SHA-256 certificates used to sign
-   debug and release builds; BotFather generates a separate App Link host for
-   each registered native app.
+   `com.markettwits.devx.tgsignin` and the SHA-256 certificate used to sign the
+   installed app. Use the generated App Link host below.
 2. Copy `local.properties.example` to the Git-ignored `local.properties` file
    and provide the Telegram settings plus GitHub Packages credentials.
 3. Copy `.env.example` to the Git-ignored `.env` file and set the same Telegram
@@ -52,19 +51,17 @@ public badge endpoints never contain them.
 
 The GitHub token needs only the `read:packages` permission.
 
-Configure the generated hosts without a scheme or path:
+Configure the generated host without a scheme or path:
 
 ```properties
-telegram.redirectHost.debug=app000000001-login.tg.dev
-telegram.redirectHost.release=app000000002-login.tg.dev
+telegram.redirectHost=app000000001-login.tg.dev
 ```
 
-Gradle selects the matching host for each build type and uses it consistently
-in both the SDK redirect URI and the Android App Links intent filter. CI can use
-`TELEGRAM_REDIRECT_HOST_DEBUG` and `TELEGRAM_REDIRECT_HOST_RELEASE` instead.
-The legacy `telegram.redirectHost` / `TELEGRAM_REDIRECT_HOST` setting remains a
-fallback for existing installations, but it assigns the same host to both
-build types.
+Gradle uses this single host for every build type, both in the SDK redirect URI
+and in the Android App Links intent filter. CI uses `TELEGRAM_REDIRECT_HOST`.
+An installed build must be signed by the certificate registered for this host;
+use the release signing key for any build that must complete real Telegram App
+Link verification.
 
 ## Run
 
@@ -121,15 +118,34 @@ cd .. && ./gradlew testDebugUnitTest assembleDebug
 docker compose config
 ```
 
-## GitHub Actions deployment
+## GitHub Actions
 
-The workflow in `.github/workflows/ci-deploy.yml` runs backend tests, builds the
-production Docker image, runs Android unit tests and lint, and deploys only an
-exact tested commit from `main`. Production deployments are serialized and
-verified through both the server-local and public readiness endpoints. If the
-new container starts but does not become ready, the server rebuilds the previous
-revision. The readiness response includes the exact deployed Git commit in its
-`revision` field.
+`.github/workflows/ci.yml` runs backend and Android checks automatically for
+pull requests and pushes to `main`. It never deploys or publishes a release.
+
+Production deployment and Android publishing are separate manual workflows.
+Open **Actions**, select the required workflow, and press **Run workflow** on
+`main`:
+
+- **Deploy production backend** tests and deploys the exact selected commit,
+  then verifies the public readiness endpoint.
+- **Publish Android release** reads `versionName` and `versionCode` from
+  `gradle/libs.versions.toml`, accepts only a pre-release flag, builds and
+  verifies a signed APK, creates the `<versionName>` tag, and publishes
+  `TelegramLoginAndroidDemo-<versionName>.apk` in GitHub Releases. GitHub
+  generates the changelog automatically from merged changes using
+  `.github/release.yml`.
+
+Both manual jobs are restricted to `main` in addition to their environment
+protection rules. Production deployments are serialized. If a new container
+does not become ready, the server rebuilds the previous revision. The readiness
+response includes the exact deployed Git commit in its `revision` field.
+Versioning follows the Sportsouce model. Before a release, update both entries
+in `gradle/libs.versions.toml`: keep `versionName` as SemVer `X.Y.Z` and increase
+the positive integer `versionCode`. Gradle is the source of truth; the workflow
+reads the generated APK metadata and rejects malformed or duplicate releases.
+
+### Server deployment environment
 
 Create a GitHub environment named `production`, restrict its deployment branch
 to `main`, and keep all host identity, network coordinates, filesystem paths,
@@ -171,6 +187,37 @@ The production `TELEGRAM_CLIENT_ID` remains only in the server-side stack
 Before storing `DEPLOY_KNOWN_HOSTS`, compare `ssh-keyscan` output with the
 fingerprint printed directly on the server by
 `sudo ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`.
+
+### Android release environment
+
+Local release builds use the ignored root files `keystore.jks` and
+`keystore.properties`. The properties file has the standard keys
+`storeFile`, `storePassword`, `keyAlias`, and `keyPassword`; `storeFile` is
+resolved relative to the repository root. If signing environment variables are
+present, they override the local file so CI never needs either ignored file.
+
+Create a protected GitHub environment named `android-release`, restrict it to
+`main`, and add these Environment Secrets:
+
+- `ANDROID_KEYSTORE_BASE64`: the complete `keystore.jks` encoded as Base64
+- `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`:
+  values matching `keystore.properties`
+- `ANDROID_SIGNING_SHA256`: expected release certificate SHA-256 fingerprint;
+  separators and letter case do not matter
+- `TELEGRAM_CLIENT_ID`, `TELEGRAM_REDIRECT_HOST`, `TELEGRAM_BACKEND_URL`:
+  production Android build configuration
+
+On macOS, the keystore can be uploaded without creating another local file:
+
+```bash
+base64 -i keystore.jks | gh secret set ANDROID_KEYSTORE_BASE64 --env android-release
+```
+
+The workflow restores the keystore only inside the temporary runner directory,
+checks that the configured alias exists, verifies the completed APK with
+`apksigner`, and compares its certificate to `ANDROID_SIGNING_SHA256` before it
+can create a GitHub Release. `keystore.jks` and `keystore.properties` remain
+ignored and must never be committed.
 
 ## Network diagnostics
 

@@ -10,6 +10,10 @@ val localProperties = Properties().apply {
     val file = rootProject.file("local.properties")
     if (file.isFile) file.inputStream().use(::load)
 }
+val keystoreProperties = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.isFile) file.inputStream().use(::load)
+}
 
 fun projectConfig(localKey: String, environmentKey: String): String =
     providers.environmentVariable(environmentKey).orNull
@@ -17,39 +21,15 @@ fun projectConfig(localKey: String, environmentKey: String): String =
         ?.takeIf(String::isNotEmpty)
         ?: localProperties.getProperty(localKey)?.trim().orEmpty()
 
-fun projectConfig(
-    localKey: String,
-    environmentKey: String,
-    fallbackLocalKey: String,
-    fallbackEnvironmentKey: String
-): String = projectConfig(localKey, environmentKey)
-    .ifBlank { projectConfig(fallbackLocalKey, fallbackEnvironmentKey) }
-
 fun String.asBuildConfigString(): String =
     "\"${replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
 val telegramClientId = projectConfig("telegram.clientId", "TELEGRAM_CLIENT_ID")
-val telegramDebugRedirectHost = projectConfig(
-    localKey = "telegram.redirectHost.debug",
-    environmentKey = "TELEGRAM_REDIRECT_HOST_DEBUG",
-    fallbackLocalKey = "telegram.redirectHost",
-    fallbackEnvironmentKey = "TELEGRAM_REDIRECT_HOST"
-)
-val telegramReleaseRedirectHost = projectConfig(
-    localKey = "telegram.redirectHost.release",
-    environmentKey = "TELEGRAM_REDIRECT_HOST_RELEASE",
-    fallbackLocalKey = "telegram.redirectHost",
-    fallbackEnvironmentKey = "TELEGRAM_REDIRECT_HOST"
-)
+val telegramRedirectHost = projectConfig("telegram.redirectHost", "TELEGRAM_REDIRECT_HOST")
 val telegramBackendUrl = projectConfig("telegram.backendUrl", "TELEGRAM_BACKEND_URL")
 val missingTelegramConfiguration = buildList {
     if (telegramClientId.isBlank()) add("telegram.clientId / TELEGRAM_CLIENT_ID")
-    if (telegramDebugRedirectHost.isBlank()) {
-        add("telegram.redirectHost.debug / TELEGRAM_REDIRECT_HOST_DEBUG")
-    }
-    if (telegramReleaseRedirectHost.isBlank()) {
-        add("telegram.redirectHost.release / TELEGRAM_REDIRECT_HOST_RELEASE")
-    }
+    if (telegramRedirectHost.isBlank()) add("telegram.redirectHost / TELEGRAM_REDIRECT_HOST")
     if (telegramBackendUrl.isBlank()) add("telegram.backendUrl / TELEGRAM_BACKEND_URL")
 }
 
@@ -58,6 +38,32 @@ require(missingTelegramConfiguration.isEmpty()) {
         missingTelegramConfiguration.joinToString() +
         ". Copy local.properties.example values to the Git-ignored local.properties file or set the matching environment variables."
 }
+
+val signingStoreFile = providers.environmentVariable("ANDROID_KEYSTORE_FILE").orNull
+    ?.trim()
+    ?.takeIf(String::isNotEmpty)
+    ?: keystoreProperties.getProperty("storeFile")?.trim()?.takeIf(String::isNotEmpty)
+val signingStorePassword = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD").orNull
+    ?.takeIf(String::isNotEmpty)
+    ?: keystoreProperties.getProperty("storePassword")?.takeIf(String::isNotEmpty)
+val signingKeyAlias = providers.environmentVariable("ANDROID_KEY_ALIAS").orNull
+    ?.trim()
+    ?.takeIf(String::isNotEmpty)
+    ?: keystoreProperties.getProperty("keyAlias")?.trim()?.takeIf(String::isNotEmpty)
+val signingKeyPassword = providers.environmentVariable("ANDROID_KEY_PASSWORD").orNull
+    ?.takeIf(String::isNotEmpty)
+    ?: keystoreProperties.getProperty("keyPassword")?.takeIf(String::isNotEmpty)
+val releaseSigningValues = listOf(
+    signingStoreFile,
+    signingStorePassword,
+    signingKeyAlias,
+    signingKeyPassword
+)
+require(releaseSigningValues.all { it == null } || releaseSigningValues.all { it != null }) {
+    "Release signing is partially configured. Set ANDROID_KEYSTORE_FILE, " +
+            "ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, and ANDROID_KEY_PASSWORD together."
+}
+val releaseSigningConfigured = releaseSigningValues.all { it != null }
 
 android {
     namespace = "com.markettwits.devx.tgsignin"
@@ -71,8 +77,8 @@ android {
         applicationId = "com.markettwits.devx.tgsignin"
         minSdk = 24
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = libs.versions.versionCode.get().toInt()
+        versionName = libs.versions.versionName.get()
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -81,32 +87,44 @@ android {
         buildConfigField("String", "TELEGRAM_BACKEND_URL", telegramBackendUrl.asBuildConfigString())
     }
 
+    signingConfigs {
+        if (releaseSigningConfigured) {
+            create("release") {
+                storeFile = rootProject.file(checkNotNull(signingStoreFile))
+                storePassword = checkNotNull(signingStorePassword)
+                keyAlias = checkNotNull(signingKeyAlias)
+                keyPassword = checkNotNull(signingKeyPassword)
+            }
+        }
+    }
+
     buildTypes {
         debug {
             buildConfigField(
                 "String",
                 "TELEGRAM_REDIRECT_URI",
-                "https://$telegramDebugRedirectHost/tglogin".asBuildConfigString()
+                "https://$telegramRedirectHost/tglogin".asBuildConfigString()
             )
             buildConfigField(
                 "String",
                 "TELEGRAM_REDIRECT_HOST",
-                telegramDebugRedirectHost.asBuildConfigString()
+                telegramRedirectHost.asBuildConfigString()
             )
-            manifestPlaceholders["telegramRedirectHost"] = telegramDebugRedirectHost
+            manifestPlaceholders["telegramRedirectHost"] = telegramRedirectHost
         }
         release {
             buildConfigField(
                 "String",
                 "TELEGRAM_REDIRECT_URI",
-                "https://$telegramReleaseRedirectHost/tglogin".asBuildConfigString()
+                "https://$telegramRedirectHost/tglogin".asBuildConfigString()
             )
             buildConfigField(
                 "String",
                 "TELEGRAM_REDIRECT_HOST",
-                telegramReleaseRedirectHost.asBuildConfigString()
+                telegramRedirectHost.asBuildConfigString()
             )
-            manifestPlaceholders["telegramRedirectHost"] = telegramReleaseRedirectHost
+            manifestPlaceholders["telegramRedirectHost"] = telegramRedirectHost
+            signingConfigs.findByName("release")?.let { signingConfig = it }
             optimization {
                 enable = false
             }
@@ -122,7 +140,7 @@ android {
     }
 }
 
-val apkBaseName = "TelegramLoginDemo"
+val apkBaseName = "TelegramLoginAndroidDemo"
 val outputFileNameGetter = "getOutputFileName"
 val unknownBuildType = "unknown"
 val unknownVersionName = "unspecified"
