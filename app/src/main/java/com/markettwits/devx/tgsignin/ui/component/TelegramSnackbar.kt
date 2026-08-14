@@ -51,8 +51,8 @@ suspend fun SnackbarHostState.showTelegramSnackbar(
 @Composable
 fun TelegramSnackbarHost(
     hostState: SnackbarHostState,
-    bottomContentPadding: Dp = 0.dp,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    bottomContentPadding: Dp = 0.dp
 ) {
     SnackbarHost(
         hostState = hostState,

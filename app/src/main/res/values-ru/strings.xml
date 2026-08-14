@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Telegram Login Android Demo</string>
+    <string name="app_name">TG Login Demo</string>
     <string name="telegram">Telegram</string>
     <string name="telegram_logo">Логотип Telegram</string>
     <string name="login_tagline">Быстрый и безопасный вход\nчерез ваш аккаунт Telegram.</string>
