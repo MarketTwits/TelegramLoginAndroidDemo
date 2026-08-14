@@ -31,7 +31,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -54,7 +53,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.markettwits.devx.tgsignin.R
 import com.markettwits.devx.tgsignin.data.model.TelegramScope
-import com.markettwits.devx.tgsignin.ui.component.TelegramSnackbar
+import com.markettwits.devx.tgsignin.ui.component.showTelegramSnackbar
 import com.markettwits.devx.tgsignin.ui.viewModel.LoginScreenUiState
 import com.markettwits.devx.tgsignin.ui.viewModel.LoginState
 
@@ -62,13 +61,13 @@ import com.markettwits.devx.tgsignin.ui.viewModel.LoginState
 @Composable
 fun LoginScreen(
     uiState: LoginScreenUiState,
+    snackbarHostState: SnackbarHostState,
     sessionExpired: Boolean = false,
     onScopesChanged: (Set<TelegramScope>) -> Unit,
     onLogin: () -> Unit
 ) {
     var pickerExpanded by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
-    val snackbarHostState = remember { SnackbarHostState() }
     val cancelledMessage = stringResource(R.string.login_cancelled)
     val sessionExpiredMessage = stringResource(R.string.session_expired)
     val errorMessage = when (val state = uiState.loginState) {
@@ -78,18 +77,22 @@ fun LoginScreen(
 
     LaunchedEffect(uiState.loginState, cancelledMessage, sessionExpiredMessage, errorMessage, sessionExpired) {
         if (sessionExpired) {
-            snackbarHostState.showSnackbar(sessionExpiredMessage)
+            snackbarHostState.showTelegramSnackbar(sessionExpiredMessage, isError = true)
             return@LaunchedEffect
         }
         when (uiState.loginState) {
-            LoginState.Cancelled -> snackbarHostState.showSnackbar(cancelledMessage)
-            is LoginState.Error -> errorMessage?.let { snackbarHostState.showSnackbar(it) }
+            LoginState.Cancelled -> snackbarHostState.showTelegramSnackbar(cancelledMessage)
+            is LoginState.Error -> errorMessage?.let {
+                snackbarHostState.showTelegramSnackbar(it, isError = true)
+            }
             else -> Unit
         }
     }
 
     Box(
-        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
     ) {
         Column(
             modifier = Modifier
@@ -160,18 +163,6 @@ fun LoginScreen(
                 fontWeight = FontWeight.SemiBold
             )
         }
-        SnackbarHost(
-            hostState = snackbarHostState,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .padding(start = 16.dp, end = 16.dp, bottom = 132.dp)
-        ) {
-            TelegramSnackbar(
-                message = it.visuals.message,
-                isError = uiState.loginState is LoginState.Error || sessionExpired
-            )
-        }
     }
 
     if (pickerExpanded) {
@@ -189,7 +180,9 @@ private fun TelegramPlane() {
         androidx.compose.foundation.Image(
             painter = painterResource(R.drawable.ic_tg_without_rounded),
             contentDescription = stringResource(R.string.telegram_logo),
-            modifier = Modifier.fillMaxSize().clip(CircleShape)
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(CircleShape)
         )
     }
 }
@@ -212,7 +205,9 @@ private fun RequestedDataSelector(
         )
         Spacer(Modifier.size(8.dp))
         Surface(
-            modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick),
             shape = RoundedCornerShape(12.dp),
             color = MaterialTheme.colorScheme.background,
             border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.outline)
@@ -245,7 +240,10 @@ private fun RequestedDataBottomSheet(
         containerColor = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface
     ) {
-        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 12.dp)) {
+        Column(Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(bottom = 12.dp)) {
             Text(
                 stringResource(R.string.sign_in_data_title),
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp),
@@ -292,7 +290,9 @@ private fun RequestedDataBottomSheet(
                     haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     onDismiss()
                 },
-                modifier = Modifier.align(Alignment.End).padding(horizontal = 16.dp, vertical = 4.dp)
+                modifier = Modifier
+                    .align(Alignment.End)
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
             ) {
                 Text(stringResource(R.string.done), fontWeight = FontWeight.Medium)
             }
