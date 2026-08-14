@@ -99,7 +99,9 @@ import com.markettwits.devx.tgsignin.data.model.asPhoneNumberInput
 import com.markettwits.devx.tgsignin.data.model.formattedInternationalPhoneNumber
 import com.markettwits.devx.tgsignin.data.model.isValidOptionalInternationalPhoneNumber
 import com.markettwits.devx.tgsignin.data.model.normalizedInternationalPhoneNumberOrNull
+import com.markettwits.devx.tgsignin.data.model.normalizedTelegramPhoneNumberOrNull
 import com.markettwits.devx.tgsignin.data.repository.ProfileBadgeRepository
+import com.markettwits.devx.tgsignin.ui.component.InternationalPhoneVisualTransformation
 import com.markettwits.devx.tgsignin.ui.component.ProfileBadgeImage
 import com.markettwits.devx.tgsignin.ui.component.TelegramBadgeDropdown
 import com.markettwits.devx.tgsignin.ui.component.TelegramChoice
@@ -337,14 +339,19 @@ private fun NameSetupPage(
     val invalidPhone = !draft.phoneNumber.isValidOptionalInternationalPhoneNumber()
     TelegramTextField(
         value = draft.phoneNumber,
-        onValueChange = { onDraftChanged(draft.copy(phoneNumber = it.asPhoneNumberInput())) },
+        onValueChange = {
+            onDraftChanged(
+                draft.copy(phoneNumber = it.asPhoneNumberInput(), phoneNumberEdited = true)
+            )
+        },
         label = stringResource(R.string.bloom_phone_optional),
         supportingText = stringResource(
             if (showError && invalidPhone) R.string.bloom_phone_invalid else R.string.bloom_phone_hint
         ),
         isError = showError && invalidPhone,
         singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone)
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+        visualTransformation = InternationalPhoneVisualTransformation
     )
 }
 
@@ -1057,7 +1064,7 @@ private fun TelegramAvatar(identity: TelegramIdentity, modifier: Modifier = Modi
 private fun TelegramIdentitySummary(session: AuthenticationResult, profilePhoneNumber: String?) {
     profilePhoneNumber?.let { phoneNumber ->
         val isTelegramNumber = phoneNumber.normalizedInternationalPhoneNumberOrNull() ==
-                session.telegram.phoneNumber?.normalizedInternationalPhoneNumberOrNull()
+                session.telegram.phoneNumber?.normalizedTelegramPhoneNumberOrNull()
         TelegramSection(title = stringResource(R.string.bloom_contact)) {
             Text(
                 phoneNumber.formattedInternationalPhoneNumber(),

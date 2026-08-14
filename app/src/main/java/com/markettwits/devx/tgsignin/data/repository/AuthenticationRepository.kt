@@ -11,7 +11,7 @@ import com.markettwits.devx.tgsignin.data.model.OnboardingState
 import com.markettwits.devx.tgsignin.data.model.ProfileDraft
 import com.markettwits.devx.tgsignin.data.model.RootAuthenticationState
 import com.markettwits.devx.tgsignin.data.model.TelegramScope
-import com.markettwits.devx.tgsignin.data.model.isValidOptionalInternationalPhoneNumber
+import com.markettwits.devx.tgsignin.data.model.normalizedTelegramPhoneNumberOrNull
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -111,6 +111,7 @@ class AuthenticationRepositoryImpl(
         )
         localMutationMutex.withLock { authenticationLocalDataSource.save(result) }
         val draft = authenticationLocalDataSource.profileDraft.first()
+            ?.withTelegramPhone(result)
             ?: initialDraft(result)
         if (result.account.onboardingState == OnboardingState.PROFILE_REQUIRED) {
             localMutationMutex.withLock { authenticationLocalDataSource.saveDraft(draft) }
@@ -246,13 +247,17 @@ class AuthenticationRepositoryImpl(
     ) {
         RootAuthenticationState.Authenticated(session, isOffline)
     } else {
-        RootAuthenticationState.OnboardingRequired(session, draft ?: initialDraft(session), isOffline)
+        RootAuthenticationState.OnboardingRequired(
+            session,
+            draft?.withTelegramPhone(session) ?: initialDraft(session),
+            isOffline
+        )
     }
 
     private fun initialDraft(session: AuthenticationResult) = ProfileDraft(
         displayName = session.telegram.suggestedDisplayName(),
         phoneNumber = session.telegram.phoneNumber
-            ?.takeIf { it.isValidOptionalInternationalPhoneNumber() }
+            ?.normalizedTelegramPhoneNumberOrNull()
             .orEmpty(),
         avatarSource = com.markettwits.devx.tgsignin.data.model.AvatarSource.TELEGRAM,
         badgeId = com.markettwits.devx.tgsignin.data.model.DEFAULT_PROFILE_BADGE_ID
@@ -266,8 +271,16 @@ private fun com.markettwits.devx.tgsignin.data.model.ServiceProfile.toDraft() = 
     topics = topics.toSet(),
     avatarSource = com.markettwits.devx.tgsignin.data.model.AvatarSource.TELEGRAM,
     badgeId = badgeId,
-    phoneNumber = phoneNumber.orEmpty()
+    phoneNumber = phoneNumber.orEmpty(),
+    phoneNumberEdited = true
 )
+
+private fun ProfileDraft.withTelegramPhone(session: AuthenticationResult): ProfileDraft {
+    if (phoneNumberEdited || phoneNumber.isNotBlank()) return this
+    val telegramPhone = session.telegram.phoneNumber?.normalizedTelegramPhoneNumberOrNull()
+        ?: return this
+    return copy(phoneNumber = telegramPhone)
+}
 
 private val RootAuthenticationState.isProfileEditing: Boolean
     get() = this is RootAuthenticationState.OnboardingRequired && session.profile != null

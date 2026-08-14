@@ -2,6 +2,8 @@ package com.markettwits.devx.tgsignin.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.LocalAutofillHighlightBrush
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
@@ -9,9 +11,10 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
 import com.markettwits.devx.tgsignin.data.model.AppThemeMode
 
@@ -91,10 +94,12 @@ fun TelegramLoginDemoTheme(
         else -> LightColorScheme
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography,
-        shapes = if (themeMode == AppThemeMode.Expressive) ExpressiveShapes else TelegramShapes,
-        content = content
-    )
+    CompositionLocalProvider(LocalAutofillHighlightBrush provides SolidColor(Color.Transparent)) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = Typography,
+            shapes = if (themeMode == AppThemeMode.Expressive) ExpressiveShapes else TelegramShapes,
+            content = content
+        )
+    }
 }

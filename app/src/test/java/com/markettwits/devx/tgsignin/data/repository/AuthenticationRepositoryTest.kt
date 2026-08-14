@@ -215,6 +215,7 @@ class AuthenticationRepositoryTest {
             profile = null
         )
         val local = FakeAuthenticationLocalDataSource(required)
+        local.saveDraft(ProfileDraft(displayName = "Interrupted setup"))
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         val repository = AuthenticationRepositoryImpl(
             FakeTelegramLoginDataSource(),
@@ -236,6 +237,39 @@ class AuthenticationRepositoryTest {
     }
 
     @Test
+    fun `explicitly cleared phone is not restored from Telegram during refresh`() = runBlocking {
+        val required = session("New profile").copy(
+            account = session("New profile").account.copy(
+                onboardingState = OnboardingState.PROFILE_REQUIRED
+            ),
+            telegram = TelegramIdentity(
+                username = "demo",
+                phoneNumber = "14155552671",
+                phoneVerified = true
+            ),
+            profile = null
+        )
+        val local = FakeAuthenticationLocalDataSource(required)
+        local.saveDraft(
+            ProfileDraft(
+                displayName = "Interrupted setup",
+                phoneNumber = "",
+                phoneNumberEdited = true
+            )
+        )
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val repository = AuthenticationRepositoryImpl(
+            FakeTelegramLoginDataSource(), FakeTelegramAuthApiDataSource(required), local, scope
+        )
+
+        val state = repository.state.first {
+            it is RootAuthenticationState.OnboardingRequired
+        } as RootAuthenticationState.OnboardingRequired
+        assertEquals("", state.draft.phoneNumber)
+        scope.cancel()
+    }
+
+    @Test
     fun `new profile draft is prefilled with a scoped Telegram phone`() = runBlocking {
         val required = session("New profile").copy(
             account = session("New profile").account.copy(
@@ -243,7 +277,7 @@ class AuthenticationRepositoryTest {
             ),
             telegram = TelegramIdentity(
                 username = "demo",
-                phoneNumber = "+14155552671",
+                phoneNumber = "14155552671",
                 phoneVerified = true
             ),
             profile = null

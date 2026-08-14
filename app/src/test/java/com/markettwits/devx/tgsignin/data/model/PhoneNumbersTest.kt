@@ -19,6 +19,27 @@ class PhoneNumbersTest {
     }
 
     @Test
+    fun `formats international phone progressively by detected country`() {
+        assertEquals("+1 555-123-4567", "+15551234567".formattedPhoneNumberAsYouType())
+        assertEquals("+44 20 7946 0018", "+442079460018".formattedPhoneNumberAsYouType())
+    }
+
+    @Test
+    fun `accepts structurally possible test numbers without claiming they are verified`() {
+        assertEquals("+15551234567", "+1 555 123 4567".normalizedInternationalPhoneNumberOrNull())
+    }
+
+    @Test
+    fun `keeps only canonical input characters when a formatted number is pasted`() {
+        assertEquals("+15551234567", "  +1 (555) 123-4567".asPhoneNumberInput())
+    }
+
+    @Test
+    fun `normalizes Telegram OIDC phone without a leading plus`() {
+        assertEquals("+442079460018", "442079460018".normalizedTelegramPhoneNumberOrNull())
+    }
+
+    @Test
     fun `optional phone accepts blank and rejects ambiguous or invalid input`() {
         assertTrue("".isValidOptionalInternationalPhoneNumber())
         assertFalse("4155552671".isValidOptionalInternationalPhoneNumber())

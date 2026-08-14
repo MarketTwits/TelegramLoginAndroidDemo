@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { normalizeInternationalPhoneNumber } from './phoneNumbers.js';
 
 const JWKS_PATH = '/.well-known/jwks.json';
 const JWKS_TIMEOUT_MS = 5_000;
@@ -25,7 +26,14 @@ export const createTelegramVerifier = (config) => {
     const telegramSubject = optionalString(payload.sub);
     if (!telegramSubject) throw new Error('Telegram ID token has no subject');
 
-    const phoneNumber = optionalString(payload.phone_number);
+    const rawPhoneNumber = optionalString(payload.phone_number);
+    const phoneNumber = normalizeInternationalPhoneNumber(rawPhoneNumber, true);
+    console.info(
+      '[telegram] token verified ' +
+      `phoneClaimPresent=${rawPhoneNumber != null} ` +
+      `phoneClaimAccepted=${phoneNumber != null} ` +
+      `phoneVerified=${payload.phone_number_verified === true}`
+    );
     return {
       id: crypto.randomUUID(),
       telegramSubject,

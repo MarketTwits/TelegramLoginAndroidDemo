@@ -47,10 +47,15 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.markettwits.devx.tgsignin.data.model.formattedPhoneNumberAsYouType
 import kotlinx.coroutines.delay
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -152,7 +157,8 @@ fun TelegramTextField(
     maxLines: Int = if (singleLine) 1 else Int.MAX_VALUE,
     isError: Boolean = false,
     supportingText: String? = null,
-    keyboardOptions: KeyboardOptions = KeyboardOptions.Default
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    visualTransformation: VisualTransformation = VisualTransformation.None
 ) {
     OutlinedTextField(
         value = value,
@@ -164,9 +170,37 @@ fun TelegramTextField(
         minLines = minLines,
         maxLines = maxLines,
         keyboardOptions = keyboardOptions,
+        visualTransformation = visualTransformation,
         shape = RoundedCornerShape(12.dp),
         modifier = modifier.fillMaxWidth()
     )
+}
+
+object InternationalPhoneVisualTransformation : VisualTransformation {
+    override fun filter(text: AnnotatedString): TransformedText {
+        val original = text.text
+        val formatted = original.formattedPhoneNumberAsYouType()
+        val originalToTransformed = IntArray(original.length + 1)
+        var formattedCursor = 0
+        original.forEachIndexed { index, character ->
+            while (formattedCursor < formatted.length && formatted[formattedCursor] != character) {
+                formattedCursor++
+            }
+            if (formattedCursor < formatted.length) formattedCursor++
+            originalToTransformed[index + 1] = formattedCursor
+        }
+        val mapping = object : OffsetMapping {
+            override fun originalToTransformed(offset: Int): Int =
+                originalToTransformed[offset.coerceIn(0, original.length)]
+
+            override fun transformedToOriginal(offset: Int): Int {
+                val transformedOffset = offset.coerceIn(0, formatted.length)
+                return originalToTransformed.indexOfLast { it <= transformedOffset }
+                    .coerceAtLeast(0)
+            }
+        }
+        return TransformedText(AnnotatedString(formatted), mapping)
+    }
 }
 
 @Composable

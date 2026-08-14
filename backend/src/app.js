@@ -4,8 +4,8 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import helmet from 'helmet';
 import { rateLimit } from 'express-rate-limit';
-import { parsePhoneNumberFromString } from 'libphonenumber-js/max';
 import { createSession, bearerToken, hashSessionToken } from './sessions.js';
+import { normalizeInternationalPhoneNumber } from './phoneNumbers.js';
 import {
   PROFILE_BADGE_IDS,
   profileBadgeAssetDirectory,
@@ -87,9 +87,8 @@ const profileDraft = (body) => {
     if (trimmedPhone.length === 0) {
       phoneNumber = null;
     } else {
-      const parsedPhone = parsePhoneNumberFromString(trimmedPhone, { extract: false });
-      if (!parsedPhone?.isValid()) return null;
-      phoneNumber = parsedPhone.number;
+      phoneNumber = normalizeInternationalPhoneNumber(trimmedPhone);
+      if (!phoneNumber) return null;
     }
   }
   if (displayName.length < 1 || displayName.length > 80) return null;

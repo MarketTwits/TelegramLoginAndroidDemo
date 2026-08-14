@@ -31,6 +31,10 @@ application owns a separate editable signal profile.
 When the person grants Telegram phone access, the number is offered as the
 initial value of the private Bloom profile field. It can be edited or cleared,
 is stored in canonical E.164 form, and is formatted by country for display.
+The editor applies the country-specific mask as the user types and accepts
+structurally possible international numbers without pretending they are verified.
+Telegram may return the international OIDC claim without a leading `+`; the
+backend normalizes that provider-specific representation before returning it.
 Returning Telegram sign-ins do not overwrite it. Both the Telegram claim and
 profile phone are returned only to their authenticated owner; request logs and
 public badge endpoints never contain them.

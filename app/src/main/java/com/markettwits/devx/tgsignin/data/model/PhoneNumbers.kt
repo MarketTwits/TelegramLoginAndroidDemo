@@ -13,13 +13,21 @@ fun String.normalizedInternationalPhoneNumberOrNull(): String? {
     if (input.isEmpty() || !input.startsWith('+')) return null
     return runCatching {
         phoneNumberUtil.parse(input, null)
-    }.getOrNull()?.takeIf(phoneNumberUtil::isValidNumber)?.let {
+    }.getOrNull()?.takeIf(phoneNumberUtil::isPossibleNumber)?.let {
         phoneNumberUtil.format(it, PhoneNumberUtil.PhoneNumberFormat.E164)
     }
 }
 
 fun String.isValidOptionalInternationalPhoneNumber(): Boolean =
     isBlank() || normalizedInternationalPhoneNumberOrNull() != null
+
+/** Telegram's OIDC claim may omit the leading plus despite containing a country code. */
+fun String.normalizedTelegramPhoneNumberOrNull(): String? {
+    val input = trim()
+    if (input.isEmpty()) return null
+    return (if (input.startsWith('+')) input else "+$input")
+        .normalizedInternationalPhoneNumberOrNull()
+}
 
 fun String.formattedInternationalPhoneNumber(): String {
     val normalized = normalizedInternationalPhoneNumberOrNull() ?: return this
@@ -31,6 +39,17 @@ fun String.formattedInternationalPhoneNumber(): String {
     }.getOrDefault(this)
 }
 
-fun String.asPhoneNumberInput(): String = trimStart().filterIndexed { index, character ->
-    character.isDigit() || character in " ()-." || (character == '+' && index == 0)
-}.take(40)
+fun String.formattedPhoneNumberAsYouType(): String {
+    if (isEmpty()) return this
+    val formatter = phoneNumberUtil.getAsYouTypeFormatter("ZZ")
+    return fold("") { _, character -> formatter.inputDigit(character) }
+}
+
+fun String.asPhoneNumberInput(): String = buildString {
+    this@asPhoneNumberInput.trimStart().forEach { character ->
+        when {
+            character.isDigit() -> append(character)
+            character == '+' && isEmpty() -> append(character)
+        }
+    }
+}.take(16)
