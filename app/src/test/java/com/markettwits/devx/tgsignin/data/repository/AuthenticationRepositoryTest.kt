@@ -11,6 +11,7 @@ import com.markettwits.devx.tgsignin.data.model.AuthenticationResult
 import com.markettwits.devx.tgsignin.data.model.AvatarSource
 import com.markettwits.devx.tgsignin.data.model.OnboardingState
 import com.markettwits.devx.tgsignin.data.model.ProfileDraft
+import com.markettwits.devx.tgsignin.data.model.ProfileEmojiSelection
 import com.markettwits.devx.tgsignin.data.model.ProfileIntent
 import com.markettwits.devx.tgsignin.data.model.ProfileTopic
 import com.markettwits.devx.tgsignin.data.model.RootAuthenticationState
@@ -228,7 +229,7 @@ class AuthenticationRepositoryTest {
             displayName = "New profile",
             headline = "Building the next iteration",
             topics = setOf(ProfileTopic.ANDROID),
-            badgeId = "festive-flags"
+            emojiStatus = ProfileEmojiSelection("spotty-persik", "e-0007fab99d521710")
         )
 
         assertTrue(repository.saveProfile(draft).isSuccess)
@@ -296,7 +297,8 @@ class AuthenticationRepositoryTest {
     }
 
     @Test
-    fun `changing bloom badge preserves Telegram avatar and updates completed profile`() = runBlocking {
+    fun `changing profile emoji preserves Telegram avatar and updates completed profile`() =
+        runBlocking {
         val completed = session("Badge profile")
         val local = FakeAuthenticationLocalDataSource(completed)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
@@ -306,9 +308,10 @@ class AuthenticationRepositoryTest {
         )
         repository.state.first { it is RootAuthenticationState.Authenticated }
 
-        assertTrue(repository.updateProfileBadge("unicorn").isSuccess)
+            val selection = ProfileEmojiSelection("neon", "e-demo")
+            assertTrue(repository.updateProfileEmoji(selection).isSuccess)
         val state = repository.state.value as RootAuthenticationState.Authenticated
-        assertEquals("unicorn", state.session.profile?.badgeId)
+            assertEquals(selection, state.session.profile?.emojiStatus)
         assertEquals(AvatarSource.TELEGRAM, api.lastSavedDraft?.avatarSource)
         scope.cancel()
     }
@@ -352,7 +355,7 @@ private fun session(displayName: String) = AuthenticationResult(
         intent = ProfileIntent.BUILDING,
         topics = listOf(ProfileTopic.ANDROID),
         avatarSource = AvatarSource.BLOOM,
-        badgeId = "festive-flags",
+        emojiStatus = ProfileEmojiSelection("spotty-persik", "e-0007fab99d521710"),
         visualSeed = "stable-seed",
         createdAt = "2026-08-01T00:00:00Z",
         updatedAt = "2026-08-12T00:00:00Z",
@@ -394,7 +397,7 @@ private class FakeTelegramAuthApiDataSource(
         return saveResult.copy(
             profile = saveResult.profile?.copy(
                 avatarSource = draft.avatarSource,
-                badgeId = draft.badgeId
+                emojiStatus = draft.emojiStatus ?: saveResult.profile.emojiStatus
             )
         )
     }

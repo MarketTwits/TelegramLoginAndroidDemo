@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.markettwits.devx.tgsignin.R
 import com.markettwits.devx.tgsignin.data.model.ProfileDraft
+import com.markettwits.devx.tgsignin.data.model.ProfileEmojiSelection
 import com.markettwits.devx.tgsignin.data.repository.AuthenticationRepository
 import com.markettwits.devx.tgsignin.ui.model.toUserMessageRes
 import kotlinx.coroutines.Job
@@ -45,10 +46,10 @@ class ProfileScreenViewModel(
         viewModelScope.launch { authenticationRepository.cancelProfileEditing() }
     }
 
-    fun updateBadge(badgeId: String) {
+    fun updateEmoji(selection: ProfileEmojiSelection) {
         if (actionJob?.isActive == true) return
         actionJob = viewModelScope.launch {
-            authenticationRepository.updateProfileBadge(badgeId)
+            authenticationRepository.updateProfileEmoji(selection)
                 .onFailure { _messages.emit(R.string.error_profile_save) }
         }
     }

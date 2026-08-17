@@ -9,6 +9,7 @@ import com.markettwits.devx.tgsignin.data.model.AuthenticationError
 import com.markettwits.devx.tgsignin.data.model.AuthenticationResult
 import com.markettwits.devx.tgsignin.data.model.OnboardingState
 import com.markettwits.devx.tgsignin.data.model.ProfileDraft
+import com.markettwits.devx.tgsignin.data.model.ProfileEmojiSelection
 import com.markettwits.devx.tgsignin.data.model.RootAuthenticationState
 import com.markettwits.devx.tgsignin.data.model.TelegramScope
 import com.markettwits.devx.tgsignin.data.model.normalizedTelegramPhoneNumberOrNull
@@ -32,7 +33,7 @@ interface AuthenticationRepository {
     suspend fun saveProfile(draft: ProfileDraft): Result<AuthenticationResult>
     suspend fun beginProfileEditing()
     suspend fun cancelProfileEditing()
-    suspend fun updateProfileBadge(badgeId: String): Result<Unit>
+    suspend fun updateProfileEmoji(selection: ProfileEmojiSelection): Result<Unit>
     suspend fun deleteAccount(): Result<Unit>
     suspend fun logout()
 }
@@ -173,8 +174,10 @@ class AuthenticationRepositoryImpl(
         )
     }
 
-    override suspend fun updateProfileBadge(badgeId: String): Result<Unit> {
-        if (badgeId.isBlank()) return Result.failure(IllegalArgumentException("Unsupported profile badge"))
+    override suspend fun updateProfileEmoji(selection: ProfileEmojiSelection): Result<Unit> {
+        if (selection.setId.isBlank() || selection.emojiId.isBlank()) {
+            return Result.failure(IllegalArgumentException("Unsupported profile emoji"))
+        }
         val current = _state.value as? RootAuthenticationState.Authenticated
             ?: return Result.failure(IllegalStateException("No profile to update"))
         val profile = current.session.profile
@@ -182,7 +185,7 @@ class AuthenticationRepositoryImpl(
         return try {
             val saved = telegramAuthApiDataSource.saveProfile(
                 current.session.accessToken,
-                profile.toDraft().copy(badgeId = badgeId)
+                profile.toDraft().copy(emojiStatus = selection)
             )
             localMutationMutex.withLock { authenticationLocalDataSource.save(saved) }
             _state.value = RootAuthenticationState.Authenticated(saved, current.isOffline)
@@ -260,7 +263,7 @@ class AuthenticationRepositoryImpl(
             ?.normalizedTelegramPhoneNumberOrNull()
             .orEmpty(),
         avatarSource = com.markettwits.devx.tgsignin.data.model.AvatarSource.TELEGRAM,
-        badgeId = com.markettwits.devx.tgsignin.data.model.DEFAULT_PROFILE_BADGE_ID
+        emojiStatus = null
     )
 }
 
@@ -270,7 +273,7 @@ private fun com.markettwits.devx.tgsignin.data.model.ServiceProfile.toDraft() = 
     intent = intent,
     topics = topics.toSet(),
     avatarSource = com.markettwits.devx.tgsignin.data.model.AvatarSource.TELEGRAM,
-    badgeId = badgeId,
+    emojiStatus = emojiStatus,
     phoneNumber = phoneNumber.orEmpty(),
     phoneNumberEdited = true
 )

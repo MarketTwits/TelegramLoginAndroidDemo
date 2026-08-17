@@ -27,6 +27,11 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyHorizontalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -91,8 +96,9 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.markettwits.devx.tgsignin.R
 import com.markettwits.devx.tgsignin.data.model.AuthenticationResult
-import com.markettwits.devx.tgsignin.data.model.ProfileBadge
 import com.markettwits.devx.tgsignin.data.model.ProfileDraft
+import com.markettwits.devx.tgsignin.data.model.ProfileEmojiCatalog
+import com.markettwits.devx.tgsignin.data.model.ProfileEmojiSelection
 import com.markettwits.devx.tgsignin.data.model.ProfileIntent
 import com.markettwits.devx.tgsignin.data.model.ProfileTopic
 import com.markettwits.devx.tgsignin.data.model.TelegramIdentity
@@ -101,13 +107,13 @@ import com.markettwits.devx.tgsignin.data.model.formattedInternationalPhoneNumbe
 import com.markettwits.devx.tgsignin.data.model.isValidOptionalInternationalPhoneNumber
 import com.markettwits.devx.tgsignin.data.model.normalizedInternationalPhoneNumberOrNull
 import com.markettwits.devx.tgsignin.data.model.normalizedTelegramPhoneNumberOrNull
-import com.markettwits.devx.tgsignin.data.repository.ProfileBadgeRepository
+import com.markettwits.devx.tgsignin.data.repository.ProfileEmojiRepository
 import com.markettwits.devx.tgsignin.ui.component.InternationalPhoneVisualTransformation
-import com.markettwits.devx.tgsignin.ui.component.ProfileBadgeImage
-import com.markettwits.devx.tgsignin.ui.component.TelegramBadgeDropdown
+import com.markettwits.devx.tgsignin.ui.component.ProfileEmojiImage
 import com.markettwits.devx.tgsignin.ui.component.TelegramChoice
 import com.markettwits.devx.tgsignin.ui.component.TelegramConfirmationDialog
 import com.markettwits.devx.tgsignin.ui.component.TelegramDestructiveButton
+import com.markettwits.devx.tgsignin.ui.component.TelegramEmojiSetDropdown
 import com.markettwits.devx.tgsignin.ui.component.TelegramIconAction
 import com.markettwits.devx.tgsignin.ui.component.TelegramPrimaryButton
 import com.markettwits.devx.tgsignin.ui.component.TelegramSection
@@ -134,9 +140,8 @@ fun ProfileSetupScreen(
     onSave: (ProfileDraft) -> Unit,
     onCancel: () -> Unit
 ) {
-    val badgeRepository: ProfileBadgeRepository = koinInject()
-    val badgeCatalog by badgeRepository.catalog.collectAsState()
-    val badges = badgeCatalog?.badges.orEmpty().filter(ProfileBadge::enabled)
+    val emojiRepository: ProfileEmojiRepository = koinInject()
+    val emojiCatalog by emojiRepository.catalog.collectAsState()
     val isEditing = session.profile != null
     val pagerState = rememberPagerState(pageCount = { SETUP_PAGE_COUNT })
     val scope = rememberCoroutineScope()
@@ -221,7 +226,7 @@ fun ProfileSetupScreen(
                                 onTopicLimitChanged = { topicLimitReached = it },
                                 onDraftChanged = onDraftChanged
                             )
-                            else -> BloomSetupPage(draft, badges, onDraftChanged)
+                            else -> BloomSetupPage(draft, emojiCatalog, onDraftChanged)
                         }
                     }
                 }
@@ -428,28 +433,67 @@ private fun TopicsSetupPage(
 @Composable
 private fun BloomSetupPage(
     draft: ProfileDraft,
-    badges: List<ProfileBadge>,
+    catalog: ProfileEmojiCatalog?,
     onDraftChanged: (ProfileDraft) -> Unit
 ) {
     val language = LocalConfiguration.current.locales[0].language
     SetupPageHeader(R.string.bloom_step_emoji_title, R.string.bloom_step_emoji_subtitle)
     TelegramSection {
-        FlowRow(
+        if (catalog == null) {
+            Box(Modifier
+                .fillMaxWidth()
+                .height(180.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+            return@TelegramSection
+        }
+        val selected = catalog.resolve(draft.emojiStatus)
+        var activeSetId by rememberSaveable(catalog.version) { mutableStateOf(selected.setId) }
+        val activeSet = catalog.sets.firstOrNull { it.id == activeSetId } ?: catalog.sets.first()
+        LazyRow(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            badges.forEach { badge ->
+            items(catalog.sets, key = { it.id }) { set ->
+                val thumbnail = set.emojis.firstOrNull { it.id == set.thumbnailEmojiId }
                 TelegramChoice(
-                    selected = draft.badgeId == badge.id,
-                    onClick = { onDraftChanged(draft.copy(badgeId = badge.id)) }
+                    selected = set.id == activeSet.id,
+                    onClick = { activeSetId = set.id }
                 ) {
-                    ProfileBadgeImage(
-                        badge = badge,
-                        animate = draft.badgeId == badge.id,
-                        contentDescription = badge.label(language),
+                    ProfileEmojiImage(
+                        emoji = thumbnail,
+                        contentDescription = set.label(language),
                         modifier = Modifier
-                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                            .padding(7.dp)
+                            .size(34.dp)
+                    )
+                }
+            }
+        }
+        val enabledEmojis = remember(activeSet) { activeSet.emojis.filter { it.enabled } }
+        LazyHorizontalGrid(
+            rows = GridCells.Fixed(3),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(180.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            itemsIndexed(
+                items = enabledEmojis,
+                key = { _, emoji -> "${emoji.setId}/${emoji.id}" }
+            ) { index, emoji ->
+                val selection = ProfileEmojiSelection(emoji.setId, emoji.id)
+                TelegramChoice(
+                    selected = selection == selected,
+                    onClick = { onDraftChanged(draft.copy(emojiStatus = selection)) }
+                ) {
+                    ProfileEmojiImage(
+                        emoji = emoji,
+                        animate = selection == selected,
+                        contentDescription = "${activeSet.label(language)} ${index + 1}",
+                        modifier = Modifier
+                            .padding(6.dp)
                             .size(38.dp)
                     )
                 }
@@ -461,8 +505,8 @@ private fun BloomSetupPage(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(draft.displayName, style = MaterialTheme.typography.titleLarge)
-            ProfileBadgeImage(
-                badge = badges.firstOrNull { it.id == draft.badgeId },
+            ProfileEmojiImage(
+                emoji = catalog.emoji(selected),
                 animate = true,
                 modifier = Modifier
                     .padding(start = 7.dp)
@@ -510,15 +554,14 @@ private fun isSetupPageValid(page: Int, draft: ProfileDraft): Boolean = when (pa
 fun BloomProfileScreen(
     session: AuthenticationResult,
     isOffline: Boolean,
-    onBadgeChanged: (String) -> Unit,
+    onEmojiChanged: (ProfileEmojiSelection) -> Unit,
     onDelete: () -> Unit
 ) {
-    val badgeRepository: ProfileBadgeRepository = koinInject()
-    val badgeCatalog by badgeRepository.catalog.collectAsState()
-    val badges = badgeCatalog?.badges.orEmpty()
+    val emojiRepository: ProfileEmojiRepository = koinInject()
+    val emojiCatalog by emojiRepository.catalog.collectAsState()
     val profile = requireNotNull(session.profile)
     var confirmDelete by rememberSaveable { mutableStateOf(false) }
-    var showBadgePicker by rememberSaveable { mutableStateOf(false) }
+    var showEmojiPicker by rememberSaveable { mutableStateOf(false) }
     var initialCollapseApplied by rememberSaveable { mutableStateOf(false) }
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
@@ -642,8 +685,8 @@ fun BloomProfileScreen(
             BloomProfileHero(
                 identity = session.telegram,
                 displayName = profile.displayName,
-                badgeId = profile.badgeId,
-                badges = badges,
+                emojiStatus = emojiCatalog?.resolve(profile.emojiStatus) ?: profile.emojiStatus,
+                emojiCatalog = emojiCatalog,
                 collapseProgress = collapseProgress,
                 scrollState = scrollState,
                 onDragStopped = settleHeader,
@@ -653,15 +696,15 @@ fun BloomProfileScreen(
                         scrollState.animateScrollTo(target, tween(durationMillis = 420))
                     }
                 },
-                onBadgeClick = {
+                onEmojiClick = {
                     haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    showBadgePicker = !showBadgePicker
+                    if (emojiCatalog != null) showEmojiPicker = !showEmojiPicker
                 },
-                badgeMenuExpanded = showBadgePicker,
-                onBadgeMenuDismiss = { showBadgePicker = false },
-                onBadgeSelected = { badgeId ->
-                    showBadgePicker = false
-                    if (badgeId != profile.badgeId) onBadgeChanged(badgeId)
+                emojiMenuExpanded = showEmojiPicker,
+                onEmojiMenuDismiss = { showEmojiPicker = false },
+                onEmojiSelected = { selection ->
+                    showEmojiPicker = false
+                    if (selection != profile.emojiStatus) onEmojiChanged(selection)
                 }
             )
         }
@@ -682,16 +725,16 @@ fun BloomProfileScreen(
 private fun BloomProfileHero(
     identity: TelegramIdentity,
     displayName: String,
-    badgeId: String,
-    badges: List<ProfileBadge>,
+    emojiStatus: ProfileEmojiSelection,
+    emojiCatalog: ProfileEmojiCatalog?,
     collapseProgress: Float,
     scrollState: androidx.compose.foundation.ScrollState,
     onDragStopped: () -> Unit,
     onToggle: () -> Unit,
-    onBadgeClick: () -> Unit,
-    badgeMenuExpanded: Boolean,
-    onBadgeMenuDismiss: () -> Unit,
-    onBadgeSelected: (String) -> Unit
+    onEmojiClick: () -> Unit,
+    emojiMenuExpanded: Boolean,
+    onEmojiMenuDismiss: () -> Unit,
+    onEmojiSelected: (ProfileEmojiSelection) -> Unit
 ) {
     val collapseDescription = stringResource(R.string.collapse_profile_photo)
     val expandDescription = stringResource(R.string.expand_profile_photo)
@@ -796,13 +839,13 @@ private fun BloomProfileHero(
         BloomProfileIdentity(
             displayName = displayName,
             username = identity.username,
-            badgeId = badgeId,
-            badges = badges,
+            emojiStatus = emojiStatus,
+            emojiCatalog = emojiCatalog,
             collapseProgress = collapseProgress,
-            onBadgeClick = onBadgeClick,
-            badgeMenuExpanded = badgeMenuExpanded,
-            onBadgeMenuDismiss = onBadgeMenuDismiss,
-            onBadgeSelected = onBadgeSelected,
+            onEmojiClick = onEmojiClick,
+            emojiMenuExpanded = emojiMenuExpanded,
+            onEmojiMenuDismiss = onEmojiMenuDismiss,
+            onEmojiSelected = onEmojiSelected,
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .padding(bottom = 24.dp)
@@ -814,16 +857,15 @@ private fun BloomProfileHero(
 private fun BloomProfileIdentity(
     displayName: String,
     username: String?,
-    badgeId: String,
-    badges: List<ProfileBadge>,
+    emojiStatus: ProfileEmojiSelection,
+    emojiCatalog: ProfileEmojiCatalog?,
     collapseProgress: Float,
-    onBadgeClick: () -> Unit,
-    badgeMenuExpanded: Boolean,
-    onBadgeMenuDismiss: () -> Unit,
-    onBadgeSelected: (String) -> Unit,
+    onEmojiClick: () -> Unit,
+    emojiMenuExpanded: Boolean,
+    onEmojiMenuDismiss: () -> Unit,
+    onEmojiSelected: (ProfileEmojiSelection) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val language = LocalConfiguration.current.locales[0].language
     val density = LocalDensity.current
     val startInset = with(density) { 24.dp.roundToPx() }
     val badgeGap = with(density) { 7.dp.roundToPx() }
@@ -842,27 +884,29 @@ private fun BloomProfileIdentity(
             )
             Box {
                 Surface(
-                    onClick = onBadgeClick,
+                    onClick = onEmojiClick,
                     shape = CircleShape,
                     color = Color.Black.copy(alpha = 0.28f)
                 ) {
-                    ProfileBadgeImage(
-                        badge = badges.firstOrNull { it.id == badgeId },
+                    ProfileEmojiImage(
+                        emoji = emojiCatalog?.emoji(emojiStatus),
                         animate = true,
-                        contentDescription = badges.firstOrNull { it.id == badgeId }?.label(language),
+                        contentDescription = stringResource(R.string.bloom_step_emoji_title),
                         modifier = Modifier
                             .padding(4.dp)
                             .size(30.dp)
                             .clip(CircleShape)
                     )
                 }
-                TelegramBadgeDropdown(
-                    expanded = badgeMenuExpanded,
-                    badges = badges,
-                    selectedBadgeId = badgeId,
-                    onBadgeSelected = onBadgeSelected,
-                    onDismiss = onBadgeMenuDismiss
-                )
+                emojiCatalog?.let { catalog ->
+                    TelegramEmojiSetDropdown(
+                        expanded = emojiMenuExpanded,
+                        catalog = catalog,
+                        selectedEmoji = emojiStatus,
+                        onEmojiSelected = onEmojiSelected,
+                        onDismiss = onEmojiMenuDismiss
+                    )
+                }
             }
             username?.let {
                 Text(

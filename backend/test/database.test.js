@@ -112,7 +112,7 @@ test('SQLite migration upgrades a version-one user without losing the account', 
   database.close();
 });
 
-test('SQLite v3 profile migrates its legacy emoji to a stable badge id', (context) => {
+test('SQLite legacy badge profile migrates to the canonical default and drops old columns', (context) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'telegram-bloom-profile-'));
   const databasePath = path.join(directory, 'auth.sqlite');
   context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
@@ -120,7 +120,8 @@ test('SQLite v3 profile migrates its legacy emoji to a stable badge id', (contex
   const state = database.authenticateTelegramUser(profile('user-id'));
   const draft = {
     displayName: 'Demo', headline: 'Building a demo', intent: 'BUILDING',
-    topics: ['ANDROID'], avatarSource: 'BLOOM', badgeId: 'festive-flags',
+    topics: ['ANDROID'], avatarSource: 'BLOOM',
+    emojiStatus: { setId: 'spotty-persik', emojiId: 'e-0007fab99d521710' },
     phoneNumber: '+14155552671'
   };
   database.saveProfile(state.account.id, draft, 'profile-id', 'stable-seed');
@@ -128,20 +129,31 @@ test('SQLite v3 profile migrates its legacy emoji to a stable badge id', (contex
 
   const legacy = new DatabaseSync(databasePath);
   legacy.exec(`
-    ALTER TABLE app_profiles DROP COLUMN badge_id;
-    ALTER TABLE app_profiles ADD COLUMN emoji TEXT NOT NULL DEFAULT '🚀';
-    PRAGMA user_version = 3;
+    ALTER TABLE app_profiles ADD COLUMN badge_id TEXT NOT NULL DEFAULT 'festive-flags';
+    UPDATE app_profiles SET emoji_set_id = 'classic', emoji_id = 'festive-flags';
+    PRAGMA user_version = 6;
   `);
   legacy.close();
 
   database = createDatabase({ databasePath });
   const returning = database.authenticateTelegramUser(profile('unused'));
   assert.equal(returning.profile.visual_seed, 'stable-seed');
-  assert.equal(returning.profile.badge_id, 'festive-flags');
+  assert.equal(returning.profile.emoji_set_id, 'spotty-persik');
+  assert.equal(returning.profile.emoji_id, 'e-0007fab99d521710');
   assert.equal(returning.profile.display_name, 'Demo');
   assert.equal(returning.profile.phone_number, '+14155552671');
   assert.equal(returning.account.onboarding_state, 'PROFILE_COMPLETED');
   database.close();
+
+  const migrated = new DatabaseSync(databasePath);
+  const columns = migrated.prepare('PRAGMA table_info(app_profiles)').all();
+  const columnNames = columns.map(({ name }) => name);
+  assert.equal(columnNames.includes('badge_id'), false);
+  assert.equal(columnNames.includes('emoji'), false);
+  assert.equal(columns.find(({ name }) => name === 'emoji_set_id').notnull, 1);
+  assert.equal(columns.find(({ name }) => name === 'emoji_id').notnull, 1);
+  assert.equal(migrated.prepare('PRAGMA user_version').get().user_version, 7);
+  migrated.close();
 });
 
 test('SQLite v4 profile gains an optional phone without losing existing data', (context) => {
@@ -152,7 +164,8 @@ test('SQLite v4 profile gains an optional phone without losing existing data', (
   const state = database.authenticateTelegramUser(profile('user-id'));
   database.saveProfile(state.account.id, {
     displayName: 'Existing profile', headline: 'Before phone support', intent: 'EXPLORING',
-    topics: ['BACKEND'], avatarSource: 'TELEGRAM', badgeId: 'outline', phoneNumber: null
+    topics: ['BACKEND'], avatarSource: 'TELEGRAM',
+    emojiStatus: { setId: 'spotty-persik', emojiId: 'e-0007fab99d521710' }, phoneNumber: null
   }, 'profile-id', 'stable-seed');
   database.close();
 
@@ -165,6 +178,8 @@ test('SQLite v4 profile gains an optional phone without losing existing data', (
   const returning = database.authenticateTelegramUser(profile('unused'));
   assert.equal(returning.profile.display_name, 'Existing profile');
   assert.equal(returning.profile.phone_number, null);
+  assert.equal(returning.profile.emoji_set_id, 'spotty-persik');
+  assert.equal(returning.profile.emoji_id, 'e-0007fab99d521710');
   assert.equal(returning.account.onboarding_state, 'PROFILE_COMPLETED');
   database.close();
 });

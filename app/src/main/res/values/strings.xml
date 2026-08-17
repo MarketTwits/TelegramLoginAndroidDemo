@@ -140,7 +140,7 @@
     <string name="bloom_step_topics_title">Pick your topics</string>
     <string name="bloom_topics_required">Choose at least one topic to continue.</string>
     <string name="bloom_step_emoji_title">Choose your Bloom emoji</string>
-    <string name="bloom_step_emoji_subtitle">This small badge appears beside your name and can be changed there anytime.</string>
+    <string name="bloom_step_emoji_subtitle">Choose a set, then pick a status. It appears beside your name and can be changed anytime.</string>
     <string name="bloom_create_profile">Create my profile</string>
     <string name="bloom_save_profile">Save profile</string>
     <string name="bloom_current_signal">Current signal</string>

@@ -67,5 +67,5 @@ backend-data/
 # Local product plans and implementation journals
 docs/
 
-# Original profile-badge source exports; deployable copies live under backend/public
+# Local source exports; normalized deployable emoji live under backend/public
 /emoji/

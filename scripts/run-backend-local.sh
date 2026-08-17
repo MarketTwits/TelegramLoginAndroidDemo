@@ -59,6 +59,15 @@ SQLITE_DATABASE_PATH="$backend_dir/data/telegram-signin.sqlite"
 export SQLITE_DATABASE_PATH
 health_url="http://127.0.0.1:$port/api/health/ready"
 
+read_backend_health() {
+  if [ -n "${APP_TOKEN:-}" ]; then
+    curl --fail --silent --show-error --max-time 2 \
+      --header "X-App-Token: $APP_TOKEN" "$health_url" 2>/dev/null || true
+  else
+    curl --fail --silent --show-error --max-time 2 "$health_url" 2>/dev/null || true
+  fi
+}
+
 configure_android_reverse() {
   if ! command -v adb >/dev/null 2>&1; then
     echo "Android port forwarding skipped: adb is not available."
@@ -90,7 +99,7 @@ configure_android_reverse() {
 
 configure_android_reverse
 
-existing_health=$(curl --fail --silent --show-error --max-time 2 "$health_url" 2>/dev/null || true)
+existing_health=$(read_backend_health)
 if [ -n "$existing_health" ]; then
   echo "Backend is already running: $health_url"
   echo "$existing_health"
@@ -122,7 +131,7 @@ while [ "$attempt" -le "$max_attempts" ]; do
     exit $?
   fi
 
-  readiness=$(curl --fail --silent --show-error --max-time 2 "$health_url" 2>/dev/null || true)
+  readiness=$(read_backend_health)
   if [ -n "$readiness" ]; then
     echo "Backend is ready: $health_url"
     echo "$readiness"
