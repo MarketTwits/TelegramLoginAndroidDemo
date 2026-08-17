@@ -1,25 +1,30 @@
 package com.markettwits.devx.tgsignin.data.repository
 
 import android.content.Context
-import android.util.LruCache
 import androidx.core.content.edit
 import com.markettwits.devx.tgsignin.data.dataSource.ProfileEmojiRemoteDataSource
 import com.markettwits.devx.tgsignin.data.model.ProfileEmoji
 import com.markettwits.devx.tgsignin.data.model.ProfileEmojiCatalog
 import com.markettwits.devx.tgsignin.data.model.ProfileEmojiSelection
 import com.markettwits.devx.tgsignin.data.model.ProfileEmojiSet
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.ByteArrayOutputStream
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
@@ -30,7 +35,8 @@ interface ProfileEmojiRepository {
     val catalog: StateFlow<ProfileEmojiCatalog?>
     val recentSelections: StateFlow<List<ProfileEmojiSelection>>
     suspend fun refresh(): Result<Unit>
-    suspend fun loadAnimationJson(emoji: ProfileEmoji): String
+    suspend fun loadAnimationFile(emoji: ProfileEmoji): File
+    suspend fun prefetch(emojis: List<ProfileEmoji>)
     fun recordRecent(selection: ProfileEmojiSelection)
 }
 
@@ -38,7 +44,7 @@ class ProfileEmojiRepositoryImpl(
     context: Context,
     private val remoteDataSource: ProfileEmojiRemoteDataSource,
     private val ioDispatcher: CoroutineDispatcher,
-    applicationScope: CoroutineScope
+    private val applicationScope: CoroutineScope
 ) : ProfileEmojiRepository {
     private val cacheDirectory = File(context.cacheDir, "profile_emojis")
     private val catalogFile = File(cacheDirectory, "catalog-v3.json")
@@ -50,10 +56,7 @@ class ProfileEmojiRepositoryImpl(
     private val _catalog = MutableStateFlow<ProfileEmojiCatalog?>(null)
     private val _recentSelections = MutableStateFlow(readRecentSelections())
     private val assetMutexes = ConcurrentHashMap<String, Mutex>()
-    private val animationJsonCache = object : LruCache<String, String>(MAX_JSON_CACHE_KIB) {
-        override fun sizeOf(key: String, value: String): Int =
-            (value.toByteArray(Charsets.UTF_8).size / 1024).coerceAtLeast(1)
-    }
+    private val downloadSemaphore = Semaphore(MAX_CONCURRENT_ASSET_DOWNLOADS)
     override val catalog: StateFlow<ProfileEmojiCatalog?> = _catalog.asStateFlow()
     override val recentSelections: StateFlow<List<ProfileEmojiSelection>> =
         _recentSelections.asStateFlow()
@@ -63,7 +66,10 @@ class ProfileEmojiRepositoryImpl(
             withContext(ioDispatcher) {
                 prepareCacheDirectory()
                 runCatching { catalogFile.takeIf(File::isFile)?.readText()?.let(::parseCatalog) }
-                    .getOrNull()?.let { _catalog.value = it }
+                    .getOrNull()?.let {
+                        _catalog.value = it
+                        warmEssentialAssets(it)
+                    }
             }
             refresh()
         }
@@ -78,6 +84,7 @@ class ProfileEmojiRepositoryImpl(
         }
         _catalog.value = parsed
         retainAvailableRecentSelections(parsed)
+        warmEssentialAssets(parsed)
     }
 
     @Synchronized
@@ -87,26 +94,40 @@ class ProfileEmojiRepositoryImpl(
         persistRecentSelections(updated.take(MAX_RECENT_EMOJIS))
     }
 
-    override suspend fun loadAnimationJson(emoji: ProfileEmoji): String {
-        animationJsonCache.get(emoji.sha256)?.let { return it }
-        val file = loadVerifiedAsset(emoji)
-        return withContext(ioDispatcher) {
-            GZIPInputStream(file.inputStream().buffered()).use { gzip ->
-                val output = ByteArrayOutputStream()
-                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                var total = 0
-                while (true) {
-                    val read = gzip.read(buffer)
-                    if (read < 0) break
-                    total += read
-                    if (total > MAX_UNCOMPRESSED_TGS_BYTES) throw IOException("TGS is too large")
-                    output.write(buffer, 0, read)
+    override suspend fun loadAnimationFile(emoji: ProfileEmoji): File = loadVerifiedAsset(emoji)
+
+    override suspend fun prefetch(emojis: List<ProfileEmoji>) {
+        coroutineScope {
+            emojis.asSequence()
+                .filter(ProfileEmoji::enabled)
+                .distinctBy(ProfileEmoji::sha256)
+                .chunked(MAX_CONCURRENT_ASSET_DOWNLOADS)
+                .forEach { batch ->
+                    batch.map { emoji ->
+                        async(ioDispatcher) {
+                            try {
+                                loadVerifiedAsset(emoji)
+                            } catch (error: CancellationException) {
+                                throw error
+                            } catch (_: Exception) {
+                                // One broken asset must not stop the remaining cache warmup.
+                            }
+                        }
+                    }
+                        .awaitAll()
                 }
-                output.toString(Charsets.UTF_8.name()).also(::JSONObject).also {
-                    animationJsonCache.put(emoji.sha256, it)
-                }
-            }
         }
+    }
+
+    private fun warmEssentialAssets(catalog: ProfileEmojiCatalog) {
+        val essentials = buildList {
+            catalog.emoji(catalog.defaultEmoji)?.let(::add)
+            catalog.sets.mapNotNullTo(this) { set ->
+                set.emojis.firstOrNull { it.id == set.thumbnailEmojiId }
+            }
+            _recentSelections.value.mapNotNullTo(this, catalog::emoji)
+        }
+        applicationScope.launch { prefetch(essentials) }
     }
 
     private suspend fun loadVerifiedAsset(emoji: ProfileEmoji): File =
@@ -121,14 +142,30 @@ class ProfileEmojiRepositoryImpl(
                     return@withContext target
                 }
                 target.delete()
-                val bytes = remoteDataSource.fetchAsset(emoji)
+                val bytes = downloadSemaphore.withPermit {
+                    remoteDataSource.fetchAsset(emoji)
+                }
                 if (bytes.size != emoji.sizeBytes || bytes.sha256() != emoji.sha256) {
                     throw IOException("Profile emoji integrity check failed")
                 }
+                validateCompressedAnimation(bytes)
                 atomicWrite(target, bytes)
                 target
             }
         }
+
+    private fun validateCompressedAnimation(bytes: ByteArray) {
+        GZIPInputStream(ByteArrayInputStream(bytes)).use { gzip ->
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            var total = 0
+            while (true) {
+                val read = gzip.read(buffer)
+                if (read < 0) break
+                total += read
+                if (total > MAX_UNCOMPRESSED_TGS_BYTES) throw IOException("TGS is too large")
+            }
+        }
+    }
 
     private fun parseCatalog(raw: String): ProfileEmojiCatalog {
         val json = JSONObject(raw)
@@ -261,7 +298,7 @@ class ProfileEmojiRepositoryImpl(
         const val SUPPORTED_CATALOG_VERSION = 3
         const val MAX_COMPRESSED_ASSET_BYTES = 64 * 1024
         const val MAX_UNCOMPRESSED_TGS_BYTES = 2 * 1024 * 1024
-        const val MAX_JSON_CACHE_KIB = 8 * 1024
+        const val MAX_CONCURRENT_ASSET_DOWNLOADS = 3
         const val MAX_RECENT_EMOJIS = 24
         const val RECENT_EMOJIS_KEY = "recent_selections_v1"
     }

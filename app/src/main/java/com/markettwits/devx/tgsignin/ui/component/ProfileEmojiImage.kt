@@ -28,7 +28,6 @@ import org.koin.compose.koinInject
 fun ProfileEmojiImage(
     emoji: ProfileEmoji?,
     modifier: Modifier = Modifier,
-    animate: Boolean = false,
     contentDescription: String? = null,
     repository: ProfileEmojiRepository = koinInject()
 ) {
@@ -39,28 +38,23 @@ fun ProfileEmojiImage(
         BadgePlaceholder(accessibleModifier)
         return
     }
-    val json by produceState<String?>(null, emoji.sha256) {
-        value = runCatching { repository.loadAnimationJson(emoji) }.getOrNull()
+    val animationFile by produceState<String?>(null, emoji.sha256) {
+        value = runCatching { repository.loadAnimationFile(emoji).absolutePath }.getOrNull()
     }
-    val animationJson = json
-    if (animationJson == null) {
+    val filePath = animationFile
+    if (filePath == null) {
         BadgePlaceholder(accessibleModifier)
     } else {
         val composition by rememberLottieComposition(
-            LottieCompositionSpec.JsonString(animationJson)
+            spec = LottieCompositionSpec.File(filePath),
+            cacheKey = emoji.sha256
         )
         if (composition == null) {
             BadgePlaceholder(accessibleModifier)
-        } else if (animate) {
-            LottieAnimation(
-                composition = composition,
-                iterations = LottieConstants.IterateForever,
-                modifier = accessibleModifier
-            )
         } else {
             LottieAnimation(
                 composition = composition,
-                progress = { 0f },
+                iterations = LottieConstants.IterateForever,
                 modifier = accessibleModifier
             )
         }

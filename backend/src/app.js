@@ -177,6 +177,17 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
     next();
   };
 
+  // Content-addressed emoji assets are immutable public files. They must not consume the
+  // API request budget: one visible picker page legitimately needs multiple small TGS files.
+  app.use('/assets/profile-emojis', express.static(profileEmojiAssetDirectory, {
+    maxAge: config.nodeEnv === 'production' ? '1y' : 0,
+    immutable: config.nodeEnv === 'production',
+    etag: true,
+    setHeaders(response, filePath) {
+      if (filePath.endsWith('.tgs')) response.type('application/x-tgsticker');
+    }
+  }));
+
   app.use(apiLimiter);
 
   app.get('/api/health/live', (_request, response) => response.json({ status: 'ok' }));
@@ -280,14 +291,6 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
     response.status(204).end();
   }));
 
-  app.use('/assets/profile-emojis', express.static(profileEmojiAssetDirectory, {
-    maxAge: config.nodeEnv === 'production' ? '1y' : 0,
-    immutable: config.nodeEnv === 'production',
-    etag: true,
-    setHeaders(response, filePath) {
-      if (filePath.endsWith('.tgs')) response.type('application/x-tgsticker');
-    }
-  }));
   app.use(express.static(publicDirectory, {
     extensions: ['html'],
     maxAge: config.nodeEnv === 'production' ? '1h' : 0,

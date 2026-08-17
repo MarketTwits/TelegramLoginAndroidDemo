@@ -311,4 +311,13 @@ test('profile emoji catalog groups one compact TGS format with verified thumbnai
     assert.equal(bytes.length, thumbnail.sizeBytes);
     assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'), thumbnail.sha256);
   }
+
+  const repeatedAssetPath = catalog.sets[0].emojis[0].assetPath;
+  for (let index = 0; index < 101; index += 1) {
+    const asset = await fetch(`${baseUrl}${repeatedAssetPath}`);
+    assert.equal(asset.status, 200, `immutable asset request ${index + 1} was rate limited`);
+    await asset.arrayBuffer();
+  }
+  const liveAfterAssets = await fetch(`${baseUrl}/api/health/live`);
+  assert.equal(liveAfterAssets.status, 200, 'asset traffic must not consume the API rate limit');
 });
