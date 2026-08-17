@@ -32,9 +32,19 @@ class ProfileEmojiCatalogTest {
         assertFalse(catalog.contains(ProfileEmojiSelection("spotty-persik", "glow")))
     }
 
+    @Test
+    fun `search matches emoji metadata and localized set labels`() {
+        assertEquals(listOf(neon), catalog.search("glow", "en"))
+        assertEquals(listOf(neon), catalog.search("neon", "en"))
+        assertTrue(catalog.search("missing", "en").isEmpty())
+        assertTrue(catalog.search("   ", "en").isEmpty())
+    }
+
     private fun emoji(setId: String, id: String) = ProfileEmoji(
         setId = setId,
         id = id,
+        name = id,
+        keywords = listOf(id),
         assetPath = "/assets/profile-emojis/v3/${"a".repeat(64)}.tgs",
         sha256 = "a".repeat(64),
         sizeBytes = 100,

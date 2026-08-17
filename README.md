@@ -99,7 +99,8 @@ All authenticated endpoints use `Authorization: Bearer <sessionToken>`.
   and optional service profile.
 - `GET /api/profile-emoji-sets` returns the versioned grouped emoji catalog.
   Every set contains only compact TGS animations with immutable content-addressed
-  asset paths.
+  asset paths. Emoji entries also expose normalized `name` and `keywords` metadata
+  for client-side search without additional network requests.
 - `PUT /me/profile` creates or idempotently updates the service profile. Valid
   intents are `BUILDING`, `HELPING`, and `EXPLORING`; one to three supported
   topics are required; headline length is 1–120 characters; `emojiStatus` is an

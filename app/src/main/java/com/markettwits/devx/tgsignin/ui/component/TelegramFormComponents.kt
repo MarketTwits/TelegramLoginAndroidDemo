@@ -11,8 +11,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -24,7 +26,12 @@ import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -47,10 +54,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.OffsetMapping
@@ -59,6 +70,8 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.markettwits.devx.tgsignin.R
+import com.markettwits.devx.tgsignin.data.model.ProfileEmoji
 import com.markettwits.devx.tgsignin.data.model.ProfileEmojiCatalog
 import com.markettwits.devx.tgsignin.data.model.ProfileEmojiSelection
 import com.markettwits.devx.tgsignin.data.model.formattedPhoneNumberAsYouType
@@ -387,29 +400,52 @@ fun TelegramEmojiSetDropdown(
     expanded: Boolean,
     catalog: ProfileEmojiCatalog,
     selectedEmoji: ProfileEmojiSelection,
+    recentSelections: List<ProfileEmojiSelection>,
     onEmojiSelected: (ProfileEmojiSelection) -> Unit,
     onDismiss: () -> Unit
 ) {
     val language = LocalConfiguration.current.locales[0].language
-    var activeSetId by remember { mutableStateOf(selectedEmoji.setId) }
-    val activeSet = catalog.sets.firstOrNull { it.id == activeSetId } ?: catalog.sets.first()
-    val enabledEmojis = remember(activeSet) { activeSet.emojis.filter { it.enabled } }
+    var activeCategoryId by remember { mutableStateOf(RECENT_EMOJI_CATEGORY_ID) }
+    var searchQuery by remember { mutableStateOf("") }
+    val recentEmojis = remember(catalog, recentSelections, selectedEmoji) {
+        (recentSelections + selectedEmoji)
+            .distinct()
+            .mapNotNull(catalog::emoji)
+            .filter { it.enabled }
+            .take(MAX_VISIBLE_RECENT_EMOJIS)
+    }
+    val displayedEmojis = remember(
+        catalog,
+        recentEmojis,
+        activeCategoryId,
+        searchQuery,
+        language
+    ) {
+        val normalizedQuery = searchQuery.trim()
+        when {
+            normalizedQuery.isNotEmpty() -> catalog.search(normalizedQuery, language)
+            activeCategoryId == RECENT_EMOJI_CATEGORY_ID -> recentEmojis
+            else -> catalog.sets.firstOrNull { it.id == activeCategoryId }
+                ?.emojis?.filter { it.enabled }.orEmpty()
+        }
+    }
     var visibleCount by remember { mutableIntStateOf(0) }
     val haptics = LocalHapticFeedback.current
 
-    LaunchedEffect(expanded, selectedEmoji, catalog) {
-        if (expanded && catalog.sets.any { it.id == selectedEmoji.setId }) {
-            activeSetId = selectedEmoji.setId
+    LaunchedEffect(expanded) {
+        if (expanded) {
+            activeCategoryId = RECENT_EMOJI_CATEGORY_ID
+            searchQuery = ""
         }
     }
-    LaunchedEffect(expanded, activeSetId, enabledEmojis) {
+    LaunchedEffect(expanded, activeCategoryId, displayedEmojis) {
         visibleCount = 0
         if (expanded) {
-            repeat(minOf(enabledEmojis.size, 15)) { index ->
+            repeat(minOf(displayedEmojis.size, 15)) { index ->
                 delay((if (index == 0) 20 else 28).milliseconds)
                 visibleCount = index + 1
             }
-            visibleCount = enabledEmojis.size
+            visibleCount = displayedEmojis.size
         }
     }
 
@@ -422,94 +458,133 @@ fun TelegramEmojiSetDropdown(
         modifier = Modifier.width(332.dp)
     ) {
         Surface(
-            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+            modifier = Modifier
+                .padding(horizontal = 4.dp, vertical = 2.dp)
+                .size(width = 324.dp, height = 346.dp),
             shape = RoundedCornerShape(16.dp),
             color = MaterialTheme.colorScheme.surface,
             contentColor = MaterialTheme.colorScheme.onSurface,
             shadowElevation = 4.dp
         ) {
             Column(
-                modifier = Modifier.padding(vertical = 8.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 LazyRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(46.dp),
                     contentPadding = PaddingValues(horizontal = 10.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    items(catalog.sets, key = { it.id }) { set ->
-                        val thumbnail = set.emojis.firstOrNull { it.id == set.thumbnailEmojiId }
-                        Surface(
+                    item(key = RECENT_EMOJI_CATEGORY_ID) {
+                        EmojiCategoryButton(
+                            selected = searchQuery.isBlank() &&
+                                    activeCategoryId == RECENT_EMOJI_CATEGORY_ID,
+                            contentDescription = stringResource(R.string.emoji_recent),
                             onClick = {
                                 haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                activeSetId = set.id
-                            },
-                            modifier = Modifier.size(46.dp),
-                            shape = CircleShape,
-                            color = if (set.id == activeSet.id) {
-                                MaterialTheme.colorScheme.secondaryContainer
-                            } else {
-                                Color.Transparent
+                                searchQuery = ""
+                                activeCategoryId = RECENT_EMOJI_CATEGORY_ID
                             }
                         ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                ProfileEmojiImage(
-                                    emoji = thumbnail,
-                                    contentDescription = set.label(language),
-                                    modifier = Modifier.size(32.dp)
-                                )
-                            }
+                            Icon(
+                                imageVector = Icons.Outlined.History,
+                                contentDescription = null,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                    }
+                    items(catalog.sets, key = { it.id }) { set ->
+                        val thumbnail = set.emojis.firstOrNull { it.id == set.thumbnailEmojiId }
+                        EmojiCategoryButton(
+                            selected = searchQuery.isBlank() && activeCategoryId == set.id,
+                            contentDescription = set.label(language),
+                            onClick = {
+                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                searchQuery = ""
+                                activeCategoryId = set.id
+                            },
+                        ) {
+                            ProfileEmojiImage(
+                                emoji = thumbnail,
+                                contentDescription = null,
+                                modifier = Modifier.size(32.dp)
+                            )
                         }
                     }
                 }
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(5),
-                    modifier = Modifier.heightIn(min = 112.dp, max = 224.dp),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    itemsIndexed(
-                        items = enabledEmojis,
-                        key = { _, emoji -> "${emoji.setId}/${emoji.id}" }
-                    ) { index, emoji ->
-                        Box(modifier = Modifier.size(54.dp), contentAlignment = Alignment.Center) {
-                            androidx.compose.animation.AnimatedVisibility(
-                                visible = index < visibleCount,
-                                enter = fadeIn(tween(140)) + scaleIn(
-                                    initialScale = 0.72f,
-                                    animationSpec = tween(180)
-                                ) + slideInHorizontally(
-                                    animationSpec = tween(180),
-                                    initialOffsetX = { it / 2 }
-                                )
+                EmojiSearchField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it.take(MAX_EMOJI_SEARCH_LENGTH) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .padding(horizontal = 10.dp)
+                )
+                if (displayedEmojis.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(224.dp)
+                            .padding(horizontal = 24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = stringResource(
+                                if (searchQuery.isBlank()) R.string.emoji_no_recent
+                                else R.string.emoji_search_empty
+                            ),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(5),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(224.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        itemsIndexed(
+                            items = displayedEmojis,
+                            key = { _, emoji -> "${emoji.setId}/${emoji.id}" }
+                        ) { index, emoji ->
+                            Box(
+                                modifier = Modifier.size(54.dp),
+                                contentAlignment = Alignment.Center
                             ) {
-                                val selection = ProfileEmojiSelection(emoji.setId, emoji.id)
-                                Surface(
-                                    onClick = {
-                                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        onEmojiSelected(selection)
-                                    },
-                                    modifier = Modifier.fillMaxSize(),
-                                    shape = CircleShape,
-                                    color = if (selection == selectedEmoji) {
-                                    MaterialTheme.colorScheme.primaryContainer
-                                } else {
-                                    Color.Transparent
-                                },
-                                    contentColor = if (selection == selectedEmoji) {
-                                    MaterialTheme.colorScheme.onPrimaryContainer
-                                } else {
-                                    MaterialTheme.colorScheme.onSurface
-                                }
+                                androidx.compose.animation.AnimatedVisibility(
+                                    visible = index < visibleCount,
+                                    enter = fadeIn(tween(140)) + scaleIn(
+                                        initialScale = 0.72f,
+                                        animationSpec = tween(180)
+                                    ) + slideInHorizontally(
+                                        animationSpec = tween(180),
+                                        initialOffsetX = { it / 2 }
+                                    )
                                 ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        ProfileEmojiImage(
-                                            emoji = emoji,
-                                            animate = selection == selectedEmoji,
-                                            contentDescription = "${activeSet.label(language)} ${index + 1}",
-                                            modifier = Modifier.size(38.dp)
-                                        )
-                                    }
+                                    EmojiStatusButton(
+                                        emoji = emoji,
+                                        selected = ProfileEmojiSelection(emoji.setId, emoji.id) ==
+                                                selectedEmoji,
+                                        onClick = {
+                                            haptics.performHapticFeedback(
+                                                HapticFeedbackType.TextHandleMove
+                                            )
+                                            onEmojiSelected(
+                                                ProfileEmojiSelection(
+                                                    emoji.setId,
+                                                    emoji.id
+                                                )
+                                            )
+                                        }
+                                    )
                                 }
                             }
                         }
@@ -519,3 +594,124 @@ fun TelegramEmojiSetDropdown(
         }
     }
 }
+
+@Composable
+private fun EmojiCategoryButton(
+    selected: Boolean,
+    contentDescription: String,
+    onClick: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.size(46.dp),
+        shape = RoundedCornerShape(13.dp),
+        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+        contentColor = if (selected) {
+            MaterialTheme.colorScheme.onSecondaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        }
+    ) {
+        Box(
+            modifier = Modifier.semantics { this.contentDescription = contentDescription },
+            contentAlignment = Alignment.Center
+        ) {
+            content()
+        }
+    }
+}
+
+@Composable
+private fun EmojiSearchField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(22.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(start = 12.dp, end = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Search,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(Modifier.width(9.dp))
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(
+                    color = MaterialTheme.colorScheme.onSurface
+                ),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                decorationBox = { input ->
+                    Box(contentAlignment = Alignment.CenterStart) {
+                        if (value.isBlank()) {
+                            Text(
+                                text = stringResource(R.string.emoji_search_hint),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                        }
+                        input()
+                    }
+                }
+            )
+            if (value.isNotEmpty()) {
+                IconButton(
+                    onClick = { onValueChange("") },
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Close,
+                        contentDescription = stringResource(R.string.emoji_search_clear),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmojiStatusButton(
+    emoji: ProfileEmoji,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxSize(),
+        shape = CircleShape,
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+        contentColor = if (selected) {
+            MaterialTheme.colorScheme.onPrimaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurface
+        }
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            ProfileEmojiImage(
+                emoji = emoji,
+                animate = selected,
+                contentDescription = emoji.name,
+                modifier = Modifier.size(38.dp)
+            )
+        }
+    }
+}
+
+private const val RECENT_EMOJI_CATEGORY_ID = "recent"
+private const val MAX_VISIBLE_RECENT_EMOJIS = 24
+private const val MAX_EMOJI_SEARCH_LENGTH = 64

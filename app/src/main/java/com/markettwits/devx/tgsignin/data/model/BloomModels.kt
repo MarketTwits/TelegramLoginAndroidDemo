@@ -1,5 +1,7 @@
 package com.markettwits.devx.tgsignin.data.model
 
+import java.util.Locale
+
 enum class OnboardingState {
     PROFILE_REQUIRED,
     PROFILE_COMPLETED,
@@ -42,6 +44,8 @@ val DEFAULT_PROFILE_EMOJI = ProfileEmojiSelection(
 data class ProfileEmoji(
     val setId: String,
     val id: String,
+    val name: String,
+    val keywords: List<String>,
     val assetPath: String,
     val sha256: String,
     val sizeBytes: Int,
@@ -77,6 +81,18 @@ data class ProfileEmojiCatalog(
         val resolved = resolve(selection)
         return sets.firstOrNull { it.id == resolved.setId }
             ?.emojis?.firstOrNull { it.id == resolved.emojiId }
+    }
+
+    fun search(query: String, language: String): List<ProfileEmoji> {
+        val normalizedQuery = query.trim().lowercase(Locale.ROOT)
+        if (normalizedQuery.isEmpty()) return emptyList()
+        return sets.flatMap { set ->
+            set.emojis.filter { emoji ->
+                emoji.enabled && sequenceOf(emoji.name, set.label(language))
+                    .plus(emoji.keywords.asSequence())
+                    .any { normalizedQuery in it.lowercase(Locale.ROOT) }
+            }
+        }
     }
 }
 
