@@ -47,7 +47,7 @@ public badge endpoints never contain them.
 2. Copy `local.properties.example` to the Git-ignored `local.properties` file
    and provide the Telegram settings plus GitHub Packages credentials.
 3. Copy `.env.example` to the Git-ignored `.env` file and set the same Telegram
-   Client ID for the backend.
+   Client ID for the backend, as well as the `APP_TOKEN` (any random string).
 
 The GitHub token needs only the `read:packages` permission.
 
@@ -155,6 +155,7 @@ and health endpoints exclusively in encrypted Environment Secrets:
 - `DEPLOY_HOST`, `DEPLOY_USER`, and `DEPLOY_PORT`
 - `DEPLOY_APP_DIRECTORY` and `DEPLOY_STACK_DIRECTORY`
 - `DEPLOY_LOCAL_HEALTH_URL` and `PRODUCTION_HEALTH_URL`
+- `APP_TOKEN`: the secret app token to authenticate the readiness check
 - `DEPLOY_SSH_PRIVATE_KEY`: the complete private deployment key
 - `DEPLOY_KNOWN_HOSTS`: the independently verified SSH host-key line
 
@@ -183,8 +184,8 @@ test -f "$DEPLOY_STACK_DIRECTORY/.env"
 curl --fail "$DEPLOY_LOCAL_HEALTH_URL"
 ```
 
-The production `TELEGRAM_CLIENT_ID` remains only in the server-side stack
-`.env`; it is not copied into GitHub.
+The production `TELEGRAM_CLIENT_ID` and `APP_TOKEN` remain only in the server-side stack
+`.env`; they are not copied into GitHub.
 Before storing `DEPLOY_KNOWN_HOSTS`, compare `ssh-keyscan` output with the
 fingerprint printed directly on the server by
 `sudo ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`.
@@ -205,7 +206,7 @@ Create a protected GitHub environment named `android-release`, restrict it to
   values matching `keystore.properties`
 - `ANDROID_SIGNING_SHA256`: expected release certificate SHA-256 fingerprint;
   separators and letter case do not matter
-- `TELEGRAM_CLIENT_ID`, `TELEGRAM_REDIRECT_HOST`, `TELEGRAM_BACKEND_URL`:
+- `TELEGRAM_CLIENT_ID`, `TELEGRAM_REDIRECT_HOST`, `TELEGRAM_BACKEND_URL`, `APP_TOKEN`:
   production Android build configuration
 
 On macOS, the keystore can be uploaded without creating another local file:

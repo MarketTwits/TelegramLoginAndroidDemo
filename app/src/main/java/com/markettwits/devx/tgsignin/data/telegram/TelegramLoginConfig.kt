@@ -6,7 +6,8 @@ data class TelegramLoginConfig(
     val clientId: String,
     val redirectUri: String,
     val redirectHost: String,
-    val backendUrl: String
+    val backendUrl: String,
+    val appToken: String
 ) {
     init {
         require(clientId.isNotBlank()) { ERROR_CLIENT_ID_REQUIRED }

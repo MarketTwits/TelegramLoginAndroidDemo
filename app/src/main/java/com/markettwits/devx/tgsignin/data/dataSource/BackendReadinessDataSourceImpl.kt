@@ -1,22 +1,23 @@
 package com.markettwits.devx.tgsignin.data.dataSource
 
+import com.markettwits.devx.tgsignin.data.model.BackendReadiness
+import com.markettwits.devx.tgsignin.data.telegram.TelegramLoginConfig
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.withContext
+import org.json.JSONException
+import org.json.JSONObject
 import java.io.IOException
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
-import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.withContext
-import org.json.JSONException
-import org.json.JSONObject
-import com.markettwits.devx.tgsignin.data.model.BackendReadiness
-import com.markettwits.devx.tgsignin.data.telegram.TelegramLoginConfig
 
 class BackendReadinessDataSourceImpl(
     config: TelegramLoginConfig,
     private val ioDispatcher: CoroutineDispatcher
 ) : BackendReadinessDataSource {
     private val readinessUrl = URL(config.backendUrl.trimEnd(PATH_SEPARATOR) + READINESS_PATH)
+    private val appToken = config.appToken
 
     override suspend fun checkReadiness(): BackendReadiness = withContext(ioDispatcher) {
         val startedAt = NetworkRequestLogger.start(HTTP_GET, readinessUrl)
@@ -59,6 +60,7 @@ class BackendReadinessDataSourceImpl(
             connectTimeout = NETWORK_TIMEOUT_MS
             readTimeout = NETWORK_TIMEOUT_MS
             setRequestProperty(HEADER_ACCEPT, JSON_MEDIA_TYPE)
+            if (appToken.isNotBlank()) setRequestProperty("X-App-Token", appToken)
         }
 
     private fun parseResponse(body: String): BackendReadiness {

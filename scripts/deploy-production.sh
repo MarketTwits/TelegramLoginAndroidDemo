@@ -5,13 +5,14 @@ readonly revision="${1:-}"
 readonly encoded_app_directory="${2:-}"
 readonly encoded_stack_directory="${3:-}"
 readonly encoded_health_url="${4:-}"
+readonly encoded_app_token="${5:-}"
 
 if [[ ! "$revision" =~ ^[0-9a-f]{40}$ ]]; then
   echo "A full Git commit SHA is required" >&2
   exit 2
 fi
 
-if [[ -z "$encoded_app_directory" || -z "$encoded_stack_directory" || -z "$encoded_health_url" ]]; then
+if [[ -z "$encoded_app_directory" || -z "$encoded_stack_directory" || -z "$encoded_health_url" || -z "$encoded_app_token" ]]; then
   echo "Encoded deployment configuration is required" >&2
   exit 2
 fi
@@ -19,6 +20,7 @@ fi
 readonly app_directory="$(printf '%s' "$encoded_app_directory" | base64 --decode)"
 readonly stack_directory="$(printf '%s' "$encoded_stack_directory" | base64 --decode)"
 readonly health_url="$(printf '%s' "$encoded_health_url" | base64 --decode)"
+readonly app_token="$(printf '%s' "$encoded_app_token" | base64 --decode)"
 
 cd "$app_directory"
 if [[ -n "$(git status --porcelain)" ]]; then
@@ -40,7 +42,7 @@ docker compose build --pull --build-arg "BUILD_REVISION=$revision" backend
 docker compose up --detach --no-deps backend
 
 for attempt in $(seq 1 30); do
-  response="$(curl --fail --silent --show-error "$health_url" 2>/dev/null || true)"
+  response="$(curl --fail --silent --show-error -H "X-App-Token: $app_token" "$health_url" 2>/dev/null || true)"
   if grep -Eq '"status"[[:space:]]*:[[:space:]]*"ready"' <<< "$response" &&
     grep -Eq '"apiVersion"[[:space:]]*:[[:space:]]*6' <<< "$response" &&
     grep -Fq "\"revision\":\"$revision\"" <<< "$response"; then

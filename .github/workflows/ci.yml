@@ -47,6 +47,7 @@ jobs:
       TELEGRAM_CLIENT_ID: "000000000"
       TELEGRAM_REDIRECT_HOST: ci-login.tg.dev
       TELEGRAM_BACKEND_URL: https://example.invalid
+      APP_TOKEN: "ci-dummy-token"
       GITHUB_USERNAME: ${{ vars.PACKAGES_USERNAME }}
       GITHUB_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
     steps:

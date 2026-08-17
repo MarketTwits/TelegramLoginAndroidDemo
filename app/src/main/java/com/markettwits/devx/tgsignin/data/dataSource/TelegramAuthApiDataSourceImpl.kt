@@ -28,6 +28,7 @@ class TelegramAuthApiDataSourceImpl(
     private val ioDispatcher: CoroutineDispatcher
 ) : TelegramAuthApiDataSource {
     private val baseUrl = config.backendUrl.trimEnd('/')
+    private val appToken = config.appToken
 
     override suspend fun authenticate(idToken: String): AuthenticationResult = request(
         path = "/auth/telegram",
@@ -65,11 +66,11 @@ class TelegramAuthApiDataSourceImpl(
             path = "/me/account",
             method = "DELETE",
             accessToken = accessToken
-        ) { Unit }
+        ) { }
     }
 
     override suspend fun revokeSession(accessToken: String) {
-        request(path = "/auth/session", method = "DELETE", accessToken = accessToken) { Unit }
+        request(path = "/auth/session", method = "DELETE", accessToken = accessToken) { }
     }
 
     private suspend fun <T> request(
@@ -84,6 +85,7 @@ class TelegramAuthApiDataSourceImpl(
         var connection: HttpURLConnection? = null
         try {
             connection = openConnection(requestUrl, method).apply {
+                if (appToken.isNotBlank()) setRequestProperty("X-App-Token", appToken)
                 accessToken?.let { setRequestProperty("Authorization", "Bearer $it") }
                 if (body != null) {
                     doOutput = true

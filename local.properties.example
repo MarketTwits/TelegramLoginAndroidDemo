@@ -6,6 +6,8 @@ telegram.clientId=000000000
 telegram.redirectHost=app000000001-login.tg.dev
 # scripts/run-backend-local.sh forwards this device port to the host through ADB.
 telegram.backendUrl=http://127.0.0.1:8080
+# Secret token to protect the API. Must match APP_TOKEN in backend's .env
+app.token=
 
 # GitHub Packages credentials required to resolve the Telegram Login SDK.
 gpr.user=YOUR_GITHUB_LOGIN

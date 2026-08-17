@@ -25,6 +25,7 @@ jobs:
       DEPLOY_STACK_DIRECTORY: ${{ secrets.DEPLOY_STACK_DIRECTORY }}
       DEPLOY_LOCAL_HEALTH_URL: ${{ secrets.DEPLOY_LOCAL_HEALTH_URL }}
       PRODUCTION_HEALTH_URL: ${{ secrets.PRODUCTION_HEALTH_URL }}
+      APP_TOKEN: ${{ secrets.APP_TOKEN }}
       DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
       DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
     steps:
@@ -54,6 +55,7 @@ jobs:
           test -n "$DEPLOY_STACK_DIRECTORY"
           test -n "$DEPLOY_LOCAL_HEALTH_URL"
           test -n "$PRODUCTION_HEALTH_URL"
+          test -n "$APP_TOKEN"
           test -n "$DEPLOY_SSH_PRIVATE_KEY"
           test -n "$DEPLOY_KNOWN_HOSTS"
 
@@ -72,6 +74,7 @@ jobs:
           app_directory="$(printf '%s' "$DEPLOY_APP_DIRECTORY" | base64 -w 0)"
           stack_directory="$(printf '%s' "$DEPLOY_STACK_DIRECTORY" | base64 -w 0)"
           local_health_url="$(printf '%s' "$DEPLOY_LOCAL_HEALTH_URL" | base64 -w 0)"
+          encoded_app_token="$(printf '%s' "$APP_TOKEN" | base64 -w 0)"
           ssh \
             -i "$RUNNER_TEMP/ssh/deploy_key" \
             -o BatchMode=yes \
@@ -80,7 +83,7 @@ jobs:
             -o UserKnownHostsFile="$RUNNER_TEMP/ssh/known_hosts" \
             -p "$DEPLOY_PORT" \
             "$DEPLOY_USER@$DEPLOY_HOST" \
-            "bash -s -- '$REVISION' '$app_directory' '$stack_directory' '$local_health_url'" \
+            "bash -s -- '$REVISION' '$app_directory' '$stack_directory' '$local_health_url' '$encoded_app_token'" \
             < scripts/deploy-production.sh
 
       - name: Verify public endpoint
@@ -88,6 +91,7 @@ jobs:
           REVISION: ${{ github.sha }}
         run: |
           response="$(curl --fail --silent --show-error \
+            -H "X-App-Token: $APP_TOKEN" \
             --retry 8 --retry-all-errors --retry-delay 3 \
             "$PRODUCTION_HEALTH_URL")"
           printf '%s\n' "$response"
