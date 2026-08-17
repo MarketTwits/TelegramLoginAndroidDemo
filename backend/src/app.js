@@ -128,12 +128,37 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
   }));
   app.use(express.json({ limit: '16kb', type: 'application/json' }));
 
+  const apiLimiter = rateLimit({
+    windowMs: 60_000,
+    limit: 100,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false
+  });
+
   const authLimiter = rateLimit({
     windowMs: 60_000,
     limit: config.authRateLimitPerMinute,
     standardHeaders: 'draft-8',
     legacyHeaders: false
   });
+
+  const profileLimiter = rateLimit({
+    windowMs: 60_000,
+    limit: 10,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false
+  });
+
+  const requireAppToken = (request, response, next) => {
+    if (!config.appToken) return next();
+    const token = request.get('X-App-Token');
+    if (token !== config.appToken) {
+      return response.status(403).json({ code: 'FORBIDDEN', message: 'Invalid or missing X-App-Token' });
+    }
+    next();
+  };
+
+  app.use(apiLimiter);
 
   app.get('/api/health/live', (_request, response) => response.json({ status: 'ok' }));
 
@@ -142,7 +167,7 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
     response.json(profileBadgeCatalogResponse());
   });
 
-  app.get('/api/health/ready', asyncRoute(async (_request, response) => {
+  app.get('/api/health/ready', requireAppToken, asyncRoute(async (_request, response) => {
     await database.ping();
     response.json({
       status: 'ready',
@@ -153,7 +178,7 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
     });
   }));
 
-  app.post('/auth/telegram', authLimiter, asyncRoute(async (request, response) => {
+  app.post('/auth/telegram', requireAppToken, authLimiter, asyncRoute(async (request, response) => {
     if (!config.telegramConfigured) {
       return response.status(503).json({
         code: 'TELEGRAM_NOT_CONFIGURED',
@@ -187,7 +212,7 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
     });
   }));
 
-  app.get('/auth/session', asyncRoute(async (request, response) => {
+  app.get('/auth/session', requireAppToken, asyncRoute(async (request, response) => {
     const session = await authenticatedSession(database, request);
     if (!session) {
       return response.status(401).json({ code: 'SESSION_INVALID', message: 'Session is missing or expired' });
@@ -198,7 +223,7 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
     );
   }));
 
-  app.put('/me/profile', asyncRoute(async (request, response) => {
+  app.put('/me/profile', requireAppToken, profileLimiter, asyncRoute(async (request, response) => {
     const session = await authenticatedSession(database, request);
     if (!session) {
       return response.status(401).json({ code: 'SESSION_INVALID', message: 'Session is missing or expired' });
@@ -220,7 +245,7 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
     response.set('Cache-Control', 'no-store').json(authenticationStateResponse(state, session.expiresAt));
   }));
 
-  app.delete('/me/account', asyncRoute(async (request, response) => {
+  app.delete('/me/account', requireAppToken, asyncRoute(async (request, response) => {
     const session = await authenticatedSession(database, request);
     if (!session) {
       return response.status(401).json({ code: 'SESSION_INVALID', message: 'Session is missing or expired' });
@@ -230,7 +255,7 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
     response.set('Cache-Control', 'no-store').status(204).end();
   }));
 
-  app.delete('/auth/session', asyncRoute(async (request, response) => {
+  app.delete('/auth/session', requireAppToken, asyncRoute(async (request, response) => {
     const token = bearerToken(request);
     if (token) await database.revokeSession(hashSessionToken(token));
     response.status(204).end();

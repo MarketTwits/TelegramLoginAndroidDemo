@@ -27,10 +27,12 @@ fun String.asBuildConfigString(): String =
 val telegramClientId = projectConfig("telegram.clientId", "TELEGRAM_CLIENT_ID")
 val telegramRedirectHost = projectConfig("telegram.redirectHost", "TELEGRAM_REDIRECT_HOST")
 val telegramBackendUrl = projectConfig("telegram.backendUrl", "TELEGRAM_BACKEND_URL")
+val appToken = projectConfig("app.token", "APP_TOKEN")
 val missingTelegramConfiguration = buildList {
     if (telegramClientId.isBlank()) add("telegram.clientId / TELEGRAM_CLIENT_ID")
     if (telegramRedirectHost.isBlank()) add("telegram.redirectHost / TELEGRAM_REDIRECT_HOST")
     if (telegramBackendUrl.isBlank()) add("telegram.backendUrl / TELEGRAM_BACKEND_URL")
+    if (appToken.isBlank()) add("app.token / APP_TOKEN")
 }
 
 require(missingTelegramConfiguration.isEmpty()) {
@@ -85,6 +87,7 @@ android {
         buildConfigField("String", "TELEGRAM_SDK_VERSION", "\"${libs.versions.loginSdk.get()}\"")
         buildConfigField("String", "TELEGRAM_CLIENT_ID", telegramClientId.asBuildConfigString())
         buildConfigField("String", "TELEGRAM_BACKEND_URL", telegramBackendUrl.asBuildConfigString())
+        buildConfigField("String", "APP_TOKEN", appToken.asBuildConfigString())
     }
 
     signingConfigs {

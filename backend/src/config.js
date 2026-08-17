@@ -65,6 +65,7 @@ export const loadConfig = () => {
       'AUTH_RATE_LIMIT_PER_MINUTE',
       DEFAULT_AUTH_RATE_LIMIT_PER_MINUTE
     ),
+    appToken: process.env.APP_TOKEN?.trim() || null,
     trustProxy: trustProxy()
   };
 };

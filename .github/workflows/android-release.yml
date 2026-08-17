@@ -42,6 +42,7 @@ jobs:
           TELEGRAM_CLIENT_ID: ${{ secrets.TELEGRAM_CLIENT_ID }}
           TELEGRAM_REDIRECT_HOST: ${{ secrets.TELEGRAM_REDIRECT_HOST }}
           TELEGRAM_BACKEND_URL: ${{ secrets.TELEGRAM_BACKEND_URL }}
+          APP_TOKEN: ${{ secrets.APP_TOKEN }}
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -55,6 +56,7 @@ jobs:
           test -n "$TELEGRAM_CLIENT_ID"
           test -n "$TELEGRAM_REDIRECT_HOST"
           test -n "$TELEGRAM_BACKEND_URL"
+          test -n "$APP_TOKEN"
           test -n "$ANDROID_KEYSTORE_BASE64"
           test -n "$ANDROID_KEYSTORE_PASSWORD"
           test -n "$ANDROID_KEY_ALIAS"
@@ -90,6 +92,7 @@ jobs:
           TELEGRAM_CLIENT_ID: ${{ secrets.TELEGRAM_CLIENT_ID }}
           TELEGRAM_REDIRECT_HOST: ${{ secrets.TELEGRAM_REDIRECT_HOST }}
           TELEGRAM_BACKEND_URL: ${{ secrets.TELEGRAM_BACKEND_URL }}
+          APP_TOKEN: ${{ secrets.APP_TOKEN }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
