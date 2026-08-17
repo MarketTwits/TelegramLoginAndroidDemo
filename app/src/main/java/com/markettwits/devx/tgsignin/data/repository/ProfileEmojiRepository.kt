@@ -2,6 +2,7 @@ package com.markettwits.devx.tgsignin.data.repository
 
 import android.content.Context
 import android.util.LruCache
+import androidx.core.content.edit
 import com.markettwits.devx.tgsignin.data.dataSource.ProfileEmojiRemoteDataSource
 import com.markettwits.devx.tgsignin.data.model.ProfileEmoji
 import com.markettwits.devx.tgsignin.data.model.ProfileEmojiCatalog
@@ -16,6 +17,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -26,8 +28,10 @@ import java.util.zip.GZIPInputStream
 
 interface ProfileEmojiRepository {
     val catalog: StateFlow<ProfileEmojiCatalog?>
+    val recentSelections: StateFlow<List<ProfileEmojiSelection>>
     suspend fun refresh(): Result<Unit>
     suspend fun loadAnimationJson(emoji: ProfileEmoji): String
+    fun recordRecent(selection: ProfileEmojiSelection)
 }
 
 class ProfileEmojiRepositoryImpl(
@@ -39,13 +43,20 @@ class ProfileEmojiRepositoryImpl(
     private val cacheDirectory = File(context.cacheDir, "profile_emojis")
     private val catalogFile = File(cacheDirectory, "catalog-v3.json")
     private val cacheVersionFile = File(cacheDirectory, ".cache-v3")
+    private val historyPreferences = context.getSharedPreferences(
+        "profile_emoji_history",
+        Context.MODE_PRIVATE
+    )
     private val _catalog = MutableStateFlow<ProfileEmojiCatalog?>(null)
+    private val _recentSelections = MutableStateFlow(readRecentSelections())
     private val assetMutexes = ConcurrentHashMap<String, Mutex>()
     private val animationJsonCache = object : LruCache<String, String>(MAX_JSON_CACHE_KIB) {
         override fun sizeOf(key: String, value: String): Int =
             (value.toByteArray(Charsets.UTF_8).size / 1024).coerceAtLeast(1)
     }
     override val catalog: StateFlow<ProfileEmojiCatalog?> = _catalog.asStateFlow()
+    override val recentSelections: StateFlow<List<ProfileEmojiSelection>> =
+        _recentSelections.asStateFlow()
 
     init {
         applicationScope.launch {
@@ -66,6 +77,14 @@ class ProfileEmojiRepositoryImpl(
             atomicWrite(catalogFile, rawCatalog.toByteArray(Charsets.UTF_8))
         }
         _catalog.value = parsed
+        retainAvailableRecentSelections(parsed)
+    }
+
+    @Synchronized
+    override fun recordRecent(selection: ProfileEmojiSelection) {
+        if (_catalog.value?.contains(selection) != true) return
+        val updated = listOf(selection) + _recentSelections.value.filterNot { it == selection }
+        persistRecentSelections(updated.take(MAX_RECENT_EMOJIS))
     }
 
     override suspend fun loadAnimationJson(emoji: ProfileEmoji): String {
@@ -136,6 +155,10 @@ class ProfileEmojiRepositoryImpl(
                 ProfileEmoji(
                     setId = setId,
                     id = item.getString("id"),
+                    name = item.getString("name"),
+                    keywords = item.getJSONArray("keywords").let { keywords ->
+                        (0 until keywords.length()).map(keywords::getString)
+                    },
                     assetPath = assetPath,
                     sha256 = hash,
                     sizeBytes = size,
@@ -189,6 +212,33 @@ class ProfileEmojiRepositoryImpl(
         cacheVersionFile.writeText("3")
     }
 
+    private fun readRecentSelections(): List<ProfileEmojiSelection> = runCatching {
+        val stored =
+            historyPreferences.getString(RECENT_EMOJIS_KEY, null) ?: return@runCatching emptyList()
+        val json = JSONArray(stored)
+        (0 until json.length()).map { index ->
+            json.getJSONObject(index).let {
+                ProfileEmojiSelection(it.getString("setId"), it.getString("emojiId"))
+            }
+        }.distinct().take(MAX_RECENT_EMOJIS)
+    }.getOrDefault(emptyList())
+
+    @Synchronized
+    private fun retainAvailableRecentSelections(catalog: ProfileEmojiCatalog) {
+        val available = _recentSelections.value.filter(catalog::contains)
+        if (available != _recentSelections.value) persistRecentSelections(available)
+    }
+
+    private fun persistRecentSelections(selections: List<ProfileEmojiSelection>) {
+        _recentSelections.value = selections
+        val json = JSONArray(selections.map { selection ->
+            JSONObject()
+                .put("setId", selection.setId)
+                .put("emojiId", selection.emojiId)
+        })
+        historyPreferences.edit { putString(RECENT_EMOJIS_KEY, json.toString()) }
+    }
+
     private fun File.sha256(): String = inputStream().use { input ->
         val digest = MessageDigest.getInstance("SHA-256")
         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
@@ -212,5 +262,7 @@ class ProfileEmojiRepositoryImpl(
         const val MAX_COMPRESSED_ASSET_BYTES = 64 * 1024
         const val MAX_UNCOMPRESSED_TGS_BYTES = 2 * 1024 * 1024
         const val MAX_JSON_CACHE_KIB = 8 * 1024
+        const val MAX_RECENT_EMOJIS = 24
+        const val RECENT_EMOJIS_KEY = "recent_selections_v1"
     }
 }

@@ -294,6 +294,12 @@ test('profile emoji catalog groups one compact TGS format with verified thumbnai
   for (const set of catalog.sets) {
     assert.ok(set.labels.en);
     assert.equal(new Set(set.emojis.map(({ id }) => id)).size, set.emojis.length);
+    for (const emoji of set.emojis) {
+      assert.equal(typeof emoji.name, 'string');
+      assert.ok(emoji.name.length > 1);
+      assert.ok(Array.isArray(emoji.keywords));
+      assert.ok(emoji.keywords.includes(set.labels.en));
+    }
     const thumbnail = set.emojis.find(({ id }) => id === set.thumbnailEmojiId);
     assert.ok(thumbnail);
     assert.match(thumbnail.assetPath, /^\/assets\/profile-emojis\/v3\/[0-9a-f]{64}\.tgs$/);

@@ -109,6 +109,11 @@
 
     <string name="bloom_setup_title">Создайте свой Bloom</string>
     <string name="bloom_edit_title">Редактирование Bloom</string>
+    <string name="emoji_recent">Недавно использованные эмодзи</string>
+    <string name="emoji_search_hint">Поиск эмодзи</string>
+    <string name="emoji_search_clear">Очистить поиск эмодзи</string>
+    <string name="emoji_no_recent">Недавно использованные эмодзи появятся здесь.</string>
+    <string name="emoji_search_empty">Эмодзи не найдены.</string>
     <string name="bloom_display_name">Отображаемое имя</string>
     <string name="bloom_intent_building">Что-то создаю</string>
     <string name="bloom_intent_helping">Могу помочь</string>

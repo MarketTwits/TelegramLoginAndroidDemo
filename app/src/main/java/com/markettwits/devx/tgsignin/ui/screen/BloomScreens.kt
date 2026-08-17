@@ -226,7 +226,14 @@ fun ProfileSetupScreen(
                                 onTopicLimitChanged = { topicLimitReached = it },
                                 onDraftChanged = onDraftChanged
                             )
-                            else -> BloomSetupPage(draft, emojiCatalog, onDraftChanged)
+                            else -> BloomSetupPage(
+                                draft = draft,
+                                catalog = emojiCatalog,
+                                onEmojiSelected = { selection ->
+                                    emojiRepository.recordRecent(selection)
+                                    onDraftChanged(draft.copy(emojiStatus = selection))
+                                }
+                            )
                         }
                     }
                 }
@@ -434,7 +441,7 @@ private fun TopicsSetupPage(
 private fun BloomSetupPage(
     draft: ProfileDraft,
     catalog: ProfileEmojiCatalog?,
-    onDraftChanged: (ProfileDraft) -> Unit
+    onEmojiSelected: (ProfileEmojiSelection) -> Unit
 ) {
     val language = LocalConfiguration.current.locales[0].language
     SetupPageHeader(R.string.bloom_step_emoji_title, R.string.bloom_step_emoji_subtitle)
@@ -486,7 +493,7 @@ private fun BloomSetupPage(
                 val selection = ProfileEmojiSelection(emoji.setId, emoji.id)
                 TelegramChoice(
                     selected = selection == selected,
-                    onClick = { onDraftChanged(draft.copy(emojiStatus = selection)) }
+                    onClick = { onEmojiSelected(selection) }
                 ) {
                     ProfileEmojiImage(
                         emoji = emoji,
@@ -559,6 +566,7 @@ fun BloomProfileScreen(
 ) {
     val emojiRepository: ProfileEmojiRepository = koinInject()
     val emojiCatalog by emojiRepository.catalog.collectAsState()
+    val recentEmojiSelections by emojiRepository.recentSelections.collectAsState()
     val profile = requireNotNull(session.profile)
     var confirmDelete by rememberSaveable { mutableStateOf(false) }
     var showEmojiPicker by rememberSaveable { mutableStateOf(false) }
@@ -687,6 +695,7 @@ fun BloomProfileScreen(
                 displayName = profile.displayName,
                 emojiStatus = emojiCatalog?.resolve(profile.emojiStatus) ?: profile.emojiStatus,
                 emojiCatalog = emojiCatalog,
+                recentEmojiSelections = recentEmojiSelections,
                 collapseProgress = collapseProgress,
                 scrollState = scrollState,
                 onDragStopped = settleHeader,
@@ -704,6 +713,7 @@ fun BloomProfileScreen(
                 onEmojiMenuDismiss = { showEmojiPicker = false },
                 onEmojiSelected = { selection ->
                     showEmojiPicker = false
+                    emojiRepository.recordRecent(selection)
                     if (selection != profile.emojiStatus) onEmojiChanged(selection)
                 }
             )
@@ -727,6 +737,7 @@ private fun BloomProfileHero(
     displayName: String,
     emojiStatus: ProfileEmojiSelection,
     emojiCatalog: ProfileEmojiCatalog?,
+    recentEmojiSelections: List<ProfileEmojiSelection>,
     collapseProgress: Float,
     scrollState: androidx.compose.foundation.ScrollState,
     onDragStopped: () -> Unit,
@@ -841,6 +852,7 @@ private fun BloomProfileHero(
             username = identity.username,
             emojiStatus = emojiStatus,
             emojiCatalog = emojiCatalog,
+            recentEmojiSelections = recentEmojiSelections,
             collapseProgress = collapseProgress,
             onEmojiClick = onEmojiClick,
             emojiMenuExpanded = emojiMenuExpanded,
@@ -859,6 +871,7 @@ private fun BloomProfileIdentity(
     username: String?,
     emojiStatus: ProfileEmojiSelection,
     emojiCatalog: ProfileEmojiCatalog?,
+    recentEmojiSelections: List<ProfileEmojiSelection>,
     collapseProgress: Float,
     onEmojiClick: () -> Unit,
     emojiMenuExpanded: Boolean,
@@ -903,6 +916,7 @@ private fun BloomProfileIdentity(
                         expanded = emojiMenuExpanded,
                         catalog = catalog,
                         selectedEmoji = emojiStatus,
+                        recentSelections = recentEmojiSelections,
                         onEmojiSelected = onEmojiSelected,
                         onDismiss = onEmojiMenuDismiss
                     )

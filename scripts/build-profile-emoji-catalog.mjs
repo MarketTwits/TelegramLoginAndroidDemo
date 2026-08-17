@@ -47,6 +47,27 @@ const sets = [
 
 const sha256 = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
 
+const normalizedLabel = (value) => typeof value === 'string'
+  ? value.replaceAll('_', ' ').replace(/\s+/gu, ' ').trim()
+  : '';
+
+const isMeaningfulLabel = (value) => {
+  if (value.length < 2 || value.length > 64 || /^\d+$/u.test(value)) return false;
+  return !/^(?:comp(?:osition)?|pre[ -]?comp|layer|shape|path|surface|null|group|ellipse|rectangle|vector|solid|контур|композиция)(?:[ -]?\d+)?$/iu.test(value);
+};
+
+const searchableMetadata = (lottie, set, index) => {
+  const candidates = [
+    lottie.nm,
+    ...(Array.isArray(lottie.layers) ? lottie.layers.map(({ nm }) => nm) : [])
+  ].map(normalizedLabel).filter(isMeaningfulLabel);
+  const uniqueCandidates = [...new Set(candidates)];
+  return {
+    name: uniqueCandidates[0] ?? `${set.labels.en} ${index + 1}`,
+    keywords: [...new Set([...Object.values(set.labels), ...uniqueCandidates])].slice(0, 16)
+  };
+};
+
 const normalizedEntries = (setId) => {
   const directory = path.join(emojiSourceRoot, 'new', setId);
   if (!fs.existsSync(directory)) {
@@ -58,7 +79,7 @@ const normalizedEntries = (setId) => {
     .sort((left, right) => left.id.localeCompare(right.id));
 };
 
-const inspectTgs = ({ id, file }) => {
+const inspectTgs = ({ id, file }, set, index) => {
   const compressed = fs.readFileSync(file);
   if (compressed.length === 0 || compressed.length > MAX_COMPRESSED_BYTES) {
     throw new Error(`${file} is outside the Telegram TGS compressed-size limit`);
@@ -88,8 +109,10 @@ const inspectTgs = ({ id, file }) => {
   }
 
   const hash = sha256(compressed);
+  const metadata = searchableMetadata(lottie, set, index);
   return {
     id,
+    ...metadata,
     assetPath: `/assets/profile-emojis/v3/${hash}.tgs`,
     sha256: hash,
     sizeBytes: compressed.length,
@@ -109,10 +132,11 @@ const assets = new Map();
 const catalogSets = sets.map((set) => {
   const entries = set.entries ?? normalizedEntries(set.id);
   if (entries.length === 0) throw new Error(`Emoji set ${set.id} is empty`);
-  const emojis = entries.map(inspectTgs).map(({ compressed, ...emoji }) => {
-    assets.set(emoji.sha256, compressed);
-    return emoji;
-  });
+  const emojis = entries.map((entry, index) => inspectTgs(entry, set, index))
+    .map(({ compressed, ...emoji }) => {
+      assets.set(emoji.sha256, compressed);
+      return emoji;
+    });
   if (new Set(emojis.map(({ id }) => id)).size !== emojis.length) {
     throw new Error(`Emoji set ${set.id} contains duplicate IDs`);
   }

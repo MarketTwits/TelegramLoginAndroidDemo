@@ -111,6 +111,11 @@
 
     <string name="bloom_setup_title">Create your Bloom</string>
     <string name="bloom_edit_title">Edit your Bloom</string>
+    <string name="emoji_recent">Recently used emoji</string>
+    <string name="emoji_search_hint">Search emoji</string>
+    <string name="emoji_search_clear">Clear emoji search</string>
+    <string name="emoji_no_recent">Your recently used emoji will appear here.</string>
+    <string name="emoji_search_empty">No emoji found.</string>
     <string name="bloom_display_name">Display name</string>
     <string name="bloom_intent_building">Building something</string>
     <string name="bloom_intent_helping">Can help</string>
