@@ -3,8 +3,9 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
 const SQLITE_BUSY_TIMEOUT_MS = 5_000;
-const DATABASE_SCHEMA_VERSION = 5;
-const DEFAULT_PROFILE_BADGE_ID = 'outline';
+const DATABASE_SCHEMA_VERSION = 7;
+const DEFAULT_PROFILE_EMOJI_SET_ID = 'spotty-persik';
+const DEFAULT_PROFILE_EMOJI_ID = 'e-0007fab99d521710';
 const REVOKED_SESSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_ACTIVE_SESSIONS_PER_USER = 5;
 
@@ -22,6 +23,24 @@ const baseUserSchema = `
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     last_login_at INTEGER NOT NULL
+  ) STRICT;
+`;
+
+const profileTableSchema = (tableName = 'app_profiles') => `
+  CREATE TABLE ${tableName} (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL UNIQUE REFERENCES app_users(id) ON DELETE CASCADE,
+    display_name TEXT NOT NULL,
+    headline TEXT NOT NULL,
+    intent TEXT NOT NULL CHECK (intent IN ('BUILDING', 'HELPING', 'EXPLORING')),
+    topics_json TEXT NOT NULL,
+    avatar_source TEXT NOT NULL CHECK (avatar_source IN ('TELEGRAM', 'BLOOM')),
+    emoji_set_id TEXT NOT NULL,
+    emoji_id TEXT NOT NULL,
+    phone_number TEXT,
+    visual_seed TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
   ) STRICT;
 `;
 
@@ -55,20 +74,7 @@ const schema = `
     revoked_at INTEGER
   ) STRICT;
 
-  CREATE TABLE IF NOT EXISTS app_profiles (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL UNIQUE REFERENCES app_users(id) ON DELETE CASCADE,
-    display_name TEXT NOT NULL,
-    headline TEXT NOT NULL,
-    intent TEXT NOT NULL CHECK (intent IN ('BUILDING', 'HELPING', 'EXPLORING')),
-    topics_json TEXT NOT NULL,
-    avatar_source TEXT NOT NULL CHECK (avatar_source IN ('TELEGRAM', 'BLOOM')),
-    badge_id TEXT NOT NULL DEFAULT 'outline',
-    phone_number TEXT,
-    visual_seed TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
-  ) STRICT;
+  ${profileTableSchema().replace('CREATE TABLE app_profiles', 'CREATE TABLE IF NOT EXISTS app_profiles')}
 
   CREATE INDEX IF NOT EXISTS app_sessions_user_id_idx ON app_sessions(user_id);
   CREATE INDEX IF NOT EXISTS app_sessions_expires_at_idx ON app_sessions(expires_at);
@@ -99,23 +105,45 @@ const migrateLegacyUsers = (database) => {
 
 const migrateLegacyProfiles = (database) => {
   const columns = new Set(database.prepare('PRAGMA table_info(app_profiles)').all().map((row) => row.name));
-  if (columns.size > 0 && !columns.has('badge_id')) {
-    database.exec("ALTER TABLE app_profiles ADD COLUMN badge_id TEXT NOT NULL DEFAULT 'outline'");
-    if (columns.has('emoji')) {
-      database.exec(`
-        UPDATE app_profiles SET badge_id = CASE emoji
-          WHEN '🌱' THEN 'outline'
-          WHEN '🚀' THEN 'festive-flags'
-          WHEN '💡' THEN 'the-thing'
-          WHEN '🛠️' THEN 'max'
-          WHEN '✨' THEN 'unicorn'
-          ELSE 'outline'
-        END
-      `);
-    }
-  }
   if (columns.size > 0 && !columns.has('phone_number')) {
     database.exec('ALTER TABLE app_profiles ADD COLUMN phone_number TEXT');
+  }
+  if (columns.size > 0 && !columns.has('emoji_set_id')) {
+    database.exec('ALTER TABLE app_profiles ADD COLUMN emoji_set_id TEXT');
+  }
+  if (columns.size > 0 && !columns.has('emoji_id')) {
+    database.exec('ALTER TABLE app_profiles ADD COLUMN emoji_id TEXT');
+  }
+  if (columns.size > 0) {
+    database.exec(`
+      UPDATE app_profiles
+      SET emoji_set_id = '${DEFAULT_PROFILE_EMOJI_SET_ID}',
+          emoji_id = '${DEFAULT_PROFILE_EMOJI_ID}'
+      WHERE emoji_set_id IS NULL OR emoji_id IS NULL OR emoji_set_id = 'classic';
+    `);
+    if (columns.has('badge_id')) database.exec('ALTER TABLE app_profiles DROP COLUMN badge_id');
+    if (columns.has('emoji')) database.exec('ALTER TABLE app_profiles DROP COLUMN emoji');
+
+    const migratedColumns = database.prepare('PRAGMA table_info(app_profiles)').all();
+    const emojiColumnsAreRequired = migratedColumns
+      .filter(({ name }) => name === 'emoji_set_id' || name === 'emoji_id')
+      .every(({ notnull }) => notnull === 1);
+    if (!emojiColumnsAreRequired) {
+      database.exec(`
+        BEGIN IMMEDIATE;
+        ${profileTableSchema('app_profiles_v7')}
+        INSERT INTO app_profiles_v7 (
+          id, user_id, display_name, headline, intent, topics_json, avatar_source,
+          emoji_set_id, emoji_id, phone_number, visual_seed, created_at, updated_at
+        )
+        SELECT id, user_id, display_name, headline, intent, topics_json, avatar_source,
+          emoji_set_id, emoji_id, phone_number, visual_seed, created_at, updated_at
+        FROM app_profiles;
+        DROP TABLE app_profiles;
+        ALTER TABLE app_profiles_v7 RENAME TO app_profiles;
+        COMMIT;
+      `);
+    }
   }
 };
 
@@ -136,7 +164,8 @@ const normalizeProfileRow = (row) => row?.profile_id ? ({
   intent: row.intent,
   topics: JSON.parse(row.topics_json),
   avatar_source: row.avatar_source,
-  badge_id: row.badge_id,
+  emoji_set_id: row.emoji_set_id,
+  emoji_id: row.emoji_id,
   phone_number: row.profile_phone_number,
   visual_seed: row.visual_seed,
   created_at: new Date(row.profile_created_at),
@@ -161,6 +190,7 @@ export const createDatabase = (config) => {
   migrateLegacyUsers(database);
   database.exec(schema);
   migrateLegacyProfiles(database);
+  database.exec(`PRAGMA user_version = ${DATABASE_SCHEMA_VERSION}`);
 
   const selectUserBySubject = database.prepare(
     'SELECT * FROM app_users WHERE telegram_subject = ?'
@@ -199,7 +229,8 @@ export const createDatabase = (config) => {
   const accountProfileProjection = `
     SELECT account.*, session.expires_at,
            profile.id AS profile_id, profile.display_name, profile.headline,
-           profile.intent, profile.topics_json, profile.avatar_source, profile.badge_id, profile.visual_seed,
+           profile.intent, profile.topics_json, profile.avatar_source,
+           profile.emoji_set_id, profile.emoji_id, profile.visual_seed,
            profile.phone_number AS profile_phone_number,
            profile.created_at AS profile_created_at, profile.updated_at AS profile_updated_at
     FROM app_sessions AS session
@@ -212,7 +243,8 @@ export const createDatabase = (config) => {
   const selectAccountWithProfile = database.prepare(`
     SELECT account.*, NULL AS expires_at,
            profile.id AS profile_id, profile.display_name, profile.headline,
-           profile.intent, profile.topics_json, profile.avatar_source, profile.badge_id, profile.visual_seed,
+           profile.intent, profile.topics_json, profile.avatar_source,
+           profile.emoji_set_id, profile.emoji_id, profile.visual_seed,
            profile.phone_number AS profile_phone_number,
            profile.created_at AS profile_created_at, profile.updated_at AS profile_updated_at
     FROM app_users AS account
@@ -222,15 +254,16 @@ export const createDatabase = (config) => {
   const upsertProfile = database.prepare(`
     INSERT INTO app_profiles (
       id, user_id, display_name, headline, intent, topics_json, avatar_source,
-      badge_id, phone_number, visual_seed, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      emoji_set_id, emoji_id, phone_number, visual_seed, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT (user_id) DO UPDATE SET
       display_name = excluded.display_name,
       headline = excluded.headline,
       intent = excluded.intent,
       topics_json = excluded.topics_json,
       avatar_source = excluded.avatar_source,
-      badge_id = excluded.badge_id,
+      emoji_set_id = excluded.emoji_set_id,
+      emoji_id = excluded.emoji_id,
       phone_number = excluded.phone_number,
       updated_at = excluded.updated_at
   `);
@@ -296,7 +329,9 @@ export const createDatabase = (config) => {
     upsertProfile.run(
       profileId, userId, draft.displayName, draft.headline, draft.intent,
       JSON.stringify(draft.topics), draft.avatarSource,
-      draft.badgeId ?? DEFAULT_PROFILE_BADGE_ID, draft.phoneNumber, visualSeed, now, now
+      draft.emojiStatus?.setId ?? DEFAULT_PROFILE_EMOJI_SET_ID,
+      draft.emojiStatus?.emojiId ?? DEFAULT_PROFILE_EMOJI_ID,
+      draft.phoneNumber, visualSeed, now, now
     );
     completeOnboarding.run(now, userId);
     return readAccount(selectAccountWithProfile.get(userId));

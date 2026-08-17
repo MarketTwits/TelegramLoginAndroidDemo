@@ -29,32 +29,56 @@ enum class AvatarSource {
     BLOOM
 }
 
-const val DEFAULT_PROFILE_BADGE_ID = "outline"
+data class ProfileEmojiSelection(
+    val setId: String,
+    val emojiId: String
+)
 
-enum class ProfileBadgeKind {
-    LOTTIE_TGS,
-    STATIC_WEBP
-}
+val DEFAULT_PROFILE_EMOJI = ProfileEmojiSelection(
+    setId = "spotty-persik",
+    emojiId = "e-0007fab99d521710"
+)
 
-data class ProfileBadge(
+data class ProfileEmoji(
+    val setId: String,
     val id: String,
-    val kind: ProfileBadgeKind,
     val assetPath: String,
     val sha256: String,
     val sizeBytes: Int,
     val width: Int,
     val height: Int,
-    val labels: Map<String, String>,
+    val framesPerSecond: Float,
+    val durationMs: Int,
     val enabled: Boolean
+)
+
+data class ProfileEmojiSet(
+    val id: String,
+    val labels: Map<String, String>,
+    val thumbnailEmojiId: String,
+    val emojis: List<ProfileEmoji>
 ) {
     fun label(language: String): String = labels[language] ?: labels["en"] ?: id
 }
 
-data class ProfileBadgeCatalog(
+data class ProfileEmojiCatalog(
     val version: Int,
-    val defaultBadgeId: String,
-    val badges: List<ProfileBadge>
-)
+    val defaultEmoji: ProfileEmojiSelection,
+    val sets: List<ProfileEmojiSet>
+) {
+    fun resolve(selection: ProfileEmojiSelection?): ProfileEmojiSelection =
+        selection?.takeIf(::contains) ?: defaultEmoji
+
+    fun contains(selection: ProfileEmojiSelection): Boolean =
+        sets.firstOrNull { it.id == selection.setId }
+            ?.emojis?.any { it.id == selection.emojiId && it.enabled } == true
+
+    fun emoji(selection: ProfileEmojiSelection?): ProfileEmoji? {
+        val resolved = resolve(selection)
+        return sets.firstOrNull { it.id == resolved.setId }
+            ?.emojis?.firstOrNull { it.id == resolved.emojiId }
+    }
+}
 
 data class ServiceAccount(
     val id: String,
@@ -88,7 +112,7 @@ data class ServiceProfile(
     val intent: ProfileIntent,
     val topics: List<ProfileTopic>,
     val avatarSource: AvatarSource,
-    val badgeId: String,
+    val emojiStatus: ProfileEmojiSelection,
     val visualSeed: String,
     val createdAt: String,
     val updatedAt: String,
@@ -101,14 +125,14 @@ data class ProfileDraft(
     val intent: ProfileIntent = ProfileIntent.BUILDING,
     val topics: Set<ProfileTopic> = emptySet(),
     val avatarSource: AvatarSource = AvatarSource.TELEGRAM,
-    val badgeId: String = DEFAULT_PROFILE_BADGE_ID,
+    val emojiStatus: ProfileEmojiSelection? = null,
     val phoneNumber: String = "",
     val phoneNumberEdited: Boolean = false
 ) {
     val isValid: Boolean
         get() = displayName.isNotBlank() && displayName.trim().length <= 80 &&
             headline.isNotBlank() && headline.trim().length <= 120 &&
-                topics.size in 1..3 && badgeId.isNotBlank() &&
+                topics.size in 1..3 &&
                 phoneNumber.isValidOptionalInternationalPhoneNumber()
 }
 
