@@ -9,6 +9,7 @@
   "scripts": {
     "start": "node --disable-warning=ExperimentalWarning src/server.js",
     "dev": "node --disable-warning=ExperimentalWarning --watch src/server.js",
+    "emoji:build": "node ../scripts/build-profile-emoji-catalog.mjs",
     "test": "node --disable-warning=ExperimentalWarning --test"
   },
   "dependencies": {

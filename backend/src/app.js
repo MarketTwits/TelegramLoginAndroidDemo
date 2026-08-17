@@ -7,10 +7,12 @@ import { rateLimit } from 'express-rate-limit';
 import { createSession, bearerToken, hashSessionToken } from './sessions.js';
 import { normalizeInternationalPhoneNumber } from './phoneNumbers.js';
 import {
-  PROFILE_BADGE_IDS,
-  profileBadgeAssetDirectory,
-  profileBadgeCatalogResponse
-} from './profileBadges.js';
+  DEFAULT_PROFILE_EMOJI,
+  isProfileEmoji,
+  profileEmojiAssetDirectory,
+  profileEmojiCatalogResponse,
+  resolveStoredProfileEmoji
+} from './profileEmojiSets.js';
 
 const publicDirectory = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const asyncRoute = (handler) => (request, response, next) =>
@@ -21,7 +23,7 @@ const PROFILE_TOPICS = new Set([
   'ANDROID', 'BACKEND', 'DESIGN', 'SECURITY', 'OPEN_SOURCE', 'AI', 'PRODUCT', 'TELEGRAM', 'OTHER'
 ]);
 const AVATAR_SOURCES = new Set(['TELEGRAM', 'BLOOM']);
-const API_VERSION = 6;
+const API_VERSION = 7;
 const APP_REVISION = process.env.APP_REVISION?.trim() || 'development';
 
 const accountResponse = (account) => ({
@@ -44,18 +46,22 @@ const telegramResponse = (account) => ({
   syncedAt: account.telegram_synced_at.toISOString()
 });
 
-const profileResponse = (profile) => profile ? ({
-  displayName: profile.display_name,
-  headline: profile.headline,
-  intent: profile.intent,
-  topics: profile.topics,
-  avatarSource: profile.avatar_source,
-  badgeId: profile.badge_id,
-  phoneNumber: profile.phone_number,
-  visualSeed: profile.visual_seed,
-  createdAt: profile.created_at.toISOString(),
-  updatedAt: profile.updated_at.toISOString()
-}) : null;
+const profileResponse = (profile) => {
+  if (!profile) return null;
+  const emojiStatus = resolveStoredProfileEmoji(profile);
+  return {
+    displayName: profile.display_name,
+    headline: profile.headline,
+    intent: profile.intent,
+    topics: profile.topics,
+    avatarSource: profile.avatar_source,
+    emojiStatus,
+    phoneNumber: profile.phone_number,
+    visualSeed: profile.visual_seed,
+    createdAt: profile.created_at.toISOString(),
+    updatedAt: profile.updated_at.toISOString()
+  };
+};
 
 const authenticationStateResponse = ({ account, profile }, expiresAt) => ({
   ...(expiresAt && { expiresAt: expiresAt.toISOString() }),
@@ -94,12 +100,25 @@ const profileDraft = (body) => {
   if (displayName.length < 1 || displayName.length > 80) return null;
   if (headline.length < 1 || headline.length > 120) return null;
   if (!PROFILE_INTENTS.has(body?.intent) || !AVATAR_SOURCES.has(body?.avatarSource)) return null;
-  if (!PROFILE_BADGE_IDS.has(body?.badgeId)) return null;
+  let emojiStatus;
+  if (Object.hasOwn(body ?? {}, 'emojiStatus')) {
+    if (body.emojiStatus == null) {
+      emojiStatus = { ...DEFAULT_PROFILE_EMOJI };
+    } else if (isProfileEmoji(body.emojiStatus)) {
+      emojiStatus = { setId: body.emojiStatus.setId, emojiId: body.emojiStatus.emojiId };
+    } else {
+      return null;
+    }
+  } else {
+    emojiStatus = { ...DEFAULT_PROFILE_EMOJI };
+  }
   if (topics.length < 1 || topics.length > 3 || new Set(topics).size !== topics.length) return null;
   if (!topics.every((topic) => PROFILE_TOPICS.has(topic))) return null;
   return {
     displayName, headline, intent: body.intent, topics,
-    avatarSource: body.avatarSource, badgeId: body.badgeId, phoneNumber
+    avatarSource: body.avatarSource,
+    emojiStatus,
+    phoneNumber
   };
 };
 
@@ -162,9 +181,9 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
 
   app.get('/api/health/live', (_request, response) => response.json({ status: 'ok' }));
 
-  app.get('/api/profile-badges', (_request, response) => {
+  app.get('/api/profile-emoji-sets', (_request, response) => {
     response.set('Cache-Control', 'public, max-age=300, must-revalidate');
-    response.json(profileBadgeCatalogResponse());
+    response.json(profileEmojiCatalogResponse());
   });
 
   app.get('/api/health/ready', requireAppToken, asyncRoute(async (_request, response) => {
@@ -261,7 +280,7 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
     response.status(204).end();
   }));
 
-  app.use('/assets/profile-badges', express.static(profileBadgeAssetDirectory, {
+  app.use('/assets/profile-emojis', express.static(profileEmojiAssetDirectory, {
     maxAge: config.nodeEnv === 'production' ? '1y' : 0,
     immutable: config.nodeEnv === 'production',
     etag: true,
