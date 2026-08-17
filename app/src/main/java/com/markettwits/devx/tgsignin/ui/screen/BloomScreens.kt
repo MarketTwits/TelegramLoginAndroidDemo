@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -113,6 +114,7 @@ import com.markettwits.devx.tgsignin.ui.component.ProfileEmojiImage
 import com.markettwits.devx.tgsignin.ui.component.TelegramChoice
 import com.markettwits.devx.tgsignin.ui.component.TelegramConfirmationDialog
 import com.markettwits.devx.tgsignin.ui.component.TelegramDestructiveButton
+import com.markettwits.devx.tgsignin.ui.component.TelegramEmojiGroupChoice
 import com.markettwits.devx.tgsignin.ui.component.TelegramEmojiSetDropdown
 import com.markettwits.devx.tgsignin.ui.component.TelegramIconAction
 import com.markettwits.devx.tgsignin.ui.component.TelegramPrimaryButton
@@ -129,6 +131,7 @@ import java.util.TimeZone
 import kotlin.math.roundToInt
 
 private const val SETUP_PAGE_COUNT = 4
+private const val EMOJI_SET_PREFETCH_COUNT = 20
 
 @Composable
 fun ProfileSetupScreen(
@@ -444,6 +447,7 @@ private fun BloomSetupPage(
     onEmojiSelected: (ProfileEmojiSelection) -> Unit
 ) {
     val language = LocalConfiguration.current.locales[0].language
+    val emojiRepository: ProfileEmojiRepository = koinInject()
     SetupPageHeader(R.string.bloom_step_emoji_title, R.string.bloom_step_emoji_subtitle)
     TelegramSection {
         if (catalog == null) {
@@ -457,22 +461,25 @@ private fun BloomSetupPage(
         val selected = catalog.resolve(draft.emojiStatus)
         var activeSetId by rememberSaveable(catalog.version) { mutableStateOf(selected.setId) }
         val activeSet = catalog.sets.firstOrNull { it.id == activeSetId } ?: catalog.sets.first()
+        LaunchedEffect(activeSet.id) {
+            emojiRepository.prefetch(activeSet.emojis.take(EMOJI_SET_PREFETCH_COUNT))
+        }
         LazyRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             items(catalog.sets, key = { it.id }) { set ->
                 val thumbnail = set.emojis.firstOrNull { it.id == set.thumbnailEmojiId }
-                TelegramChoice(
+                TelegramEmojiGroupChoice(
                     selected = set.id == activeSet.id,
-                    onClick = { activeSetId = set.id }
+                    label = set.label(language),
+                    onClick = { activeSetId = set.id },
+                    modifier = Modifier.padding(bottom = 8.dp)
                 ) {
                     ProfileEmojiImage(
                         emoji = thumbnail,
-                        contentDescription = set.label(language),
-                        modifier = Modifier
-                            .padding(7.dp)
-                            .size(34.dp)
+                        contentDescription = null,
+                        modifier = Modifier.size(30.dp)
                     )
                 }
             }
@@ -483,6 +490,7 @@ private fun BloomSetupPage(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(180.dp),
+            contentPadding = PaddingValues(horizontal = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
@@ -497,7 +505,6 @@ private fun BloomSetupPage(
                 ) {
                     ProfileEmojiImage(
                         emoji = emoji,
-                        animate = selection == selected,
                         contentDescription = "${activeSet.label(language)} ${index + 1}",
                         modifier = Modifier
                             .padding(6.dp)
@@ -514,7 +521,6 @@ private fun BloomSetupPage(
             Text(draft.displayName, style = MaterialTheme.typography.titleLarge)
             ProfileEmojiImage(
                 emoji = catalog.emoji(selected),
-                animate = true,
                 modifier = Modifier
                     .padding(start = 7.dp)
                     .size(32.dp)
@@ -903,7 +909,6 @@ private fun BloomProfileIdentity(
                 ) {
                     ProfileEmojiImage(
                         emoji = emojiCatalog?.emoji(emojiStatus),
-                        animate = true,
                         contentDescription = stringResource(R.string.bloom_step_emoji_title),
                         modifier = Modifier
                             .padding(4.dp)

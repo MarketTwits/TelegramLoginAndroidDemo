@@ -67,6 +67,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -75,7 +77,9 @@ import com.markettwits.devx.tgsignin.data.model.ProfileEmoji
 import com.markettwits.devx.tgsignin.data.model.ProfileEmojiCatalog
 import com.markettwits.devx.tgsignin.data.model.ProfileEmojiSelection
 import com.markettwits.devx.tgsignin.data.model.formattedPhoneNumberAsYouType
+import com.markettwits.devx.tgsignin.data.repository.ProfileEmojiRepository
 import kotlinx.coroutines.delay
+import org.koin.compose.koinInject
 import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
@@ -162,6 +166,45 @@ fun TelegramChoice(
         )
     ) {
         content()
+    }
+}
+
+@Composable
+fun TelegramEmojiGroupChoice(
+    selected: Boolean,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    preview: @Composable () -> Unit
+) {
+    Column(
+        modifier = modifier
+            .width(58.dp)
+            .semantics { contentDescription = label },
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        TelegramChoice(
+            selected = selected,
+            onClick = onClick,
+            modifier = Modifier.size(44.dp)
+        ) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                preview()
+            }
+        }
+        Text(
+            text = label,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 2.dp),
+            style = MaterialTheme.typography.labelSmall,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -402,7 +445,8 @@ fun TelegramEmojiSetDropdown(
     selectedEmoji: ProfileEmojiSelection,
     recentSelections: List<ProfileEmojiSelection>,
     onEmojiSelected: (ProfileEmojiSelection) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    emojiRepository: ProfileEmojiRepository = koinInject()
 ) {
     val language = LocalConfiguration.current.locales[0].language
     var activeCategoryId by remember { mutableStateOf(RECENT_EMOJI_CATEGORY_ID) }
@@ -448,6 +492,9 @@ fun TelegramEmojiSetDropdown(
             visibleCount = displayedEmojis.size
         }
     }
+    LaunchedEffect(expanded, activeCategoryId, searchQuery, displayedEmojis) {
+        if (expanded) emojiRepository.prefetch(displayedEmojis.take(PICKER_PREFETCH_COUNT))
+    }
 
     DropdownMenu(
         expanded = expanded,
@@ -460,7 +507,7 @@ fun TelegramEmojiSetDropdown(
         Surface(
             modifier = Modifier
                 .padding(horizontal = 4.dp, vertical = 2.dp)
-                .size(width = 324.dp, height = 346.dp),
+                .size(width = 324.dp, height = 366.dp),
             shape = RoundedCornerShape(16.dp),
             color = MaterialTheme.colorScheme.surface,
             contentColor = MaterialTheme.colorScheme.onSurface,
@@ -475,17 +522,16 @@ fun TelegramEmojiSetDropdown(
                 LazyRow(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(46.dp),
+                        .height(66.dp),
                     contentPadding = PaddingValues(horizontal = 10.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     item(key = RECENT_EMOJI_CATEGORY_ID) {
-                        EmojiCategoryButton(
+                        TelegramEmojiGroupChoice(
                             selected = searchQuery.isBlank() &&
                                     activeCategoryId == RECENT_EMOJI_CATEGORY_ID,
-                            contentDescription = stringResource(R.string.emoji_recent),
+                            label = stringResource(R.string.emoji_recent),
                             onClick = {
-                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 searchQuery = ""
                                 activeCategoryId = RECENT_EMOJI_CATEGORY_ID
                             }
@@ -493,17 +539,16 @@ fun TelegramEmojiSetDropdown(
                             Icon(
                                 imageVector = Icons.Outlined.History,
                                 contentDescription = null,
-                                modifier = Modifier.size(28.dp)
+                                modifier = Modifier.size(26.dp)
                             )
                         }
                     }
                     items(catalog.sets, key = { it.id }) { set ->
                         val thumbnail = set.emojis.firstOrNull { it.id == set.thumbnailEmojiId }
-                        EmojiCategoryButton(
+                        TelegramEmojiGroupChoice(
                             selected = searchQuery.isBlank() && activeCategoryId == set.id,
-                            contentDescription = set.label(language),
+                            label = set.label(language),
                             onClick = {
-                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 searchQuery = ""
                                 activeCategoryId = set.id
                             },
@@ -511,7 +556,7 @@ fun TelegramEmojiSetDropdown(
                             ProfileEmojiImage(
                                 emoji = thumbnail,
                                 contentDescription = null,
-                                modifier = Modifier.size(32.dp)
+                                modifier = Modifier.size(30.dp)
                             )
                         }
                     }
@@ -591,33 +636,6 @@ fun TelegramEmojiSetDropdown(
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun EmojiCategoryButton(
-    selected: Boolean,
-    contentDescription: String,
-    onClick: () -> Unit,
-    content: @Composable () -> Unit
-) {
-    Surface(
-        onClick = onClick,
-        modifier = Modifier.size(46.dp),
-        shape = RoundedCornerShape(13.dp),
-        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
-        contentColor = if (selected) {
-            MaterialTheme.colorScheme.onSecondaryContainer
-        } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
-        }
-    ) {
-        Box(
-            modifier = Modifier.semantics { this.contentDescription = contentDescription },
-            contentAlignment = Alignment.Center
-        ) {
-            content()
         }
     }
 }
@@ -704,7 +722,6 @@ private fun EmojiStatusButton(
         Box(contentAlignment = Alignment.Center) {
             ProfileEmojiImage(
                 emoji = emoji,
-                animate = selected,
                 contentDescription = emoji.name,
                 modifier = Modifier.size(38.dp)
             )
@@ -715,3 +732,4 @@ private fun EmojiStatusButton(
 private const val RECENT_EMOJI_CATEGORY_ID = "recent"
 private const val MAX_VISIBLE_RECENT_EMOJIS = 24
 private const val MAX_EMOJI_SEARCH_LENGTH = 64
+private const val PICKER_PREFETCH_COUNT = 20
