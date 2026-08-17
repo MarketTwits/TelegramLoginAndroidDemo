@@ -2,8 +2,10 @@ package com.markettwits.devx.tgsignin.data.dataSource
 
 import com.markettwits.devx.tgsignin.data.model.AuthenticationResult
 import com.markettwits.devx.tgsignin.data.model.AvatarSource
+import com.markettwits.devx.tgsignin.data.model.DEFAULT_PROFILE_EMOJI
 import com.markettwits.devx.tgsignin.data.model.OnboardingState
 import com.markettwits.devx.tgsignin.data.model.ProfileDraft
+import com.markettwits.devx.tgsignin.data.model.ProfileEmojiSelection
 import com.markettwits.devx.tgsignin.data.model.ProfileIntent
 import com.markettwits.devx.tgsignin.data.model.ProfileTopic
 import com.markettwits.devx.tgsignin.data.model.ServiceAccount
@@ -56,7 +58,7 @@ class TelegramAuthApiDataSourceImpl(
             put("intent", draft.intent.name)
             put("topics", JSONArray(draft.topics.map(ProfileTopic::name)))
             put("avatarSource", draft.avatarSource.name)
-            put("badgeId", draft.badgeId)
+            put("emojiStatus", draft.emojiStatus?.toJson() ?: JSONObject.NULL)
             put("phoneNumber", draft.phoneNumber.normalizedInternationalPhoneNumberOrNull())
         }
     ) { json -> parseAuthenticationResult(json, accessToken) }
@@ -178,7 +180,8 @@ class TelegramAuthApiDataSourceImpl(
                     intent = ProfileIntent.valueOf(profile.getString("intent")),
                     topics = profile.getJSONArray("topics").toStrings().map(ProfileTopic::valueOf),
                     avatarSource = AvatarSource.valueOf(profile.getString("avatarSource")),
-                    badgeId = profile.getString("badgeId"),
+                    emojiStatus = profile.optJSONObject("emojiStatus")?.toProfileEmojiSelection()
+                        ?: DEFAULT_PROFILE_EMOJI,
                     phoneNumber = profile.optionalString("phoneNumber"),
                     visualSeed = profile.getString("visualSeed"),
                     createdAt = profile.getString("createdAt"),
@@ -190,9 +193,18 @@ class TelegramAuthApiDataSourceImpl(
 }
 
 private const val API_VERSION_HEADER = "X-Telegram-Bloom-Api-Version"
-private const val REQUIRED_API_VERSION = 6
+private const val REQUIRED_API_VERSION = 7
 
 private fun JSONObject.optionalString(key: String): String? =
     optString(key).takeIf { it.isNotBlank() && it != JSONObject.NULL.toString() }
 
 private fun JSONArray.toStrings(): List<String> = (0 until length()).map(::getString)
+
+private fun ProfileEmojiSelection.toJson(): JSONObject = JSONObject()
+    .put("setId", setId)
+    .put("emojiId", emojiId)
+
+private fun JSONObject.toProfileEmojiSelection() = ProfileEmojiSelection(
+    setId = getString("setId"),
+    emojiId = getString("emojiId")
+)

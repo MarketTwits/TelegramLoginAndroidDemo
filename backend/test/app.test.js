@@ -70,7 +70,7 @@ test('new login creates an account, profile PUT is idempotent, and account delet
     intent: 'BUILDING',
     topics: ['ANDROID', 'SECURITY'],
     avatarSource: 'BLOOM',
-    badgeId: 'festive-flags',
+    emojiStatus: { setId: 'spotty-persik', emojiId: 'e-0007fab99d521710' },
     phoneNumber: '+1 (415) 555-2671'
   };
   const save = () => fetch(`${baseUrl}/me/profile`, {
@@ -86,6 +86,9 @@ test('new login creates an account, profile PUT is idempotent, and account delet
   const savedBody = await saved.json();
   assert.equal(savedBody.account.onboardingState, 'PROFILE_COMPLETED');
   assert.deepEqual(savedBody.profile.topics, draft.topics);
+  assert.deepEqual(savedBody.profile.emojiStatus, {
+    setId: 'spotty-persik', emojiId: 'e-0007fab99d521710'
+  });
   assert.equal(savedBody.profile.phoneNumber, '+14155552671');
   const seed = savedBody.profile.visualSeed;
 
@@ -153,7 +156,7 @@ test('profile validation and session authentication return typed public errors',
     headers: { Authorization: `Bearer ${body.sessionToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       displayName: '', headline: 'x', intent: 'UNKNOWN', topics: [],
-      avatarSource: 'BLOOM', badgeId: 'outline'
+      avatarSource: 'BLOOM', emojiStatus: null
     })
   });
   assert.equal(invalid.status, 422);
@@ -165,7 +168,7 @@ test('profile validation and session authentication return typed public errors',
     headers: { Authorization: `Bearer ${body.sessionToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       displayName: 'Valid', headline: 'Valid profile', intent: 'BUILDING', topics: ['ANDROID'],
-      avatarSource: 'TELEGRAM', badgeId: 'outline', phoneNumber: '+999 definitely-not-a-phone'
+      avatarSource: 'TELEGRAM', emojiStatus: null, phoneNumber: '+999 definitely-not-a-phone'
     })
   });
   assert.equal(invalidPhone.status, 422);
@@ -175,11 +178,51 @@ test('profile validation and session authentication return typed public errors',
     headers: { Authorization: `Bearer ${body.sessionToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       displayName: 'Valid', headline: 'Valid profile', intent: 'BUILDING', topics: ['ANDROID'],
-      avatarSource: 'TELEGRAM', badgeId: 'outline', phoneNumber: null
+      avatarSource: 'TELEGRAM', emojiStatus: null, phoneNumber: null
     })
   });
   assert.equal(withoutPhone.status, 200);
   assert.equal((await withoutPhone.json()).profile.phoneNumber, null);
+});
+
+test('grouped profile emoji selection defaults safely and rejects unknown selections', async (context) => {
+  const { baseUrl } = await startServer(context, async () => telegramProfile());
+  const { body } = await login(baseUrl);
+  const headers = {
+    Authorization: `Bearer ${body.sessionToken}`,
+    'Content-Type': 'application/json'
+  };
+  const baseDraft = {
+    displayName: 'Emoji demo', headline: 'Grouped status emoji', intent: 'BUILDING',
+    topics: ['ANDROID'], avatarSource: 'TELEGRAM', phoneNumber: null
+  };
+  const save = (draft) => fetch(`${baseUrl}/me/profile`, {
+    method: 'PUT', headers, body: JSON.stringify(draft)
+  });
+
+  const defaulted = await save({ ...baseDraft, emojiStatus: null });
+  assert.equal(defaulted.status, 200);
+  assert.deepEqual((await defaulted.json()).profile.emojiStatus, {
+    setId: 'spotty-persik', emojiId: 'e-0007fab99d521710'
+  });
+
+  const catalog = await (await fetch(`${baseUrl}/api/profile-emoji-sets`)).json();
+  const neon = catalog.sets.find(({ id }) => id === 'neon');
+  const selection = { setId: neon.id, emojiId: neon.emojis[1].id };
+  const grouped = await save({ ...baseDraft, emojiStatus: selection });
+  assert.equal(grouped.status, 200);
+  const groupedProfile = (await grouped.json()).profile;
+  assert.deepEqual(groupedProfile.emojiStatus, selection);
+  assert.equal(Object.hasOwn(groupedProfile, 'badgeId'), false);
+
+  assert.equal((await save({
+    ...baseDraft, emojiStatus: { setId: 'missing', emojiId: 'missing' }
+  })).status, 422);
+
+  const omitted = await save(baseDraft);
+  assert.deepEqual((await omitted.json()).profile.emojiStatus, {
+    setId: 'spotty-persik', emojiId: 'e-0007fab99d521710'
+  });
 });
 
 test('Backend starts without Telegram configuration and reports setup mode', async (context) => {
@@ -191,9 +234,9 @@ test('Backend starts without Telegram configuration and reports setup mode', asy
   assert.equal(healthResponse.status, 200);
   assert.deepEqual(await healthResponse.json(), {
     status: 'ready', database: 'connected', telegram: 'configuration_required',
-    apiVersion: 6, revision: 'development'
+    apiVersion: 7, revision: 'development'
   });
-  assert.equal(healthResponse.headers.get('x-telegram-bloom-api-version'), '6');
+  assert.equal(healthResponse.headers.get('x-telegram-bloom-api-version'), '7');
   const response = await fetch(`${baseUrl}/auth/telegram`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ idToken: 'x'.repeat(40) })
@@ -220,7 +263,7 @@ test('disabled account cannot restore, edit, or create another successful login'
     },
     body: JSON.stringify({
       displayName: 'Disabled', headline: 'Must not be saved', intent: 'BUILDING',
-      topics: ['ANDROID'], avatarSource: 'BLOOM', badgeId: 'outline'
+      topics: ['ANDROID'], avatarSource: 'BLOOM', emojiStatus: null
     })
   });
   assert.equal(profileResponse.status, 403);
@@ -230,32 +273,36 @@ test('disabled account cannot restore, edit, or create another successful login'
   assert.equal(database.getAccount(first.body.account.id).account.login_count, 1);
 });
 
-test('profile badge catalog exposes immutable verified assets', async (context) => {
+test('profile emoji catalog groups one compact TGS format with verified thumbnails', async (context) => {
   const { baseUrl } = await startServer(
     context,
     async () => telegramProfile(),
     { ...config, nodeEnv: 'production' }
   );
-  const response = await fetch(`${baseUrl}/api/profile-badges`);
+  const response = await fetch(`${baseUrl}/api/profile-emoji-sets`);
   assert.equal(response.status, 200);
   const catalog = await response.json();
-  assert.equal(catalog.version, 1);
-  assert.equal(catalog.defaultBadgeId, 'outline');
-  assert.equal(catalog.badges.length, 7);
-  assert.equal(new Set(catalog.badges.map(({ id }) => id)).size, 7);
-  for (const badge of catalog.badges) {
-    assert.match(badge.sha256, /^[0-9a-f]{64}$/);
-    const asset = await fetch(`${baseUrl}${badge.assetPath}`);
+  assert.equal(catalog.version, 3);
+  assert.equal(catalog.format, 'LOTTIE_TGS');
+  assert.deepEqual(catalog.defaultEmoji, {
+    setId: 'spotty-persik', emojiId: 'e-0007fab99d521710'
+  });
+  assert.equal(catalog.sets.length, 5);
+  assert.equal(catalog.sets.reduce((total, set) => total + set.emojis.length, 0), 456);
+  assert.equal(catalog.sets.some(({ id }) => id === 'classic'), false);
+
+  for (const set of catalog.sets) {
+    assert.ok(set.labels.en);
+    assert.equal(new Set(set.emojis.map(({ id }) => id)).size, set.emojis.length);
+    const thumbnail = set.emojis.find(({ id }) => id === set.thumbnailEmojiId);
+    assert.ok(thumbnail);
+    assert.match(thumbnail.assetPath, /^\/assets\/profile-emojis\/v3\/[0-9a-f]{64}\.tgs$/);
+    const asset = await fetch(`${baseUrl}${thumbnail.assetPath}`);
     assert.equal(asset.status, 200);
-    assert.match(asset.headers.get('cache-control'), /max-age=31536000/);
+    assert.equal(asset.headers.get('content-type'), 'application/x-tgsticker');
     assert.match(asset.headers.get('cache-control'), /immutable/);
     const bytes = Buffer.from(await asset.arrayBuffer());
-    assert.equal(bytes.length, badge.sizeBytes);
-    assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'), badge.sha256);
+    assert.equal(bytes.length, thumbnail.sizeBytes);
+    assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'), thumbnail.sha256);
   }
-  const tgs = catalog.badges.find(({ kind }) => kind === 'LOTTIE_TGS');
-  assert.equal(
-    (await fetch(`${baseUrl}${tgs.assetPath}`)).headers.get('content-type'),
-    'application/x-tgsticker'
-  );
 });

@@ -117,7 +117,7 @@ class MainActivity : ComponentActivity() {
                                     BloomProfileScreen(
                                         session = state.session,
                                         isOffline = state.isOffline,
-                                        onBadgeChanged = profileViewModel::updateBadge,
+                                        onEmojiChanged = profileViewModel::updateEmoji,
                                         onDelete = profileViewModel::deleteAccount
                                     )
                                 }

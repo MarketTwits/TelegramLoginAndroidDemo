@@ -138,7 +138,7 @@
     <string name="bloom_step_topics_title">Выберите темы</string>
     <string name="bloom_topics_required">Чтобы продолжить, выберите хотя бы одну тему.</string>
     <string name="bloom_step_emoji_title">Выберите Bloom-эмодзи</string>
-    <string name="bloom_step_emoji_subtitle">Этот небольшой значок будет рядом с именем — там его всегда можно поменять.</string>
+    <string name="bloom_step_emoji_subtitle">Выберите набор, а затем статус. Он появится рядом с именем, и его всегда можно поменять.</string>
     <string name="bloom_create_profile">Создать мой профиль</string>
     <string name="bloom_save_profile">Сохранить профиль</string>
     <string name="bloom_current_signal">Текущий сигнал</string>

@@ -5,7 +5,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,7 +17,11 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -37,6 +40,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -55,6 +59,8 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.markettwits.devx.tgsignin.data.model.ProfileEmojiCatalog
+import com.markettwits.devx.tgsignin.data.model.ProfileEmojiSelection
 import com.markettwits.devx.tgsignin.data.model.formattedPhoneNumberAsYouType
 import kotlinx.coroutines.delay
 import kotlin.time.Duration.Companion.milliseconds
@@ -377,25 +383,33 @@ fun TelegramDialog(
 }
 
 @Composable
-fun TelegramBadgeDropdown(
+fun TelegramEmojiSetDropdown(
     expanded: Boolean,
-    badges: List<com.markettwits.devx.tgsignin.data.model.ProfileBadge>,
-    selectedBadgeId: String,
-    onBadgeSelected: (String) -> Unit,
+    catalog: ProfileEmojiCatalog,
+    selectedEmoji: ProfileEmojiSelection,
+    onEmojiSelected: (ProfileEmojiSelection) -> Unit,
     onDismiss: () -> Unit
 ) {
     val language = LocalConfiguration.current.locales[0].language
-    val enabledBadges = remember(badges) { badges.filter { it.enabled } }
+    var activeSetId by remember { mutableStateOf(selectedEmoji.setId) }
+    val activeSet = catalog.sets.firstOrNull { it.id == activeSetId } ?: catalog.sets.first()
+    val enabledEmojis = remember(activeSet) { activeSet.emojis.filter { it.enabled } }
     var visibleCount by remember { mutableIntStateOf(0) }
     val haptics = LocalHapticFeedback.current
 
-    LaunchedEffect(expanded, enabledBadges) {
+    LaunchedEffect(expanded, selectedEmoji, catalog) {
+        if (expanded && catalog.sets.any { it.id == selectedEmoji.setId }) {
+            activeSetId = selectedEmoji.setId
+        }
+    }
+    LaunchedEffect(expanded, activeSetId, enabledEmojis) {
         visibleCount = 0
         if (expanded) {
-            enabledBadges.indices.forEach { index ->
-                delay((if (index == 0) 25 else 45).milliseconds)
+            repeat(minOf(enabledEmojis.size, 15)) { index ->
+                delay((if (index == 0) 20 else 28).milliseconds)
                 visibleCount = index + 1
             }
+            visibleCount = enabledEmojis.size
         }
     }
 
@@ -405,7 +419,7 @@ fun TelegramBadgeDropdown(
         containerColor = Color.Transparent,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
-        modifier = Modifier.width(272.dp)
+        modifier = Modifier.width(332.dp)
     ) {
         Surface(
             modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
@@ -414,55 +428,88 @@ fun TelegramBadgeDropdown(
             contentColor = MaterialTheme.colorScheme.onSurface,
             shadowElevation = 4.dp
         ) {
-            Row(
-                modifier = Modifier
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            Column(
+                modifier = Modifier.padding(vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                enabledBadges.forEachIndexed { index, badge ->
-                    Box(
-                        modifier = Modifier.size(48.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        androidx.compose.animation.AnimatedVisibility(
-                            visible = index < visibleCount,
-                            enter = fadeIn(tween(140)) +
-                                scaleIn(
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(catalog.sets, key = { it.id }) { set ->
+                        val thumbnail = set.emojis.firstOrNull { it.id == set.thumbnailEmojiId }
+                        Surface(
+                            onClick = {
+                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                activeSetId = set.id
+                            },
+                            modifier = Modifier.size(46.dp),
+                            shape = CircleShape,
+                            color = if (set.id == activeSet.id) {
+                                MaterialTheme.colorScheme.secondaryContainer
+                            } else {
+                                Color.Transparent
+                            }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                ProfileEmojiImage(
+                                    emoji = thumbnail,
+                                    contentDescription = set.label(language),
+                                    modifier = Modifier.size(32.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(5),
+                    modifier = Modifier.heightIn(min = 112.dp, max = 224.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    itemsIndexed(
+                        items = enabledEmojis,
+                        key = { _, emoji -> "${emoji.setId}/${emoji.id}" }
+                    ) { index, emoji ->
+                        Box(modifier = Modifier.size(54.dp), contentAlignment = Alignment.Center) {
+                            androidx.compose.animation.AnimatedVisibility(
+                                visible = index < visibleCount,
+                                enter = fadeIn(tween(140)) + scaleIn(
                                     initialScale = 0.72f,
                                     animationSpec = tween(180)
-                                ) +
-                                slideInHorizontally(
+                                ) + slideInHorizontally(
                                     animationSpec = tween(180),
                                     initialOffsetX = { it / 2 }
                                 )
-                        ) {
-                            Surface(
-                                onClick = {
-                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    onBadgeSelected(badge.id)
-                                },
-                                modifier = Modifier.fillMaxSize(),
-                                shape = CircleShape,
-                                color = if (badge.id == selectedBadgeId) {
+                            ) {
+                                val selection = ProfileEmojiSelection(emoji.setId, emoji.id)
+                                Surface(
+                                    onClick = {
+                                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        onEmojiSelected(selection)
+                                    },
+                                    modifier = Modifier.fillMaxSize(),
+                                    shape = CircleShape,
+                                    color = if (selection == selectedEmoji) {
                                     MaterialTheme.colorScheme.primaryContainer
                                 } else {
                                     Color.Transparent
                                 },
-                                contentColor = if (badge.id == selectedBadgeId) {
+                                    contentColor = if (selection == selectedEmoji) {
                                     MaterialTheme.colorScheme.onPrimaryContainer
                                 } else {
                                     MaterialTheme.colorScheme.onSurface
                                 }
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    ProfileBadgeImage(
-                                        badge = badge,
-                                        animate = badge.id == selectedBadgeId,
-                                        contentDescription = badge.label(language),
-                                        modifier = Modifier.size(34.dp)
-                                    )
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        ProfileEmojiImage(
+                                            emoji = emoji,
+                                            animate = selection == selectedEmoji,
+                                            contentDescription = "${activeSet.label(language)} ${index + 1}",
+                                            modifier = Modifier.size(38.dp)
+                                        )
+                                    }
                                 }
                             }
                         }

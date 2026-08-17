@@ -97,12 +97,14 @@ All authenticated endpoints use `Authorization: Bearer <sessionToken>`.
   returns `sessionToken`, `expiresAt`, `account`, `telegram`, and `profile`.
 - `GET /auth/session` restores the account, onboarding state, Telegram summary,
   and optional service profile.
-- `GET /api/profile-badges` returns the versioned public badge catalog. Profiles
-  store a stable `badgeId`; TGS/WebP files use immutable, hash-based asset paths.
+- `GET /api/profile-emoji-sets` returns the versioned grouped emoji catalog.
+  Every set contains only compact TGS animations with immutable content-addressed
+  asset paths.
 - `PUT /me/profile` creates or idempotently updates the service profile. Valid
   intents are `BUILDING`, `HELPING`, and `EXPLORING`; one to three supported
-  topics are required; headline length is 1–120 characters; `badgeId` must be
-  an enabled entry from the current badge catalog. `phoneNumber` is optional;
+  topics are required; headline length is 1–120 characters; `emojiStatus` is an
+  optional `{ "setId", "emojiId" }` pair and resolves to the catalog default when
+  absent or obsolete. `phoneNumber` is optional;
   when present it must be a valid international number with a country code and
   is normalized to E.164.
 - `DELETE /me/account` permanently removes the authenticated account together

@@ -11,8 +11,8 @@ import com.markettwits.devx.tgsignin.data.dataSource.BackendReadinessDataSource
 import com.markettwits.devx.tgsignin.data.dataSource.BackendReadinessDataSourceImpl
 import com.markettwits.devx.tgsignin.data.dataSource.CryptoManager
 import com.markettwits.devx.tgsignin.data.dataSource.CryptoManagerImpl
-import com.markettwits.devx.tgsignin.data.dataSource.ProfileBadgeRemoteDataSource
-import com.markettwits.devx.tgsignin.data.dataSource.ProfileBadgeRemoteDataSourceImpl
+import com.markettwits.devx.tgsignin.data.dataSource.ProfileEmojiRemoteDataSource
+import com.markettwits.devx.tgsignin.data.dataSource.ProfileEmojiRemoteDataSourceImpl
 import com.markettwits.devx.tgsignin.data.dataSource.TelegramAuthApiDataSource
 import com.markettwits.devx.tgsignin.data.dataSource.TelegramAuthApiDataSourceImpl
 import com.markettwits.devx.tgsignin.data.dataSource.TelegramLoginDataSource
@@ -25,8 +25,8 @@ import com.markettwits.devx.tgsignin.data.repository.AuthenticationRepository
 import com.markettwits.devx.tgsignin.data.repository.AuthenticationRepositoryImpl
 import com.markettwits.devx.tgsignin.data.repository.BackendReadinessRepository
 import com.markettwits.devx.tgsignin.data.repository.BackendReadinessRepositoryImpl
-import com.markettwits.devx.tgsignin.data.repository.ProfileBadgeRepository
-import com.markettwits.devx.tgsignin.data.repository.ProfileBadgeRepositoryImpl
+import com.markettwits.devx.tgsignin.data.repository.ProfileEmojiRepository
+import com.markettwits.devx.tgsignin.data.repository.ProfileEmojiRepositoryImpl
 import com.markettwits.devx.tgsignin.data.telegram.TelegramLoginConfig
 import com.markettwits.devx.tgsignin.ui.viewModel.AppLinkVerificationViewModel
 import com.markettwits.devx.tgsignin.ui.viewModel.AppearanceViewModel
@@ -74,14 +74,14 @@ val appModule = module {
         )
     }
     single<BackendReadinessRepository> { BackendReadinessRepositoryImpl(get()) }
-    single<ProfileBadgeRemoteDataSource> {
-        ProfileBadgeRemoteDataSourceImpl(
+    single<ProfileEmojiRemoteDataSource> {
+        ProfileEmojiRemoteDataSourceImpl(
             config = get(),
             ioDispatcher = get(ioDispatcherQualifier)
         )
     }
-    single<ProfileBadgeRepository> {
-        ProfileBadgeRepositoryImpl(
+    single<ProfileEmojiRepository> {
+        ProfileEmojiRepositoryImpl(
             context = androidContext(),
             remoteDataSource = get(),
             ioDispatcher = get(ioDispatcherQualifier),
