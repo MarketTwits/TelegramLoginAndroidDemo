@@ -108,7 +108,7 @@ class ProfileEmojiRemoteDataSourceImpl(
 
     private companion object {
         const val API_VERSION_HEADER = "X-Telegram-Bloom-Api-Version"
-        const val REQUIRED_API_VERSION = 7
+        const val REQUIRED_API_VERSION = 8
         const val MAX_CATALOG_BYTES = 512 * 1024
         const val MAX_ASSET_BYTES = 64 * 1024
         const val HTTP_TOO_MANY_REQUESTS = 429

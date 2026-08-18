@@ -87,6 +87,7 @@ class AuthenticationLocalDataSourceImpl(
             put("loginCount", value.account.loginCount)
         })
         put("telegram", JSONObject().apply {
+            put("userId", value.telegram.userId)
             put("name", value.telegram.name)
             put("givenName", value.telegram.givenName)
             put("familyName", value.telegram.familyName)
@@ -127,6 +128,7 @@ class AuthenticationLocalDataSourceImpl(
                 loginCount = account.getInt("loginCount")
             ),
             telegram = TelegramIdentity(
+                userId = telegram.nullableString("userId"),
                 name = telegram.nullableString("name"),
                 givenName = telegram.nullableString("givenName"),
                 familyName = telegram.nullableString("familyName"),

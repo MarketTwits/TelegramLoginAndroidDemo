@@ -266,12 +266,10 @@ private fun RequestedDataBottomSheet(
             ScopeRow(
                 icon = Icons.Outlined.PersonOutline,
                 title = stringResource(R.string.profile),
-                subtitle = stringResource(R.string.profile_scope_description),
-                selected = TelegramScope.Profile in scopes,
-                onClick = {
-                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    onScopesChanged(scopes.toggle(TelegramScope.Profile))
-                }
+                subtitle = stringResource(R.string.profile_scope_required_description),
+                selected = true,
+                enabled = false,
+                onClick = {}
             )
             ScopeRow(
                 icon = Icons.Outlined.PhoneAndroid,

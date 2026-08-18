@@ -15,7 +15,7 @@
     <string name="required_field">Обязательное поле</string>
     <string name="profile">Профиль</string>
     <string name="profile_short">профиль</string>
-    <string name="profile_scope_description">Имя, username и аватар</string>
+    <string name="profile_scope_required_description">Обязательно для идентификации · имя, username и аватар</string>
     <string name="phone_number">Номер телефона</string>
     <string name="phone_short">телефон</string>
     <string name="phone_scope_description">Подтверждённый номер аккаунта</string>
@@ -163,6 +163,10 @@
     <string name="bloom_identity_connected">Аккаунт Telegram подключён</string>
     <string name="bloom_phone_verified">Телефон подтверждён Telegram</string>
     <string name="bloom_identity_provider">Личность подтверждена Telegram</string>
+    <string name="bloom_telegram_user_id">ID пользователя Telegram</string>
+    <string name="bloom_telegram_user_id_hint">Совпадает с ID пользователя, который получает ваш Telegram-бот.</string>
+    <string name="bloom_show_telegram_user_id">Показать ID пользователя Telegram</string>
+    <string name="bloom_hide_telegram_user_id">Скрыть ID пользователя Telegram</string>
     <string name="bloom_edit_profile">Редактировать профиль</string>
     <string name="bloom_delete_account">Удалить аккаунт</string>
     <string name="bloom_delete_title">Удалить аккаунт?</string>

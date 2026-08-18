@@ -9,6 +9,7 @@ import { createDatabase } from '../src/database.js';
 const profile = (id, overrides = {}) => ({
   id,
   telegramSubject: 'telegram-subject-1',
+  telegramUserId: '987654321',
   name: 'Demo User',
   givenName: 'Demo',
   familyName: 'User',
@@ -63,6 +64,23 @@ test('SQLite follows the latest explicit phone verification claim', (context) =>
   database.close();
 });
 
+test('SQLite resolves a returning Telegram user by Bot API user ID', (context) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'telegram-signin-user-id-'));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const database = createDatabase({ databasePath: path.join(directory, 'auth.sqlite') });
+  const firstId = database.upsertTelegramUser(profile('user-id-1'));
+
+  const returningId = database.upsertTelegramUser(profile('unused-id', {
+    telegramSubject: 'rotated-oidc-subject',
+    telegramUserId: '987654321'
+  }));
+
+  assert.equal(returningId, firstId);
+  assert.equal(database.getAccount(firstId).account.telegram_subject, 'rotated-oidc-subject');
+  assert.equal(database.getAccount(firstId).account.telegram_user_id, '987654321');
+  database.close();
+});
+
 test('SQLite limits active sessions for one user', (context) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'telegram-signin-sqlite-'));
   context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
@@ -106,6 +124,7 @@ test('SQLite migration upgrades a version-one user without losing the account', 
     telegramSubject: 'legacy-sub', name: 'Updated Telegram Name'
   }));
   assert.equal(state.account.id, 'legacy-id');
+  assert.equal(state.account.telegram_user_id, '987654321');
   assert.equal(state.account.member_number, 1);
   assert.equal(state.account.onboarding_state, 'PROFILE_REQUIRED');
   assert.equal(state.account.login_count, 1);
@@ -152,7 +171,7 @@ test('SQLite legacy badge profile migrates to the canonical default and drops ol
   assert.equal(columnNames.includes('emoji'), false);
   assert.equal(columns.find(({ name }) => name === 'emoji_set_id').notnull, 1);
   assert.equal(columns.find(({ name }) => name === 'emoji_id').notnull, 1);
-  assert.equal(migrated.prepare('PRAGMA user_version').get().user_version, 7);
+  assert.equal(migrated.prepare('PRAGMA user_version').get().user_version, 8);
   migrated.close();
 });
 

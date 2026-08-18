@@ -37,7 +37,7 @@ class LoginViewModel(
 
     fun updateScopes(scopes: Set<TelegramScope>) {
         if (uiState.value.loginState.isInProgress) return
-        _uiState.update { it.copy(requestedScopes = scopes) }
+        _uiState.update { it.copy(requestedScopes = scopes + TelegramScope.Profile) }
     }
 
     fun login(context: Context) {

@@ -180,6 +180,7 @@ class TelegramAuthApiDataSourceImpl(
                 loginCount = account.getInt("loginCount")
             ),
             telegram = TelegramIdentity(
+                userId = telegram.optionalString("userId"),
                 name = telegram.optionalString("name"),
                 givenName = telegram.optionalString("givenName"),
                 familyName = telegram.optionalString("familyName"),
@@ -209,7 +210,7 @@ class TelegramAuthApiDataSourceImpl(
 }
 
 private const val API_VERSION_HEADER = "X-Telegram-Bloom-Api-Version"
-private const val REQUIRED_API_VERSION = 7
+private const val REQUIRED_API_VERSION = 8
 
 private fun JSONObject.optionalString(key: String): String? =
     optString(key).takeIf { it.isNotBlank() && it != JSONObject.NULL.toString() }

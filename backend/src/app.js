@@ -23,7 +23,7 @@ const PROFILE_TOPICS = new Set([
   'ANDROID', 'BACKEND', 'DESIGN', 'SECURITY', 'OPEN_SOURCE', 'AI', 'PRODUCT', 'TELEGRAM', 'OTHER'
 ]);
 const AVATAR_SOURCES = new Set(['TELEGRAM', 'BLOOM']);
-const API_VERSION = 7;
+const API_VERSION = 8;
 const APP_REVISION = process.env.APP_REVISION?.trim() || 'development';
 
 const accountResponse = (account) => ({
@@ -36,6 +36,7 @@ const accountResponse = (account) => ({
 });
 
 const telegramResponse = (account) => ({
+  ...(account.telegram_user_id && { userId: account.telegram_user_id }),
   ...(account.name && { name: account.name }),
   ...(account.given_name && { givenName: account.given_name }),
   ...(account.family_name && { familyName: account.family_name }),

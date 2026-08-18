@@ -15,6 +15,7 @@ const config = {
 const telegramProfile = (overrides = {}) => ({
   id: crypto.randomUUID(),
   telegramSubject: '12345',
+  telegramUserId: '987654321',
   name: 'Demo User',
   givenName: 'Demo',
   familyName: 'User',
@@ -63,6 +64,7 @@ test('new login creates an account, profile PUT is idempotent, and account delet
   assert.equal(first.body.profile, null);
   assert.equal(first.body.telegram.phoneVerified, true);
   assert.equal(first.body.telegram.phoneNumber, '+14155552671');
+  assert.equal(first.body.telegram.userId, '987654321');
 
   const draft = {
     displayName: 'Bloom Demo',
@@ -234,9 +236,9 @@ test('Backend starts without Telegram configuration and reports setup mode', asy
   assert.equal(healthResponse.status, 200);
   assert.deepEqual(await healthResponse.json(), {
     status: 'ready', database: 'connected', telegram: 'configuration_required',
-    apiVersion: 7, revision: 'development'
+    apiVersion: 8, revision: 'development'
   });
-  assert.equal(healthResponse.headers.get('x-telegram-bloom-api-version'), '7');
+  assert.equal(healthResponse.headers.get('x-telegram-bloom-api-version'), '8');
   const response = await fetch(`${baseUrl}/auth/telegram`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ idToken: 'x'.repeat(40) })
