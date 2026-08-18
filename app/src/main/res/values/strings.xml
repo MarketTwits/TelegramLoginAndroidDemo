@@ -1,6 +1,7 @@
 <resources>
     <string name="app_name">TG Login Demo</string>
     <string name="telegram">Telegram</string>
+    <string name="login_title">Telegram Login Demo</string>
     <string name="telegram_logo">Telegram logo</string>
     <string name="login_tagline">Fast and secure sign-in\nwith your Telegram account.</string>
     <string name="login_cancelled">Sign-in was cancelled. You can try again.</string>

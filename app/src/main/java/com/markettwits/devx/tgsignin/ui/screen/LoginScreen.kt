@@ -106,7 +106,7 @@ fun LoginScreen(
             TelegramPlane()
             Spacer(Modifier.size(36.dp))
             Text(
-                stringResource(R.string.telegram),
+                stringResource(R.string.login_title),
                 color = MaterialTheme.colorScheme.onBackground,
                 style = MaterialTheme.typography.headlineLarge,
                 fontWeight = FontWeight.SemiBold
