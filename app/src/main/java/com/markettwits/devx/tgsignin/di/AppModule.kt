@@ -3,6 +3,8 @@ package com.markettwits.devx.tgsignin.di
 import com.markettwits.devx.tgsignin.BuildConfig
 import com.markettwits.devx.tgsignin.data.datasource.AppLinkVerificationDataSource
 import com.markettwits.devx.tgsignin.data.datasource.AppLinkVerificationDataSourceImpl
+import com.markettwits.devx.tgsignin.data.datasource.AppUpdateLocalDataSource
+import com.markettwits.devx.tgsignin.data.datasource.AppUpdateLocalDataSourceImpl
 import com.markettwits.devx.tgsignin.data.datasource.AppearanceLocalDataSource
 import com.markettwits.devx.tgsignin.data.datasource.AppearanceLocalDataSourceImpl
 import com.markettwits.devx.tgsignin.data.datasource.AuthenticationLocalDataSource
@@ -11,6 +13,8 @@ import com.markettwits.devx.tgsignin.data.datasource.BackendReadinessDataSource
 import com.markettwits.devx.tgsignin.data.datasource.BackendReadinessDataSourceImpl
 import com.markettwits.devx.tgsignin.data.datasource.CryptoManager
 import com.markettwits.devx.tgsignin.data.datasource.CryptoManagerImpl
+import com.markettwits.devx.tgsignin.data.datasource.GitHubReleaseDataSource
+import com.markettwits.devx.tgsignin.data.datasource.GitHubReleaseDataSourceImpl
 import com.markettwits.devx.tgsignin.data.datasource.ProfileEmojiRemoteDataSource
 import com.markettwits.devx.tgsignin.data.datasource.ProfileEmojiRemoteDataSourceImpl
 import com.markettwits.devx.tgsignin.data.datasource.TelegramAuthApiDataSource
@@ -19,6 +23,8 @@ import com.markettwits.devx.tgsignin.data.datasource.TelegramLoginDataSource
 import com.markettwits.devx.tgsignin.data.datasource.TelegramLoginDataSourceImpl
 import com.markettwits.devx.tgsignin.data.repository.AppLinkVerificationRepository
 import com.markettwits.devx.tgsignin.data.repository.AppLinkVerificationRepositoryImpl
+import com.markettwits.devx.tgsignin.data.repository.AppUpdateRepository
+import com.markettwits.devx.tgsignin.data.repository.AppUpdateRepositoryImpl
 import com.markettwits.devx.tgsignin.data.repository.AppearanceRepository
 import com.markettwits.devx.tgsignin.data.repository.AppearanceRepositoryImpl
 import com.markettwits.devx.tgsignin.data.repository.AuthenticationRepository
@@ -29,6 +35,7 @@ import com.markettwits.devx.tgsignin.data.repository.ProfileEmojiRepository
 import com.markettwits.devx.tgsignin.data.repository.ProfileEmojiRepositoryImpl
 import com.markettwits.devx.tgsignin.data.telegram.TelegramLoginConfig
 import com.markettwits.devx.tgsignin.ui.viewmodel.AppLinkVerificationViewModel
+import com.markettwits.devx.tgsignin.ui.viewmodel.AppUpdateViewModel
 import com.markettwits.devx.tgsignin.ui.viewmodel.AppearanceViewModel
 import com.markettwits.devx.tgsignin.ui.viewmodel.BackendReadinessViewModel
 import com.markettwits.devx.tgsignin.ui.viewmodel.LoginViewModel
@@ -60,6 +67,21 @@ val appModule = module {
         CoroutineScope(SupervisorJob() + get<CoroutineDispatcher>(ioDispatcherQualifier))
     }
     single<CryptoManager> { CryptoManagerImpl() }
+    single<GitHubReleaseDataSource> {
+        GitHubReleaseDataSourceImpl(
+            latestReleaseUrl = GITHUB_LATEST_RELEASE_API_URL,
+            userAgent = "TelegramLoginAndroidDemo/${BuildConfig.VERSION_NAME} (Android)",
+            ioDispatcher = get(ioDispatcherQualifier)
+        )
+    }
+    single<AppUpdateLocalDataSource> { AppUpdateLocalDataSourceImpl(androidContext()) }
+    single<AppUpdateRepository> {
+        AppUpdateRepositoryImpl(
+            remoteDataSource = get(),
+            localDataSource = get(),
+            currentVersionCode = BuildConfig.VERSION_CODE.toLong()
+        )
+    }
     single<TelegramLoginDataSource> { TelegramLoginDataSourceImpl(get()) }
     single<TelegramAuthApiDataSource> {
         TelegramAuthApiDataSourceImpl(
@@ -112,4 +134,8 @@ val appModule = module {
     viewModel { AppearanceViewModel(get()) }
     viewModel { BackendReadinessViewModel(get()) }
     viewModel { AppLinkVerificationViewModel(get()) }
+    viewModel { AppUpdateViewModel(get()) }
 }
+
+private const val GITHUB_LATEST_RELEASE_API_URL =
+    "https://api.github.com/repos/MarketTwits/TelegramLoginAndroidDemo/releases/latest"

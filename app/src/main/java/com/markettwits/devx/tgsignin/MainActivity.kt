@@ -1,5 +1,6 @@
 package com.markettwits.devx.tgsignin
 
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
@@ -26,19 +27,23 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import com.markettwits.devx.tgsignin.data.model.RootAuthenticationState
+import com.markettwits.devx.tgsignin.data.repository.isTrustedReleaseUrl
 import com.markettwits.devx.tgsignin.data.telegram.TelegramLoginConfig
 import com.markettwits.devx.tgsignin.ui.component.AppearanceToggleButton
 import com.markettwits.devx.tgsignin.ui.component.ConfigurationInfoButton
 import com.markettwits.devx.tgsignin.ui.component.TelegramConfirmationDialog
 import com.markettwits.devx.tgsignin.ui.component.TelegramIconAction
 import com.markettwits.devx.tgsignin.ui.component.TelegramSnackbarHost
+import com.markettwits.devx.tgsignin.ui.component.TelegramUpdateBottomSheet
 import com.markettwits.devx.tgsignin.ui.component.showTelegramSnackbar
 import com.markettwits.devx.tgsignin.ui.screen.BloomProfileScreen
 import com.markettwits.devx.tgsignin.ui.screen.ConfigurationDialog
@@ -49,6 +54,8 @@ import com.markettwits.devx.tgsignin.ui.theme.TelegramLoginDemoTheme
 import com.markettwits.devx.tgsignin.ui.theme.rememberAppThemeAnimationState
 import com.markettwits.devx.tgsignin.ui.viewmodel.AppLinkVerificationUiState
 import com.markettwits.devx.tgsignin.ui.viewmodel.AppLinkVerificationViewModel
+import com.markettwits.devx.tgsignin.ui.viewmodel.AppUpdateUiState
+import com.markettwits.devx.tgsignin.ui.viewmodel.AppUpdateViewModel
 import com.markettwits.devx.tgsignin.ui.viewmodel.AppearanceViewModel
 import com.markettwits.devx.tgsignin.ui.viewmodel.BackendReadinessUiState
 import com.markettwits.devx.tgsignin.ui.viewmodel.BackendReadinessViewModel
@@ -56,6 +63,7 @@ import com.markettwits.devx.tgsignin.ui.viewmodel.LoginViewModel
 import com.markettwits.devx.tgsignin.ui.viewmodel.ProfileUiEvent
 import com.markettwits.devx.tgsignin.ui.viewmodel.ProfileViewModel
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
 
@@ -65,6 +73,7 @@ class MainActivity : ComponentActivity() {
     private val appearanceViewModel: AppearanceViewModel by viewModel()
     private val backendReadinessViewModel: BackendReadinessViewModel by viewModel()
     private val appLinkVerificationViewModel: AppLinkVerificationViewModel by viewModel()
+    private val appUpdateViewModel: AppUpdateViewModel by viewModel()
     private val telegramLoginConfig: TelegramLoginConfig by inject()
     private var wentToBackgroundDuringLogin = false
 
@@ -78,9 +87,12 @@ class MainActivity : ComponentActivity() {
             val authenticationState = profileUiState.authenticationState
             val backendReadinessState by backendReadinessViewModel.uiState.collectAsState()
             val appLinkVerificationState by appLinkVerificationViewModel.uiState.collectAsState()
+            val appUpdateState by appUpdateViewModel.uiState.collectAsState()
             var showLoginConfiguration by rememberSaveable { mutableStateOf(false) }
             var showLogoutConfirmation by rememberSaveable { mutableStateOf(false) }
+            var screenModalVisible by rememberSaveable { mutableStateOf(false) }
             val snackbarHostState = remember { SnackbarHostState() }
+            val coroutineScope = rememberCoroutineScope()
             val resources = LocalResources.current
             val systemDark = isSystemInDarkTheme()
             val expressiveAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
@@ -121,7 +133,8 @@ class MainActivity : ComponentActivity() {
                                         session = state.session,
                                         isOffline = state.isOffline,
                                         onEmojiChanged = profileViewModel::updateEmoji,
-                                        onDelete = profileViewModel::deleteAccount
+                                        onDelete = profileViewModel::deleteAccount,
+                                        onModalVisibilityChanged = { screenModalVisible = it }
                                     )
                                 }
                                 is RootAuthenticationState.OnboardingRequired -> {
@@ -144,7 +157,8 @@ class MainActivity : ComponentActivity() {
                                         sessionExpired = (state as? RootAuthenticationState.Unauthenticated)
                                             ?.sessionExpired == true,
                                         onScopesChanged = loginViewModel::updateScopes,
-                                        onLogin = { loginViewModel.login(this@MainActivity) }
+                                        onLogin = { loginViewModel.login(this@MainActivity) },
+                                        onModalVisibilityChanged = { screenModalVisible = it }
                                     )
                                 }
                             }
@@ -225,6 +239,31 @@ class MainActivity : ComponentActivity() {
                             destructive = true
                         )
                     }
+                    val availableUpdate = appUpdateState as? AppUpdateUiState.Available
+                    if (
+                        availableUpdate != null &&
+                        authenticationState !is RootAuthenticationState.Loading &&
+                        !showLoginConfiguration &&
+                        !showLogoutConfirmation &&
+                        !screenModalVisible
+                    ) {
+                        TelegramUpdateBottomSheet(
+                            release = availableUpdate.release,
+                            onDownload = {
+                                if (openReleasePage(availableUpdate.release.releasePageUrl)) {
+                                    appUpdateViewModel.dismissUpdate()
+                                } else {
+                                    coroutineScope.launch {
+                                        snackbarHostState.showTelegramSnackbar(
+                                            message = resources.getString(R.string.update_open_failed),
+                                            isError = true
+                                        )
+                                    }
+                                }
+                            },
+                            onDismiss = appUpdateViewModel::dismissUpdate
+                        )
+                    }
                 }
             }
         }
@@ -260,6 +299,18 @@ class MainActivity : ComponentActivity() {
         loginViewModel.consumeCallback(uri)
         // An authorization code must not be replayed after an Activity recreation.
         intent.data = null
+    }
+
+    private fun openReleasePage(url: String): Boolean {
+        if (!isTrustedReleaseUrl(url)) return false
+        return try {
+            startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
+            true
+        } catch (_: ActivityNotFoundException) {
+            false
+        } catch (_: SecurityException) {
+            false
+        }
     }
 }
 

@@ -172,4 +172,11 @@
     <string name="error_profile_save">Не удалось сохранить профиль. Ваши изменения не потеряны.</string>
     <string name="error_account_delete">Не удалось удалить аккаунт. Попробуйте ещё раз.</string>
     <string name="session_expired">Сессия завершилась. Войдите снова.</string>
+    <string name="update_available_title">Доступно обновление</string>
+    <string name="update_available_version">Версия %1$s</string>
+    <string name="update_whats_new">Что нового</string>
+    <string name="update_release_notes_fallback">Подробности доступны на странице релиза.</string>
+    <string name="update_download">Скачать</string>
+    <string name="update_later">Позже</string>
+    <string name="update_open_failed">Не удалось открыть страницу релиза.</string>
 </resources>

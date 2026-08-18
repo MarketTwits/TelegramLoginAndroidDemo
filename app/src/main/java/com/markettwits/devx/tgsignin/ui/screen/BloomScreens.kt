@@ -50,6 +50,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -568,7 +569,8 @@ fun BloomProfileScreen(
     session: AuthenticationResult,
     isOffline: Boolean,
     onEmojiChanged: (ProfileEmojiSelection) -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onModalVisibilityChanged: (Boolean) -> Unit = {}
 ) {
     val emojiRepository: ProfileEmojiRepository = koinInject()
     val emojiCatalog by emojiRepository.catalog.collectAsState()
@@ -580,6 +582,13 @@ fun BloomProfileScreen(
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
+
+    LaunchedEffect(confirmDelete, showEmojiPicker) {
+        onModalVisibilityChanged(confirmDelete || showEmojiPicker)
+    }
+    DisposableEffect(Unit) {
+        onDispose { onModalVisibilityChanged(false) }
+    }
     val collapseRangePx = with(LocalDensity.current) {
         (BLOOM_HERO_EXPANDED_HEIGHT - BLOOM_HERO_COLLAPSED_HEIGHT).toPx()
     }
