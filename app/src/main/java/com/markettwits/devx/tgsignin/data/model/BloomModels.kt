@@ -106,6 +106,7 @@ data class ServiceAccount(
 )
 
 data class TelegramIdentity(
+    val userId: String? = null,
     val name: String? = null,
     val givenName: String? = null,
     val familyName: String? = null,

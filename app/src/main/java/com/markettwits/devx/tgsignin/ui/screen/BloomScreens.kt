@@ -120,6 +120,7 @@ import com.markettwits.devx.tgsignin.ui.component.TelegramEmojiSetDropdown
 import com.markettwits.devx.tgsignin.ui.component.TelegramIconAction
 import com.markettwits.devx.tgsignin.ui.component.TelegramPrimaryButton
 import com.markettwits.devx.tgsignin.ui.component.TelegramSection
+import com.markettwits.devx.tgsignin.ui.component.TelegramSensitiveValue
 import com.markettwits.devx.tgsignin.ui.component.TelegramTextField
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -1192,6 +1193,20 @@ private fun TelegramIdentitySummary(session: AuthenticationResult, profilePhoneN
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+    }
+    session.telegram.userId?.let { telegramUserId ->
+        TelegramSection(title = stringResource(R.string.bloom_telegram_user_id)) {
+            TelegramSensitiveValue(
+                value = telegramUserId,
+                showValueDescription = stringResource(R.string.bloom_show_telegram_user_id),
+                hideValueDescription = stringResource(R.string.bloom_hide_telegram_user_id)
+            )
+            Text(
+                stringResource(R.string.bloom_telegram_user_id_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 

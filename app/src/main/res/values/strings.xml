@@ -15,7 +15,7 @@
     <string name="required_field">Required field</string>
     <string name="profile">Profile</string>
     <string name="profile_short">profile</string>
-    <string name="profile_scope_description">Name, username, and profile photo</string>
+    <string name="profile_scope_required_description">Required for identity · name, username, and profile photo</string>
     <string name="phone_number">Phone number</string>
     <string name="phone_short">phone</string>
     <string name="phone_scope_description">Verified account phone number</string>
@@ -163,6 +163,10 @@
     <string name="bloom_identity_connected">Telegram account connected</string>
     <string name="bloom_phone_verified">Phone verified by Telegram</string>
     <string name="bloom_identity_provider">Identity provided by Telegram</string>
+    <string name="bloom_telegram_user_id">Telegram user ID</string>
+    <string name="bloom_telegram_user_id_hint">Matches the user ID received by your Telegram bot.</string>
+    <string name="bloom_show_telegram_user_id">Show Telegram user ID</string>
+    <string name="bloom_hide_telegram_user_id">Hide Telegram user ID</string>
     <string name="bloom_edit_profile">Edit profile</string>
     <string name="bloom_delete_account">Delete account</string>
     <string name="bloom_delete_title">Delete your account?</string>

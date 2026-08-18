@@ -3,7 +3,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
 const SQLITE_BUSY_TIMEOUT_MS = 5_000;
-const DATABASE_SCHEMA_VERSION = 7;
+const DATABASE_SCHEMA_VERSION = 8;
 const DEFAULT_PROFILE_EMOJI_SET_ID = 'spotty-persik';
 const DEFAULT_PROFILE_EMOJI_ID = 'e-0007fab99d521710';
 const REVOKED_SESSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -13,6 +13,7 @@ const baseUserSchema = `
   CREATE TABLE IF NOT EXISTS app_users (
     id TEXT PRIMARY KEY,
     telegram_subject TEXT NOT NULL UNIQUE,
+    telegram_user_id TEXT,
     name TEXT,
     given_name TEXT,
     family_name TEXT,
@@ -48,6 +49,7 @@ const schema = `
   CREATE TABLE IF NOT EXISTS app_users (
     id TEXT PRIMARY KEY,
     telegram_subject TEXT NOT NULL UNIQUE,
+    telegram_user_id TEXT,
     name TEXT,
     given_name TEXT,
     family_name TEXT,
@@ -79,9 +81,11 @@ const schema = `
   CREATE INDEX IF NOT EXISTS app_sessions_user_id_idx ON app_sessions(user_id);
   CREATE INDEX IF NOT EXISTS app_sessions_expires_at_idx ON app_sessions(expires_at);
   CREATE UNIQUE INDEX IF NOT EXISTS app_users_member_number_idx ON app_users(member_number);
+  CREATE UNIQUE INDEX IF NOT EXISTS app_users_telegram_user_id_idx ON app_users(telegram_user_id);
 `;
 
 const legacyColumns = [
+  ['telegram_user_id', 'TEXT'],
   ['onboarding_state', "TEXT NOT NULL DEFAULT 'PROFILE_REQUIRED'"],
   ['member_number', 'INTEGER'],
   ['login_count', 'INTEGER NOT NULL DEFAULT 0'],
@@ -195,18 +199,22 @@ export const createDatabase = (config) => {
   const selectUserBySubject = database.prepare(
     'SELECT * FROM app_users WHERE telegram_subject = ?'
   );
+  const selectUserByTelegramUserId = database.prepare(
+    'SELECT * FROM app_users WHERE telegram_user_id = ?'
+  );
   const selectNextMemberNumber = database.prepare(
     'SELECT COALESCE(MAX(member_number), 0) + 1 AS value FROM app_users'
   );
   const insertUser = database.prepare(`
     INSERT INTO app_users (
-      id, telegram_subject, name, given_name, family_name, username, phone_number,
+      id, telegram_subject, telegram_user_id, name, given_name, family_name, username, phone_number,
       phone_verified, picture_url, onboarding_state, member_number, login_count,
       created_at, updated_at, last_login_at, telegram_synced_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PROFILE_REQUIRED', ?, 1, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PROFILE_REQUIRED', ?, 1, ?, ?, ?, ?)
   `);
   const updateUserLogin = database.prepare(`
     UPDATE app_users SET
+      telegram_subject = ?, telegram_user_id = ?,
       name = ?, given_name = ?, family_name = ?, username = ?, phone_number = ?,
       phone_verified = ?, picture_url = ?, updated_at = ?, last_login_at = ?,
       telegram_synced_at = ?, login_count = login_count + 1
@@ -302,12 +310,18 @@ export const createDatabase = (config) => {
 
   const authenticateTelegramUser = transaction((profile) => {
     const now = Date.now();
-    const existing = selectUserBySubject.get(profile.telegramSubject);
+    const userByTelegramId = selectUserByTelegramUserId.get(profile.telegramUserId);
+    const userBySubject = selectUserBySubject.get(profile.telegramSubject);
+    if (userByTelegramId && userBySubject && userByTelegramId.id !== userBySubject.id) {
+      throw new Error('Telegram identity is already linked to another account');
+    }
+    const existing = userByTelegramId ?? userBySubject;
     if (existing) {
       if (existing.onboarding_state === 'DISABLED') {
         return readAccount(selectAccountWithProfile.get(existing.id));
       }
       updateUserLogin.run(
+        profile.telegramSubject, profile.telegramUserId,
         profile.name, profile.givenName, profile.familyName, profile.username,
         profile.phoneNumber, profile.phoneVerified ? 1 : 0, profile.picture,
         now, now, now, existing.id
@@ -316,7 +330,7 @@ export const createDatabase = (config) => {
     }
     const memberNumber = selectNextMemberNumber.get().value;
     insertUser.run(
-      profile.id, profile.telegramSubject, profile.name, profile.givenName,
+      profile.id, profile.telegramSubject, profile.telegramUserId, profile.name, profile.givenName,
       profile.familyName, profile.username, profile.phoneNumber,
       profile.phoneVerified ? 1 : 0, profile.picture, memberNumber,
       now, now, now, now

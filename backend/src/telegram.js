@@ -6,8 +6,17 @@ const JWKS_PATH = '/.well-known/jwks.json';
 const JWKS_TIMEOUT_MS = 5_000;
 const JWKS_COOLDOWN_MS = 30_000;
 const CLOCK_TOLERANCE_SECONDS = 5;
+const MAX_TELEGRAM_USER_ID = 0xffffffffffn;
 
 const optionalString = (value) => typeof value === 'string' && value.trim() ? value.trim() : null;
+
+export const normalizeTelegramUserId = (value) => {
+  const normalized = typeof value === 'number' && Number.isSafeInteger(value)
+    ? String(value)
+    : optionalString(value);
+  if (!normalized || !/^[1-9]\d*$/.test(normalized)) return null;
+  return BigInt(normalized) <= MAX_TELEGRAM_USER_ID ? normalized : null;
+};
 
 export const createTelegramVerifier = (config) => {
   const keys = createRemoteJWKSet(
@@ -25,6 +34,8 @@ export const createTelegramVerifier = (config) => {
 
     const telegramSubject = optionalString(payload.sub);
     if (!telegramSubject) throw new Error('Telegram ID token has no subject');
+    const telegramUserId = normalizeTelegramUserId(payload.id);
+    if (!telegramUserId) throw new Error('Telegram ID token has no valid user ID');
 
     const rawPhoneNumber = optionalString(payload.phone_number);
     const phoneNumber = normalizeInternationalPhoneNumber(rawPhoneNumber, true);
@@ -37,6 +48,7 @@ export const createTelegramVerifier = (config) => {
     return {
       id: crypto.randomUUID(),
       telegramSubject,
+      telegramUserId,
       name: optionalString(payload.name),
       givenName: optionalString(payload.given_name),
       familyName: optionalString(payload.family_name),
