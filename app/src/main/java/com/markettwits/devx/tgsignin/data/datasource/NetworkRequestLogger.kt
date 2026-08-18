@@ -1,4 +1,4 @@
-package com.markettwits.devx.tgsignin.data.dataSource
+package com.markettwits.devx.tgsignin.data.datasource
 
 import android.os.SystemClock
 import android.util.Log

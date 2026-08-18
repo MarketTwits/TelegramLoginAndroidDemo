@@ -1,6 +1,6 @@
 package com.markettwits.devx.tgsignin.data.repository
 
-import com.markettwits.devx.tgsignin.data.dataSource.AppLinkVerificationDataSource
+import com.markettwits.devx.tgsignin.data.datasource.AppLinkVerificationDataSource
 import com.markettwits.devx.tgsignin.data.model.AppLinkVerification
 import kotlinx.coroutines.CancellationException
 

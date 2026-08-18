@@ -1,20 +1,20 @@
 package com.markettwits.devx.tgsignin.data.repository
 
+import com.markettwits.devx.tgsignin.R
+import com.markettwits.devx.tgsignin.data.datasource.BackendConfigurationException
+import com.markettwits.devx.tgsignin.data.datasource.BackendHttpException
+import com.markettwits.devx.tgsignin.data.datasource.BackendIncompatibleException
+import com.markettwits.devx.tgsignin.data.datasource.BackendNetworkException
+import com.markettwits.devx.tgsignin.data.datasource.BackendResponseException
+import com.markettwits.devx.tgsignin.data.model.AuthenticationError
+import com.markettwits.devx.tgsignin.ui.model.toUserMessageRes
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import com.markettwits.devx.tgsignin.R
-import com.markettwits.devx.tgsignin.data.dataSource.BackendConfigurationException
-import com.markettwits.devx.tgsignin.data.dataSource.BackendHttpException
-import com.markettwits.devx.tgsignin.data.dataSource.BackendIncompatibleException
-import com.markettwits.devx.tgsignin.data.dataSource.BackendNetworkException
-import com.markettwits.devx.tgsignin.data.dataSource.BackendResponseException
-import com.markettwits.devx.tgsignin.data.model.AuthenticationError
-import com.markettwits.devx.tgsignin.ui.model.toUserMessageRes
+import java.io.IOException
 import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
-import java.io.IOException
 
 class AuthenticationErrorMapperTest {
     @Test

@@ -54,13 +54,13 @@ import androidx.compose.ui.unit.dp
 import com.markettwits.devx.tgsignin.R
 import com.markettwits.devx.tgsignin.data.model.TelegramScope
 import com.markettwits.devx.tgsignin.ui.component.showTelegramSnackbar
-import com.markettwits.devx.tgsignin.ui.viewModel.LoginScreenUiState
-import com.markettwits.devx.tgsignin.ui.viewModel.LoginState
+import com.markettwits.devx.tgsignin.ui.viewmodel.LoginState
+import com.markettwits.devx.tgsignin.ui.viewmodel.LoginUiState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreen(
-    uiState: LoginScreenUiState,
+    uiState: LoginUiState,
     snackbarHostState: SnackbarHostState,
     sessionExpired: Boolean = false,
     onScopesChanged: (Set<TelegramScope>) -> Unit,

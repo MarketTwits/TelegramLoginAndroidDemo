@@ -2,7 +2,7 @@ package com.markettwits.devx.tgsignin.data.repository
 
 import android.content.Context
 import androidx.core.content.edit
-import com.markettwits.devx.tgsignin.data.dataSource.ProfileEmojiRemoteDataSource
+import com.markettwits.devx.tgsignin.data.datasource.ProfileEmojiRemoteDataSource
 import com.markettwits.devx.tgsignin.data.model.ProfileEmoji
 import com.markettwits.devx.tgsignin.data.model.ProfileEmojiCatalog
 import com.markettwits.devx.tgsignin.data.model.ProfileEmojiSelection

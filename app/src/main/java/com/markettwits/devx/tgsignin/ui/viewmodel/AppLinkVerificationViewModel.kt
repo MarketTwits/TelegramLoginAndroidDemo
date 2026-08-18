@@ -1,17 +1,23 @@
-package com.markettwits.devx.tgsignin.ui.viewModel
+package com.markettwits.devx.tgsignin.ui.viewmodel
 
+import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.markettwits.devx.tgsignin.R
 import com.markettwits.devx.tgsignin.data.model.AppLinkVerification
+import com.markettwits.devx.tgsignin.data.model.AuthenticationError
 import com.markettwits.devx.tgsignin.data.repository.AppLinkVerificationRepository
-import com.markettwits.devx.tgsignin.ui.model.AppLinkVerificationUiState
-import com.markettwits.devx.tgsignin.ui.model.toAppLinkVerificationMessageRes
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+
+sealed interface AppLinkVerificationUiState {
+    data object Checking : AppLinkVerificationUiState
+    data object Verified : AppLinkVerificationUiState
+    data class Error(@StringRes val messageRes: Int) : AppLinkVerificationUiState
+}
 
 class AppLinkVerificationViewModel(
     private val repository: AppLinkVerificationRepository
@@ -48,4 +54,19 @@ class AppLinkVerificationViewModel(
             R.string.app_link_signature_not_registered
         )
     }
+}
+
+@StringRes
+private fun Throwable.toAppLinkVerificationMessageRes(): Int = when (this) {
+    is AuthenticationError.NetworkUnavailable -> R.string.error_network_unavailable
+    is AuthenticationError.Timeout -> R.string.app_link_check_timeout
+    is AuthenticationError.SecureConnectionFailed -> R.string.app_link_secure_connection_failed
+    is AuthenticationError.ConnectionFailed,
+    is AuthenticationError.ServerUnavailable,
+    is AuthenticationError.RequestRejected,
+    is AuthenticationError.AuthorizationRejected,
+    is AuthenticationError.TooManyRequests -> R.string.app_link_document_unavailable
+
+    is AuthenticationError.InvalidServerResponse -> R.string.app_link_invalid_document
+    else -> R.string.app_link_check_failed
 }

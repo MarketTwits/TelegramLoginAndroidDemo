@@ -1,4 +1,4 @@
-package com.markettwits.devx.tgsignin.data.dataSource
+package com.markettwits.devx.tgsignin.data.datasource
 
 import com.markettwits.devx.tgsignin.data.model.BackendReadiness
 import com.markettwits.devx.tgsignin.data.telegram.TelegramLoginConfig
@@ -11,6 +11,10 @@ import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
+
+interface BackendReadinessDataSource {
+    suspend fun checkReadiness(): BackendReadiness
+}
 
 class BackendReadinessDataSourceImpl(
     config: TelegramLoginConfig,

@@ -1,6 +1,14 @@
 package com.markettwits.devx.tgsignin.data.repository
 
 import android.content.ActivityNotFoundException
+import com.markettwits.devx.tgsignin.data.datasource.BackendConfigurationException
+import com.markettwits.devx.tgsignin.data.datasource.BackendHttpException
+import com.markettwits.devx.tgsignin.data.datasource.BackendIncompatibleException
+import com.markettwits.devx.tgsignin.data.datasource.BackendNetworkException
+import com.markettwits.devx.tgsignin.data.datasource.BackendResponseException
+import com.markettwits.devx.tgsignin.data.datasource.TelegramConfigurationException
+import com.markettwits.devx.tgsignin.data.datasource.TelegramLoginException
+import com.markettwits.devx.tgsignin.data.model.AuthenticationError
 import java.io.IOException
 import java.net.ConnectException
 import java.net.MalformedURLException
@@ -8,14 +16,6 @@ import java.net.NoRouteToHostException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import javax.net.ssl.SSLException
-import com.markettwits.devx.tgsignin.data.dataSource.BackendConfigurationException
-import com.markettwits.devx.tgsignin.data.dataSource.BackendHttpException
-import com.markettwits.devx.tgsignin.data.dataSource.BackendIncompatibleException
-import com.markettwits.devx.tgsignin.data.dataSource.BackendNetworkException
-import com.markettwits.devx.tgsignin.data.dataSource.BackendResponseException
-import com.markettwits.devx.tgsignin.data.dataSource.TelegramConfigurationException
-import com.markettwits.devx.tgsignin.data.dataSource.TelegramLoginException
-import com.markettwits.devx.tgsignin.data.model.AuthenticationError
 
 private const val HTTP_UNAUTHORIZED = 401
 private const val HTTP_FORBIDDEN = 403

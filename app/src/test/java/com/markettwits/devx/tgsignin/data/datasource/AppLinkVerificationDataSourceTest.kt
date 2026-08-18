@@ -1,4 +1,4 @@
-package com.markettwits.devx.tgsignin.data.dataSource
+package com.markettwits.devx.tgsignin.data.datasource
 
 import com.markettwits.devx.tgsignin.data.model.AppLinkVerification
 import org.junit.Assert.assertEquals
