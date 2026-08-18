@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -26,16 +25,15 @@ import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -53,18 +51,19 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.markettwits.devx.tgsignin.R
 import com.markettwits.devx.tgsignin.data.model.TelegramScope
+import com.markettwits.devx.tgsignin.ui.component.TelegramModalBottomSheet
 import com.markettwits.devx.tgsignin.ui.component.showTelegramSnackbar
 import com.markettwits.devx.tgsignin.ui.viewmodel.LoginState
 import com.markettwits.devx.tgsignin.ui.viewmodel.LoginUiState
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreen(
     uiState: LoginUiState,
     snackbarHostState: SnackbarHostState,
     sessionExpired: Boolean = false,
     onScopesChanged: (Set<TelegramScope>) -> Unit,
-    onLogin: () -> Unit
+    onLogin: () -> Unit,
+    onModalVisibilityChanged: (Boolean) -> Unit = {}
 ) {
     var pickerExpanded by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
@@ -73,6 +72,13 @@ fun LoginScreen(
     val errorMessage = when (val state = uiState.loginState) {
         is LoginState.Error -> stringResource(state.messageRes)
         else -> null
+    }
+
+    LaunchedEffect(pickerExpanded) {
+        onModalVisibilityChanged(pickerExpanded)
+    }
+    DisposableEffect(Unit) {
+        onDispose { onModalVisibilityChanged(false) }
     }
 
     LaunchedEffect(uiState.loginState, cancelledMessage, sessionExpiredMessage, errorMessage, sessionExpired) {
@@ -227,7 +233,6 @@ private fun RequestedDataSelector(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RequestedDataBottomSheet(
     scopes: Set<TelegramScope>,
@@ -235,15 +240,8 @@ private fun RequestedDataBottomSheet(
     onDismiss: () -> Unit
 ) {
     val haptics = LocalHapticFeedback.current
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.surface,
-        contentColor = MaterialTheme.colorScheme.onSurface
-    ) {
-        Column(Modifier
-            .fillMaxWidth()
-            .navigationBarsPadding()
-            .padding(bottom = 12.dp)) {
+    TelegramModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth()) {
             Text(
                 stringResource(R.string.sign_in_data_title),
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp),
@@ -292,7 +290,7 @@ private fun RequestedDataBottomSheet(
                 },
                 modifier = Modifier
                     .align(Alignment.End)
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .padding(top = 4.dp)
             ) {
                 Text(stringResource(R.string.done), fontWeight = FontWeight.Medium)
             }
