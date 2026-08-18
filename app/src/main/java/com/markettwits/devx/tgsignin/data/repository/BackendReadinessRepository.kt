@@ -1,8 +1,8 @@
 package com.markettwits.devx.tgsignin.data.repository
 
-import kotlinx.coroutines.CancellationException
-import com.markettwits.devx.tgsignin.data.dataSource.BackendReadinessDataSource
+import com.markettwits.devx.tgsignin.data.datasource.BackendReadinessDataSource
 import com.markettwits.devx.tgsignin.data.model.BackendReadiness
+import kotlinx.coroutines.CancellationException
 
 interface BackendReadinessRepository {
     suspend fun checkReadiness(): Result<BackendReadiness>

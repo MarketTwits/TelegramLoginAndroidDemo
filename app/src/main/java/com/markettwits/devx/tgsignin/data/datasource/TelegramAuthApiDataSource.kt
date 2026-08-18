@@ -1,4 +1,4 @@
-package com.markettwits.devx.tgsignin.data.dataSource
+package com.markettwits.devx.tgsignin.data.datasource
 
 import com.markettwits.devx.tgsignin.data.model.AuthenticationResult
 import com.markettwits.devx.tgsignin.data.model.AvatarSource
@@ -23,6 +23,14 @@ import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
+
+interface TelegramAuthApiDataSource {
+    suspend fun authenticate(idToken: String): AuthenticationResult
+    suspend fun getCurrentSession(accessToken: String): AuthenticationResult
+    suspend fun saveProfile(accessToken: String, draft: ProfileDraft): AuthenticationResult
+    suspend fun deleteAccount(accessToken: String)
+    suspend fun revokeSession(accessToken: String)
+}
 
 /** Real backend client. Telegram credentials are never interpreted on-device. */
 class TelegramAuthApiDataSourceImpl(
@@ -101,7 +109,12 @@ class TelegramAuthApiDataSourceImpl(
             }
             val status = connection.responseCode
             val text = (if (status in 200..299) connection.inputStream else connection.errorStream)
-                ?.let { InputStreamReader(it, StandardCharsets.UTF_8).use(InputStreamReader::readText) }
+                ?.let {
+                    InputStreamReader(
+                        it,
+                        StandardCharsets.UTF_8
+                    ).use(InputStreamReader::readText)
+                }
                 .orEmpty()
             if (status !in 200..299) {
                 val errorCode = runCatching { JSONObject(text).optString("code") }
@@ -146,7 +159,10 @@ class TelegramAuthApiDataSourceImpl(
             setRequestProperty("Accept", "application/json")
         }
 
-    private fun parseAuthenticationResult(json: JSONObject, accessToken: String): AuthenticationResult {
+    private fun parseAuthenticationResult(
+        json: JSONObject,
+        accessToken: String
+    ): AuthenticationResult {
         if (!json.has("account") && json.has("user")) {
             throw BackendIncompatibleException(REQUIRED_API_VERSION, actualVersion = 1)
         }
@@ -208,3 +224,20 @@ private fun JSONObject.toProfileEmojiSelection() = ProfileEmojiSelection(
     setId = getString("setId"),
     emojiId = getString("emojiId")
 )
+
+class BackendHttpException(
+    val statusCode: Int,
+    val errorCode: String? = null,
+    val requestId: String? = null
+) : Exception()
+
+class BackendResponseException(cause: Throwable) : Exception(cause)
+
+class BackendIncompatibleException(
+    val expectedVersion: Int,
+    val actualVersion: Int?
+) : Exception("Backend API version ${actualVersion ?: "missing"}; expected $expectedVersion")
+
+class BackendConfigurationException : Exception()
+
+class BackendNetworkException(cause: Throwable) : Exception(cause)

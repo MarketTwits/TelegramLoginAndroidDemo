@@ -1,20 +1,24 @@
-package com.markettwits.devx.tgsignin.data.dataSource
+package com.markettwits.devx.tgsignin.data.datasource
 
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import com.markettwits.devx.tgsignin.data.model.AppLinkVerification
 import com.markettwits.devx.tgsignin.data.telegram.TelegramLoginConfig
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONException
 import java.io.IOException
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
-import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONException
+
+interface AppLinkVerificationDataSource {
+    suspend fun checkVerification(): AppLinkVerification
+}
 
 class AppLinkVerificationDataSourceImpl(
     private val context: Context,
@@ -60,10 +64,10 @@ class AppLinkVerificationDataSourceImpl(
         }
 
     private fun parseVerification(body: String): AppLinkVerification = verifyAssetLinks(
-            body = body,
-            packageName = context.packageName,
-            installedFingerprints = installedCertificateFingerprints()
-        )
+        body = body,
+        packageName = context.packageName,
+        installedFingerprints = installedCertificateFingerprints()
+    )
 
     @Suppress("DEPRECATION")
     private fun installedCertificateFingerprints(): Set<String> {
@@ -123,7 +127,7 @@ internal fun verifyAssetLinks(
         .mapNotNull { it.optJSONObject(JSON_TARGET) }
         .filter { target ->
             target.optString(JSON_NAMESPACE) == ANDROID_APP_NAMESPACE &&
-                target.optString(JSON_PACKAGE_NAME) == packageName
+                    target.optString(JSON_PACKAGE_NAME) == packageName
         }
         .toList()
 

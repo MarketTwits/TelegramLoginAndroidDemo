@@ -1,8 +1,8 @@
 package com.markettwits.devx.tgsignin.data.repository
 
-import kotlinx.coroutines.flow.Flow
-import com.markettwits.devx.tgsignin.data.dataSource.AppearanceLocalDataSource
+import com.markettwits.devx.tgsignin.data.datasource.AppearanceLocalDataSource
 import com.markettwits.devx.tgsignin.data.model.AppThemeMode
+import kotlinx.coroutines.flow.Flow
 
 interface AppearanceRepository {
     val themeMode: Flow<AppThemeMode>

@@ -2,11 +2,11 @@ package com.markettwits.devx.tgsignin.data.repository
 
 import android.content.Context
 import android.net.Uri
-import com.markettwits.devx.tgsignin.data.dataSource.AuthenticationLocalDataSource
-import com.markettwits.devx.tgsignin.data.dataSource.BackendHttpException
-import com.markettwits.devx.tgsignin.data.dataSource.BackendNetworkException
-import com.markettwits.devx.tgsignin.data.dataSource.TelegramAuthApiDataSource
-import com.markettwits.devx.tgsignin.data.dataSource.TelegramLoginDataSource
+import com.markettwits.devx.tgsignin.data.datasource.AuthenticationLocalDataSource
+import com.markettwits.devx.tgsignin.data.datasource.BackendHttpException
+import com.markettwits.devx.tgsignin.data.datasource.BackendNetworkException
+import com.markettwits.devx.tgsignin.data.datasource.TelegramAuthApiDataSource
+import com.markettwits.devx.tgsignin.data.datasource.TelegramLoginDataSource
 import com.markettwits.devx.tgsignin.data.model.AuthenticationResult
 import com.markettwits.devx.tgsignin.data.model.AvatarSource
 import com.markettwits.devx.tgsignin.data.model.OnboardingState

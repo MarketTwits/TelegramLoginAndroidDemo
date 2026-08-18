@@ -1,14 +1,14 @@
-package com.markettwits.devx.tgsignin.data.dataSource
+package com.markettwits.devx.tgsignin.data.datasource
 
 import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
-import java.io.IOException
+import com.markettwits.devx.tgsignin.data.model.AppThemeMode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
-import com.markettwits.devx.tgsignin.data.model.AppThemeMode
+import java.io.IOException
 
 private const val APPEARANCE_DATA_STORE_NAME = "appearance"
 private val Context.appearanceDataStore by preferencesDataStore(APPEARANCE_DATA_STORE_NAME)

@@ -40,8 +40,6 @@ import com.markettwits.devx.tgsignin.ui.component.TelegramConfirmationDialog
 import com.markettwits.devx.tgsignin.ui.component.TelegramIconAction
 import com.markettwits.devx.tgsignin.ui.component.TelegramSnackbarHost
 import com.markettwits.devx.tgsignin.ui.component.showTelegramSnackbar
-import com.markettwits.devx.tgsignin.ui.model.AppLinkVerificationUiState
-import com.markettwits.devx.tgsignin.ui.model.BackendReadinessUiState
 import com.markettwits.devx.tgsignin.ui.screen.BloomProfileScreen
 import com.markettwits.devx.tgsignin.ui.screen.ConfigurationDialog
 import com.markettwits.devx.tgsignin.ui.screen.LoginScreen
@@ -49,18 +47,21 @@ import com.markettwits.devx.tgsignin.ui.screen.ProfileSetupScreen
 import com.markettwits.devx.tgsignin.ui.theme.AppThemeAnimationScope
 import com.markettwits.devx.tgsignin.ui.theme.TelegramLoginDemoTheme
 import com.markettwits.devx.tgsignin.ui.theme.rememberAppThemeAnimationState
-import com.markettwits.devx.tgsignin.ui.viewModel.AppLinkVerificationViewModel
-import com.markettwits.devx.tgsignin.ui.viewModel.AppearanceViewModel
-import com.markettwits.devx.tgsignin.ui.viewModel.BackendReadinessViewModel
-import com.markettwits.devx.tgsignin.ui.viewModel.LoginScreenViewModel
-import com.markettwits.devx.tgsignin.ui.viewModel.ProfileScreenViewModel
+import com.markettwits.devx.tgsignin.ui.viewmodel.AppLinkVerificationUiState
+import com.markettwits.devx.tgsignin.ui.viewmodel.AppLinkVerificationViewModel
+import com.markettwits.devx.tgsignin.ui.viewmodel.AppearanceViewModel
+import com.markettwits.devx.tgsignin.ui.viewmodel.BackendReadinessUiState
+import com.markettwits.devx.tgsignin.ui.viewmodel.BackendReadinessViewModel
+import com.markettwits.devx.tgsignin.ui.viewmodel.LoginViewModel
+import com.markettwits.devx.tgsignin.ui.viewmodel.ProfileUiEvent
+import com.markettwits.devx.tgsignin.ui.viewmodel.ProfileViewModel
 import kotlinx.coroutines.flow.collectLatest
 import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
 
 class MainActivity : ComponentActivity() {
-    private val loginViewModel: LoginScreenViewModel by viewModel()
-    private val profileViewModel: ProfileScreenViewModel by viewModel()
+    private val loginViewModel: LoginViewModel by viewModel()
+    private val profileViewModel: ProfileViewModel by viewModel()
     private val appearanceViewModel: AppearanceViewModel by viewModel()
     private val backendReadinessViewModel: BackendReadinessViewModel by viewModel()
     private val appLinkVerificationViewModel: AppLinkVerificationViewModel by viewModel()
@@ -72,9 +73,9 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         consumeTelegramIntent(intent)
         setContent {
-            val themeMode by appearanceViewModel.themeMode.collectAsState()
-            val authenticationState by profileViewModel.state.collectAsState()
-            val isSavingProfile by profileViewModel.isSaving.collectAsState()
+            val themeMode by appearanceViewModel.uiState.collectAsState()
+            val profileUiState by profileViewModel.uiState.collectAsState()
+            val authenticationState = profileUiState.authenticationState
             val backendReadinessState by backendReadinessViewModel.uiState.collectAsState()
             val appLinkVerificationState by appLinkVerificationViewModel.uiState.collectAsState()
             var showLoginConfiguration by rememberSaveable { mutableStateOf(false) }
@@ -84,7 +85,7 @@ class MainActivity : ComponentActivity() {
             val systemDark = isSystemInDarkTheme()
             val expressiveAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
             val animationState = rememberAppThemeAnimationState(
-                themeModes = appearanceViewModel.themeMode,
+                themeModes = appearanceViewModel.uiState,
                 animationSpec = tween(durationMillis = THEME_ANIMATION_DURATION_MS),
                 useDynamicContent = true
             )
@@ -98,12 +99,14 @@ class MainActivity : ComponentActivity() {
                 RootAuthenticationState.Loading -> 0.dp
             }
 
-            androidx.compose.runtime.LaunchedEffect(profileViewModel.messages, resources) {
-                profileViewModel.messages.collectLatest { messageRes ->
-                    snackbarHostState.showTelegramSnackbar(
-                        message = resources.getString(messageRes),
-                        isError = true
-                    )
+            androidx.compose.runtime.LaunchedEffect(profileViewModel.events, resources) {
+                profileViewModel.events.collectLatest { event ->
+                    when (event) {
+                        is ProfileUiEvent.ShowMessage -> snackbarHostState.showTelegramSnackbar(
+                            message = resources.getString(event.messageRes),
+                            isError = true
+                        )
+                    }
                 }
             }
 
@@ -125,7 +128,7 @@ class MainActivity : ComponentActivity() {
                                     ProfileSetupScreen(
                                         session = state.session,
                                         draft = state.draft,
-                                        isSaving = isSavingProfile,
+                                        isSaving = profileUiState.isSaving,
                                         isOffline = state.isOffline,
                                         onDraftChanged = profileViewModel::updateDraft,
                                         onSave = profileViewModel::saveProfile,

@@ -1,22 +1,22 @@
 package com.markettwits.devx.tgsignin.di
 
 import com.markettwits.devx.tgsignin.BuildConfig
-import com.markettwits.devx.tgsignin.data.dataSource.AppLinkVerificationDataSource
-import com.markettwits.devx.tgsignin.data.dataSource.AppLinkVerificationDataSourceImpl
-import com.markettwits.devx.tgsignin.data.dataSource.AppearanceLocalDataSource
-import com.markettwits.devx.tgsignin.data.dataSource.AppearanceLocalDataSourceImpl
-import com.markettwits.devx.tgsignin.data.dataSource.AuthenticationLocalDataSource
-import com.markettwits.devx.tgsignin.data.dataSource.AuthenticationLocalDataSourceImpl
-import com.markettwits.devx.tgsignin.data.dataSource.BackendReadinessDataSource
-import com.markettwits.devx.tgsignin.data.dataSource.BackendReadinessDataSourceImpl
-import com.markettwits.devx.tgsignin.data.dataSource.CryptoManager
-import com.markettwits.devx.tgsignin.data.dataSource.CryptoManagerImpl
-import com.markettwits.devx.tgsignin.data.dataSource.ProfileEmojiRemoteDataSource
-import com.markettwits.devx.tgsignin.data.dataSource.ProfileEmojiRemoteDataSourceImpl
-import com.markettwits.devx.tgsignin.data.dataSource.TelegramAuthApiDataSource
-import com.markettwits.devx.tgsignin.data.dataSource.TelegramAuthApiDataSourceImpl
-import com.markettwits.devx.tgsignin.data.dataSource.TelegramLoginDataSource
-import com.markettwits.devx.tgsignin.data.dataSource.TelegramLoginDataSourceImpl
+import com.markettwits.devx.tgsignin.data.datasource.AppLinkVerificationDataSource
+import com.markettwits.devx.tgsignin.data.datasource.AppLinkVerificationDataSourceImpl
+import com.markettwits.devx.tgsignin.data.datasource.AppearanceLocalDataSource
+import com.markettwits.devx.tgsignin.data.datasource.AppearanceLocalDataSourceImpl
+import com.markettwits.devx.tgsignin.data.datasource.AuthenticationLocalDataSource
+import com.markettwits.devx.tgsignin.data.datasource.AuthenticationLocalDataSourceImpl
+import com.markettwits.devx.tgsignin.data.datasource.BackendReadinessDataSource
+import com.markettwits.devx.tgsignin.data.datasource.BackendReadinessDataSourceImpl
+import com.markettwits.devx.tgsignin.data.datasource.CryptoManager
+import com.markettwits.devx.tgsignin.data.datasource.CryptoManagerImpl
+import com.markettwits.devx.tgsignin.data.datasource.ProfileEmojiRemoteDataSource
+import com.markettwits.devx.tgsignin.data.datasource.ProfileEmojiRemoteDataSourceImpl
+import com.markettwits.devx.tgsignin.data.datasource.TelegramAuthApiDataSource
+import com.markettwits.devx.tgsignin.data.datasource.TelegramAuthApiDataSourceImpl
+import com.markettwits.devx.tgsignin.data.datasource.TelegramLoginDataSource
+import com.markettwits.devx.tgsignin.data.datasource.TelegramLoginDataSourceImpl
 import com.markettwits.devx.tgsignin.data.repository.AppLinkVerificationRepository
 import com.markettwits.devx.tgsignin.data.repository.AppLinkVerificationRepositoryImpl
 import com.markettwits.devx.tgsignin.data.repository.AppearanceRepository
@@ -28,11 +28,11 @@ import com.markettwits.devx.tgsignin.data.repository.BackendReadinessRepositoryI
 import com.markettwits.devx.tgsignin.data.repository.ProfileEmojiRepository
 import com.markettwits.devx.tgsignin.data.repository.ProfileEmojiRepositoryImpl
 import com.markettwits.devx.tgsignin.data.telegram.TelegramLoginConfig
-import com.markettwits.devx.tgsignin.ui.viewModel.AppLinkVerificationViewModel
-import com.markettwits.devx.tgsignin.ui.viewModel.AppearanceViewModel
-import com.markettwits.devx.tgsignin.ui.viewModel.BackendReadinessViewModel
-import com.markettwits.devx.tgsignin.ui.viewModel.LoginScreenViewModel
-import com.markettwits.devx.tgsignin.ui.viewModel.ProfileScreenViewModel
+import com.markettwits.devx.tgsignin.ui.viewmodel.AppLinkVerificationViewModel
+import com.markettwits.devx.tgsignin.ui.viewmodel.AppearanceViewModel
+import com.markettwits.devx.tgsignin.ui.viewmodel.BackendReadinessViewModel
+import com.markettwits.devx.tgsignin.ui.viewmodel.LoginViewModel
+import com.markettwits.devx.tgsignin.ui.viewmodel.ProfileViewModel
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -107,8 +107,8 @@ val appModule = module {
     }
     single<AppearanceLocalDataSource> { AppearanceLocalDataSourceImpl(androidContext()) }
     single<AppearanceRepository> { AppearanceRepositoryImpl(get()) }
-    viewModel { LoginScreenViewModel(get()) }
-    viewModel { ProfileScreenViewModel(get()) }
+    viewModel { LoginViewModel(get()) }
+    viewModel { ProfileViewModel(get()) }
     viewModel { AppearanceViewModel(get()) }
     viewModel { BackendReadinessViewModel(get()) }
     viewModel { AppLinkVerificationViewModel(get()) }
