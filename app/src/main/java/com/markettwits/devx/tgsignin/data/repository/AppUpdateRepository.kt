@@ -11,7 +11,7 @@ import kotlinx.coroutines.CancellationException
 import java.net.URI
 
 interface AppUpdateRepository {
-    suspend fun checkForUpdate(): AppUpdateAvailability
+    suspend fun checkForUpdate(forceRefresh: Boolean = false): AppUpdateAvailability
 }
 
 class AppUpdateRepositoryImpl(
@@ -20,7 +20,7 @@ class AppUpdateRepositoryImpl(
     private val currentVersionCode: Long,
     private val clock: () -> Long = System::currentTimeMillis
 ) : AppUpdateRepository {
-    override suspend fun checkForUpdate(): AppUpdateAvailability {
+    override suspend fun checkForUpdate(forceRefresh: Boolean): AppUpdateAvailability {
         val now = clock()
         val cache = try {
             localDataSource.readCache()
@@ -29,7 +29,7 @@ class AppUpdateRepositoryImpl(
         } catch (_: Throwable) {
             AppUpdateCache()
         }
-        if (now - cache.checkedAtEpochMillis in 0 until CACHE_TTL_MILLIS) {
+        if (!forceRefresh && now - cache.checkedAtEpochMillis in 0 until CACHE_TTL_MILLIS) {
             return cache.release.toAvailability()
         }
 

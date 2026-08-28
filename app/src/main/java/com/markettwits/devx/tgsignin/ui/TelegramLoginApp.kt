@@ -13,6 +13,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalResources
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.markettwits.devx.tgsignin.data.telegram.TelegramLoginConfig
 import com.markettwits.devx.tgsignin.ui.component.TelegramRootOverlay
@@ -57,6 +59,10 @@ fun TelegramLoginApp(
         animationSpec = tween(durationMillis = THEME_ANIMATION_DURATION_MILLIS),
         useDynamicContent = true
     )
+
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        appUpdateViewModel.checkForUpdate()
+    }
 
     LaunchedEffect(profileViewModel.events, resources) {
         profileViewModel.events.collectLatest { event ->
