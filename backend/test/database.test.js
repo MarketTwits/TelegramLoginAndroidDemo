@@ -98,6 +98,33 @@ test('SQLite limits active sessions for one user', (context) => {
   database.close();
 });
 
+test('SQLite throttles session activity writes while keeping validation current', (context) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'telegram-session-touch-'));
+  const databasePath = path.join(directory, 'auth.sqlite');
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const database = createDatabase({ databasePath });
+  const userId = database.upsertTelegramUser(profile('user-id-1'));
+  const tokenHash = 'c'.repeat(64);
+  database.createSession(tokenHash, userId, new Date(Date.now() + 60_000));
+
+  const inspector = new DatabaseSync(databasePath);
+  const readLastSeen = () => inspector.prepare(
+    'SELECT last_seen_at FROM app_sessions WHERE token_hash = ?'
+  ).get(tokenHash).last_seen_at;
+  const initialLastSeen = readLastSeen();
+  assert.notEqual(database.findSession(tokenHash), null);
+  assert.equal(readLastSeen(), initialLastSeen);
+
+  const staleLastSeen = Date.now() - 10 * 60 * 1000;
+  inspector.prepare('UPDATE app_sessions SET last_seen_at = ? WHERE token_hash = ?')
+    .run(staleLastSeen, tokenHash);
+  assert.notEqual(database.findSession(tokenHash), null);
+  assert.ok(readLastSeen() > staleLastSeen);
+
+  inspector.close();
+  database.close();
+});
+
 test('SQLite migration upgrades a version-one user without losing the account', (context) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'telegram-signin-migration-'));
   const databasePath = path.join(directory, 'auth.sqlite');

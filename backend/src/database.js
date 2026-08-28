@@ -8,6 +8,7 @@ const DEFAULT_PROFILE_EMOJI_SET_ID = 'spotty-persik';
 const DEFAULT_PROFILE_EMOJI_ID = 'e-0007fab99d521710';
 const REVOKED_SESSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_ACTIVE_SESSIONS_PER_USER = 5;
+const SESSION_LAST_SEEN_WRITE_INTERVAL_MS = 5 * 60 * 1000;
 
 const baseUserSchema = `
   CREATE TABLE IF NOT EXISTS app_users (
@@ -232,7 +233,7 @@ export const createDatabase = (config) => {
   `);
   const touchSession = database.prepare(`
     UPDATE app_sessions SET last_seen_at = ?
-    WHERE token_hash = ? AND revoked_at IS NULL AND expires_at > ?
+    WHERE token_hash = ? AND revoked_at IS NULL AND expires_at > ? AND last_seen_at <= ?
   `);
   const accountProfileProjection = `
     SELECT account.*, session.expires_at,
@@ -387,7 +388,7 @@ export const createDatabase = (config) => {
     },
     findSession(tokenHash) {
       const now = Date.now();
-      touchSession.run(now, tokenHash, now);
+      touchSession.run(now, tokenHash, now, now - SESSION_LAST_SEEN_WRITE_INTERVAL_MS);
       const row = selectSession.get(tokenHash, now);
       return row ? { ...readAccount(row), expiresAt: new Date(row.expires_at) } : null;
     },

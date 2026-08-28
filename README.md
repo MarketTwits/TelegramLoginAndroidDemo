@@ -42,3 +42,17 @@ adb reverse tcp:8080 tcp:8080
 ```
 
 Sync Gradle and run the `app` configuration from Android Studio.
+
+## Production notes
+
+- `APP_TOKEN` is mandatory when `NODE_ENV=production`. It identifies an approved client
+  and limits casual API abuse, but it is embedded in the Android application and therefore
+  is not a secret or a substitute for a user session. Profile access remains protected by
+  the server-issued bearer session.
+- `/api/health/live` is intentionally public and returns only a minimal process status.
+  `/api/health/ready` exposes dependency readiness and requires `X-App-Token`.
+- `/` is a static, non-interactive service notice. It does not enumerate routes,
+  dependencies, storage, configuration, or operational health.
+- Keep TLS termination at the reverse proxy, restrict CORS to known origins if browser
+  clients are introduced, and do not publish database files, logs, metrics, or management
+  endpoints.

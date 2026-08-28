@@ -7,10 +7,8 @@ import kotlinx.coroutines.withContext
 import org.json.JSONException
 import org.json.JSONObject
 import java.io.IOException
-import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
-import java.nio.charset.StandardCharsets
 
 interface BackendReadinessDataSource {
     suspend fun checkReadiness(): BackendReadiness
@@ -41,12 +39,13 @@ class BackendReadinessDataSourceImpl(
                 throw BackendHttpException(statusCode, requestId = requestId)
             }
 
-            val body = connection.inputStream?.let { stream ->
-                InputStreamReader(stream, StandardCharsets.UTF_8).use { it.readText() }
-            }.orEmpty()
+            val body = connection.inputStream?.readUtf8Bounded(MAX_RESPONSE_BYTES).orEmpty()
             parseResponse(body).also {
                 NetworkRequestLogger.success(HTTP_GET, readinessUrl, statusCode, startedAt)
             }
+        } catch (error: ResponseTooLargeException) {
+            NetworkRequestLogger.invalidResponse(HTTP_GET, readinessUrl, startedAt, error)
+            throw BackendResponseException(error)
         } catch (error: IOException) {
             NetworkRequestLogger.transportFailure(HTTP_GET, readinessUrl, startedAt, error)
             throw BackendNetworkException(error)
@@ -82,6 +81,7 @@ class BackendReadinessDataSourceImpl(
         const val PATH_SEPARATOR = '/'
         const val HTTP_GET = "GET"
         const val NETWORK_TIMEOUT_MS = 15_000
+        const val MAX_RESPONSE_BYTES = 16 * 1024
         const val HEADER_ACCEPT = "Accept"
         const val JSON_MEDIA_TYPE = "application/json"
         const val JSON_STATUS = "status"

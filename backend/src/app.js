@@ -25,6 +25,20 @@ const PROFILE_TOPICS = new Set([
 const AVATAR_SOURCES = new Set(['TELEGRAM', 'BLOOM']);
 const API_VERSION = 8;
 const APP_REVISION = process.env.APP_REVISION?.trim() || 'development';
+const API_PATH_PREFIXES = ['/api/', '/auth/', '/me/'];
+const PROFILE_EMOJI_ASSET_PREFIX = '/assets/profile-emojis/';
+
+const isApiClientPath = (requestPath) =>
+  API_PATH_PREFIXES.some((prefix) => requestPath.startsWith(prefix)) ||
+  requestPath.startsWith(PROFILE_EMOJI_ASSET_PREFIX);
+
+const tokensMatch = (actual, expected) => {
+  if (typeof actual !== 'string' || typeof expected !== 'string') return false;
+  const actualBytes = Buffer.from(actual, 'utf8');
+  const expectedBytes = Buffer.from(expected, 'utf8');
+  return actualBytes.length === expectedBytes.length &&
+    crypto.timingSafeEqual(actualBytes, expectedBytes);
+};
 
 const accountResponse = (account) => ({
   id: account.id,
@@ -127,13 +141,34 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', config.trustProxy);
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        frameAncestors: ["'none'"],
+        styleSrc: ["'self'"]
+      }
+    },
+    crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
+    crossOriginResourcePolicy: { policy: 'same-site' },
+    frameguard: { action: 'deny' }
+  }));
+  app.use((_request, response, next) => {
+    response.set('Permissions-Policy', 'camera=(), geolocation=(), microphone=()');
+    next();
+  });
   app.use((request, response, next) => {
     const requestId = crypto.randomUUID();
     const startedAt = process.hrtime.bigint();
     response.set('X-Request-Id', requestId);
-    response.set('X-Telegram-Bloom-Api-Version', String(API_VERSION));
-    console.info(`[http] --> ${request.method} ${request.path} requestId=${requestId}`);
+    if (isApiClientPath(request.path)) {
+      response.set('X-Telegram-Bloom-Api-Version', String(API_VERSION));
+    }
+    const logRequest = !request.path.startsWith(PROFILE_EMOJI_ASSET_PREFIX);
+    if (logRequest) {
+      console.info(`[http] --> ${request.method} ${request.path} requestId=${requestId}`);
+    }
     response.once('finish', () => {
+      if (!logRequest && response.statusCode < 400) return;
       const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
       console.info(
         `[http] <-- ${response.statusCode} ${request.method} ${request.path} ` +
@@ -142,10 +177,6 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
     });
     next();
   });
-  app.use(helmet({
-    crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
-    crossOriginResourcePolicy: { policy: 'same-site' }
-  }));
   app.use(express.json({ limit: '16kb', type: 'application/json' }));
 
   const apiLimiter = rateLimit({
@@ -172,9 +203,23 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
   const requireAppToken = (request, response, next) => {
     if (!config.appToken) return next();
     const token = request.get('X-App-Token');
-    if (token !== config.appToken) {
+    if (!tokensMatch(token, config.appToken)) {
+      response.set('Cache-Control', 'no-store');
       return response.status(403).json({ code: 'FORBIDDEN', message: 'Invalid or missing X-App-Token' });
     }
+    next();
+  };
+
+  const requireJsonBody = (request, response, next) => {
+    if (request.is('application/json')) return next();
+    response.status(415).json({
+      code: 'UNSUPPORTED_MEDIA_TYPE',
+      message: 'Content-Type must be application/json'
+    });
+  };
+
+  const preventSensitiveCaching = (_request, response, next) => {
+    response.set('Cache-Control', 'no-store');
     next();
   };
 
@@ -189,7 +234,8 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
     }
   }));
 
-  app.use(apiLimiter);
+  app.use(['/api', '/auth', '/me'], apiLimiter);
+  app.use(['/auth', '/me'], preventSensitiveCaching);
 
   app.get('/api/health/live', (_request, response) => response.json({ status: 'ok' }));
 
@@ -200,7 +246,7 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
 
   app.get('/api/health/ready', requireAppToken, asyncRoute(async (_request, response) => {
     await database.ping();
-    response.json({
+    response.set('Cache-Control', 'no-store').json({
       status: 'ready',
       database: 'connected',
       telegram: config.telegramConfigured ? 'configured' : 'configuration_required',
@@ -209,7 +255,7 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
     });
   }));
 
-  app.post('/auth/telegram', requireAppToken, authLimiter, asyncRoute(async (request, response) => {
+  app.post('/auth/telegram', requireAppToken, requireJsonBody, authLimiter, asyncRoute(async (request, response) => {
     if (!config.telegramConfigured) {
       return response.status(503).json({
         code: 'TELEGRAM_NOT_CONFIGURED',
@@ -260,6 +306,12 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
       return response.status(401).json({ code: 'SESSION_INVALID', message: 'Session is missing or expired' });
     }
     if (rejectDisabledAccount(session, response)) return;
+    if (!request.is('application/json')) {
+      return response.status(415).json({
+        code: 'UNSUPPORTED_MEDIA_TYPE',
+        message: 'Content-Type must be application/json'
+      });
+    }
     const draft = profileDraft(request.body);
     if (!draft) {
       return response.status(422).json({

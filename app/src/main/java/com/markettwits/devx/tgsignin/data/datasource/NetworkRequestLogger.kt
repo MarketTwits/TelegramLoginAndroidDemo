@@ -2,6 +2,7 @@ package com.markettwits.devx.tgsignin.data.datasource
 
 import android.os.SystemClock
 import android.util.Log
+import com.markettwits.devx.tgsignin.BuildConfig
 import java.net.URL
 
 /**
@@ -12,11 +13,13 @@ internal object NetworkRequestLogger {
     private const val TAG = "TelegramBloomHttp"
 
     fun start(method: String, url: URL): Long = SystemClock.elapsedRealtime().also {
-        Log.d(TAG, "--> $method ${url.safeAddress()}")
+        if (BuildConfig.DEBUG) Log.d(TAG, "--> $method ${url.safeAddress()}")
     }
 
     fun success(method: String, url: URL, statusCode: Int, startedAt: Long) {
-        Log.d(TAG, "<-- $statusCode $method ${url.safeAddress()} (${elapsed(startedAt)} ms)")
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, "<-- $statusCode $method ${url.safeAddress()} (${elapsed(startedAt)} ms)")
+        }
     }
 
     fun httpFailure(
@@ -27,6 +30,7 @@ internal object NetworkRequestLogger {
         errorCode: String? = null,
         requestId: String? = null
     ) {
+        if (!BuildConfig.DEBUG) return
         val diagnostics = listOfNotNull(
             errorCode?.let { "code=$it" },
             requestId?.let { "requestId=$it" }
@@ -38,6 +42,7 @@ internal object NetworkRequestLogger {
     }
 
     fun transportFailure(method: String, url: URL, startedAt: Long, error: Throwable) {
+        if (!BuildConfig.DEBUG) return
         Log.e(
             TAG,
             "<-- NETWORK_ERROR $method ${url.safeAddress()} (${elapsed(startedAt)} ms) " +
@@ -47,6 +52,7 @@ internal object NetworkRequestLogger {
     }
 
     fun invalidResponse(method: String, url: URL, startedAt: Long, error: Throwable) {
+        if (!BuildConfig.DEBUG) return
         Log.e(
             TAG,
             "<-- INVALID_RESPONSE $method ${url.safeAddress()} (${elapsed(startedAt)} ms) " +
@@ -62,6 +68,7 @@ internal object NetworkRequestLogger {
         expectedVersion: Int,
         actualVersion: Int?
     ) {
+        if (!BuildConfig.DEBUG) return
         Log.e(
             TAG,
             "<-- INCOMPATIBLE_API $method ${url.safeAddress()} (${elapsed(startedAt)} ms) " +

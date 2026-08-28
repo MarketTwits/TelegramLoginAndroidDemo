@@ -18,7 +18,6 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
-import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
@@ -109,12 +108,7 @@ class TelegramAuthApiDataSourceImpl(
             }
             val status = connection.responseCode
             val text = (if (status in 200..299) connection.inputStream else connection.errorStream)
-                ?.let {
-                    InputStreamReader(
-                        it,
-                        StandardCharsets.UTF_8
-                    ).use(InputStreamReader::readText)
-                }
+                ?.readUtf8Bounded(MAX_RESPONSE_BYTES)
                 .orEmpty()
             if (status !in 200..299) {
                 val errorCode = runCatching { JSONObject(text).optString("code") }
@@ -140,10 +134,16 @@ class TelegramAuthApiDataSourceImpl(
             parse(if (text.isBlank()) JSONObject() else JSONObject(text)).also {
                 NetworkRequestLogger.success(method, requestUrl, status, startedAt)
             }
+        } catch (error: ResponseTooLargeException) {
+            NetworkRequestLogger.invalidResponse(method, requestUrl, startedAt, error)
+            throw BackendResponseException(error)
         } catch (error: IOException) {
             NetworkRequestLogger.transportFailure(method, requestUrl, startedAt, error)
             throw BackendNetworkException(error)
         } catch (error: org.json.JSONException) {
+            NetworkRequestLogger.invalidResponse(method, requestUrl, startedAt, error)
+            throw BackendResponseException(error)
+        } catch (error: IllegalArgumentException) {
             NetworkRequestLogger.invalidResponse(method, requestUrl, startedAt, error)
             throw BackendResponseException(error)
         } finally {
@@ -211,6 +211,7 @@ class TelegramAuthApiDataSourceImpl(
 
 private const val API_VERSION_HEADER = "X-Telegram-Bloom-Api-Version"
 private const val REQUIRED_API_VERSION = 8
+private const val MAX_RESPONSE_BYTES = 128 * 1024
 
 private fun JSONObject.optionalString(key: String): String? =
     optString(key).takeIf { it.isNotBlank() && it != JSONObject.NULL.toString() }

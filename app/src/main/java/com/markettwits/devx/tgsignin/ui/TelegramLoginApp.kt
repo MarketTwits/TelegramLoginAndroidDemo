@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -14,6 +13,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalResources
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.markettwits.devx.tgsignin.data.telegram.TelegramLoginConfig
 import com.markettwits.devx.tgsignin.ui.component.TelegramRootOverlay
 import com.markettwits.devx.tgsignin.ui.component.showTelegramSnackbar
@@ -43,12 +43,12 @@ fun TelegramLoginApp(
     appUpdateViewModel: AppUpdateViewModel = koinViewModel(),
     telegramLoginConfig: TelegramLoginConfig = koinInject()
 ) {
-    val themeMode by appearanceViewModel.uiState.collectAsState()
-    val profileUiState by profileViewModel.uiState.collectAsState()
-    val loginUiState by loginViewModel.uiState.collectAsState()
-    val backendReadinessState by backendReadinessViewModel.uiState.collectAsState()
-    val appLinkVerificationState by appLinkVerificationViewModel.uiState.collectAsState()
-    val appUpdateState by appUpdateViewModel.uiState.collectAsState()
+    val themeMode by appearanceViewModel.uiState.collectAsStateWithLifecycle()
+    val profileUiState by profileViewModel.uiState.collectAsStateWithLifecycle()
+    val loginUiState by loginViewModel.uiState.collectAsStateWithLifecycle()
+    val backendReadinessState by backendReadinessViewModel.uiState.collectAsStateWithLifecycle()
+    val appLinkVerificationState by appLinkVerificationViewModel.uiState.collectAsStateWithLifecycle()
+    val appUpdateState by appUpdateViewModel.uiState.collectAsStateWithLifecycle()
     var screenModalVisible by rememberSaveable { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val resources = LocalResources.current

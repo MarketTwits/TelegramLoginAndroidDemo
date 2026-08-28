@@ -17,4 +17,4 @@ COPY --chown=node:node public ./public
 USER node
 EXPOSE 8080
 ENTRYPOINT ["/sbin/tini", "--"]
-CMD ["npm", "start"]
+CMD ["node", "--disable-warning=ExperimentalWarning", "src/server.js"]

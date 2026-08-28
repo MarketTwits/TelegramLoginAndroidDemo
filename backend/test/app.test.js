@@ -51,6 +51,38 @@ const login = async (baseUrl) => {
   return { response, body: await response.json() };
 };
 
+test('public landing page is minimal and does not expose the API inventory', async (context) => {
+  const { baseUrl } = await startServer(context, async () => telegramProfile());
+  const response = await fetch(baseUrl);
+  const html = await response.text();
+
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-security-policy'), /default-src 'self'/);
+  assert.match(response.headers.get('content-security-policy'), /frame-ancestors 'none'/);
+  assert.equal(response.headers.get('x-frame-options'), 'DENY');
+  assert.equal(response.headers.get('x-telegram-bloom-api-version'), null);
+  assert.match(html, /Telegram Sign-In API/);
+  assert.match(html, /noindex, nofollow/);
+  assert.doesNotMatch(html, /\/auth\/|\/me\/|\/api\/health|SQLite|JWKS|app\.js/);
+});
+
+test('protected readiness rejects missing and incorrect app tokens', async (context) => {
+  const protectedConfig = { ...config, appToken: 'test-app-token' };
+  const { baseUrl } = await startServer(
+    context,
+    async () => telegramProfile(),
+    protectedConfig
+  );
+
+  assert.equal((await fetch(`${baseUrl}/api/health/ready`)).status, 403);
+  assert.equal((await fetch(`${baseUrl}/api/health/ready`, {
+    headers: { 'X-App-Token': 'incorrect' }
+  })).status, 403);
+  assert.equal((await fetch(`${baseUrl}/api/health/ready`, {
+    headers: { 'X-App-Token': protectedConfig.appToken }
+  })).status, 200);
+});
+
 test('new login creates an account, profile PUT is idempotent, and account deletion is final', async (context) => {
   let currentProfile = telegramProfile();
   const { baseUrl } = await startServer(context, async () => currentProfile);
@@ -164,6 +196,14 @@ test('profile validation and session authentication return typed public errors',
   assert.equal(invalid.status, 422);
   assert.equal((await invalid.json()).code, 'INVALID_PROFILE');
   assert.equal((await fetch(`${baseUrl}/me/profile`, { method: 'PUT' })).status, 401);
+
+  const unsupportedMediaType = await fetch(`${baseUrl}/me/profile`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${body.sessionToken}`, 'Content-Type': 'text/plain' },
+    body: '{}'
+  });
+  assert.equal(unsupportedMediaType.status, 415);
+  assert.equal((await unsupportedMediaType.json()).code, 'UNSUPPORTED_MEDIA_TYPE');
 
   const invalidPhone = await fetch(`${baseUrl}/me/profile`, {
     method: 'PUT',

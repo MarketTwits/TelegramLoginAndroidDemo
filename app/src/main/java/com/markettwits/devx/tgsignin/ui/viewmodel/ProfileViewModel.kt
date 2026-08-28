@@ -55,9 +55,12 @@ class ProfileViewModel(
         if (_isSaving.value || !draft.isValid) return
         actionJob = viewModelScope.launch {
             _isSaving.value = true
-            authenticationRepository.saveProfile(draft)
-                .onFailure { showMessage(R.string.error_profile_save) }
-            _isSaving.value = false
+            try {
+                authenticationRepository.saveProfile(draft)
+                    .onFailure { showMessage(R.string.error_profile_save) }
+            } finally {
+                _isSaving.value = false
+            }
         }
     }
 

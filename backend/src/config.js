@@ -51,9 +51,14 @@ const trustProxy = () => {
 };
 
 export const loadConfig = () => {
+  const nodeEnv = process.env.NODE_ENV?.trim() || 'development';
   const telegramClientId = process.env.TELEGRAM_CLIENT_ID?.trim() || null;
+  const appToken = process.env.APP_TOKEN?.trim() || null;
+  if (nodeEnv === 'production' && !appToken) {
+    throw new Error('APP_TOKEN is required when NODE_ENV=production');
+  }
   return {
-    nodeEnv: process.env.NODE_ENV?.trim() || 'development',
+    nodeEnv,
     port: positiveInteger('PORT', DEFAULT_PORT, MAX_TCP_PORT),
     databasePath: process.env.SQLITE_DATABASE_PATH?.trim() || './data/telegram-signin.sqlite',
     telegramClientId,
@@ -65,7 +70,7 @@ export const loadConfig = () => {
       'AUTH_RATE_LIMIT_PER_MINUTE',
       DEFAULT_AUTH_RATE_LIMIT_PER_MINUTE
     ),
-    appToken: process.env.APP_TOKEN?.trim() || null,
+    appToken,
     trustProxy: trustProxy()
   };
 };

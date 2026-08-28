@@ -10,10 +10,8 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONException
 import java.io.IOException
-import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
-import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 
 interface AppLinkVerificationDataSource {
@@ -37,12 +35,13 @@ class AppLinkVerificationDataSourceImpl(
                 NetworkRequestLogger.httpFailure(HTTP_GET, assetLinksUrl, statusCode, startedAt)
                 throw BackendHttpException(statusCode)
             }
-            val body = connection.inputStream?.let { stream ->
-                InputStreamReader(stream, StandardCharsets.UTF_8).use { it.readText() }
-            }.orEmpty()
+            val body = connection.inputStream?.readUtf8Bounded(MAX_RESPONSE_BYTES).orEmpty()
             parseVerification(body).also {
                 NetworkRequestLogger.success(HTTP_GET, assetLinksUrl, statusCode, startedAt)
             }
+        } catch (error: ResponseTooLargeException) {
+            NetworkRequestLogger.invalidResponse(HTTP_GET, assetLinksUrl, startedAt, error)
+            throw BackendResponseException(error)
         } catch (error: IOException) {
             NetworkRequestLogger.transportFailure(HTTP_GET, assetLinksUrl, startedAt, error)
             throw BackendNetworkException(error)
@@ -103,6 +102,7 @@ class AppLinkVerificationDataSourceImpl(
         const val ASSET_LINKS_PATH = "/.well-known/assetlinks.json"
         const val HTTP_GET = "GET"
         const val NETWORK_TIMEOUT_MS = 15_000
+        const val MAX_RESPONSE_BYTES = 256 * 1024
         const val HEADER_ACCEPT = "Accept"
         const val JSON_MEDIA_TYPE = "application/json"
         const val SHA_256 = "SHA-256"

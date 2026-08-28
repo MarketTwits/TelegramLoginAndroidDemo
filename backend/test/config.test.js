@@ -3,6 +3,8 @@ import test from 'node:test';
 import { loadConfig } from '../src/config.js';
 
 const CONFIGURATION_KEYS = [
+  'NODE_ENV',
+  'APP_TOKEN',
   'PORT',
   'TELEGRAM_ISSUER',
   'TELEGRAM_ALLOWED_ALGORITHMS'
@@ -43,5 +45,17 @@ test('configuration rejects an insecure Telegram issuer', { concurrency: false }
 test('configuration rejects an empty algorithm list', { concurrency: false }, () => {
   withEnvironment({ TELEGRAM_ALLOWED_ALGORITHMS: ' , ' }, () => {
     assert.throws(() => loadConfig(), /must contain at least one algorithm/);
+  });
+});
+
+test('production configuration fails closed without an app token', { concurrency: false }, () => {
+  withEnvironment({ NODE_ENV: 'production' }, () => {
+    assert.throws(() => loadConfig(), /APP_TOKEN is required/);
+  });
+});
+
+test('production configuration accepts a non-empty app token', { concurrency: false }, () => {
+  withEnvironment({ NODE_ENV: 'production', APP_TOKEN: 'production-token' }, () => {
+    assert.equal(loadConfig().appToken, 'production-token');
   });
 });
