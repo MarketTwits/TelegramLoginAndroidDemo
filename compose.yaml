@@ -11,6 +11,7 @@ services:
       SQLITE_DATABASE_PATH: /app/data/telegram-signin.sqlite
       # Optional at startup. Set it in .env to enable real Telegram authentication.
       TELEGRAM_CLIENT_ID: ${TELEGRAM_CLIENT_ID:-}
+      APP_TOKEN: ${APP_TOKEN:?APP_TOKEN is required}
       TRUST_PROXY: ${TRUST_PROXY:-false}
     ports:
       - "127.0.0.1:8080:8080"
@@ -18,7 +19,7 @@ services:
       # Replace with ./backend-data:/app/data here when a bind mount is preferred.
       - sqlite_data:/app/data
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/api/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      test: [ "CMD", "node", "-e", "fetch('http://127.0.0.1:8080/api/health/ready',{headers:{'X-App-Token':process.env.APP_TOKEN}}).then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))" ]
       interval: 10s
       timeout: 4s
       retries: 5

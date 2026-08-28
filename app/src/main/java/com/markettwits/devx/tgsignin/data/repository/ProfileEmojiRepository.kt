@@ -1,6 +1,7 @@
 package com.markettwits.devx.tgsignin.data.repository
 
 import android.content.Context
+import android.util.AtomicFile
 import androidx.core.content.edit
 import com.markettwits.devx.tgsignin.data.datasource.ProfileEmojiRemoteDataSource
 import com.markettwits.devx.tgsignin.data.model.ProfileEmoji
@@ -56,6 +57,7 @@ class ProfileEmojiRepositoryImpl(
     private val _catalog = MutableStateFlow<ProfileEmojiCatalog?>(null)
     private val _recentSelections = MutableStateFlow(readRecentSelections())
     private val assetMutexes = ConcurrentHashMap<String, Mutex>()
+    private val verifiedAssets = ConcurrentHashMap.newKeySet<String>()
     private val downloadSemaphore = Semaphore(MAX_CONCURRENT_ASSET_DOWNLOADS)
     override val catalog: StateFlow<ProfileEmojiCatalog?> = _catalog.asStateFlow()
     override val recentSelections: StateFlow<List<ProfileEmojiSelection>> =
@@ -131,16 +133,18 @@ class ProfileEmojiRepositoryImpl(
     }
 
     private suspend fun loadVerifiedAsset(emoji: ProfileEmoji): File =
-        assetMutexes.getOrPut(emoji.sha256, ::Mutex).withLock {
+        assetMutexes.computeIfAbsent(emoji.sha256) { Mutex() }.withLock {
             withContext(ioDispatcher) {
                 cacheDirectory.mkdirs()
                 val target = File(cacheDirectory, "${emoji.sha256}.tgs")
                 if (
                     target.isFile && target.length() == emoji.sizeBytes.toLong() &&
-                    target.sha256() == emoji.sha256
+                    (verifiedAssets.contains(emoji.sha256) || target.sha256() == emoji.sha256)
                 ) {
+                    verifiedAssets.add(emoji.sha256)
                     return@withContext target
                 }
+                verifiedAssets.remove(emoji.sha256)
                 target.delete()
                 val bytes = downloadSemaphore.withPermit {
                     remoteDataSource.fetchAsset(emoji)
@@ -150,6 +154,7 @@ class ProfileEmojiRepositoryImpl(
                 }
                 validateCompressedAnimation(bytes)
                 atomicWrite(target, bytes)
+                verifiedAssets.add(emoji.sha256)
                 target
             }
         }
@@ -231,12 +236,14 @@ class ProfileEmojiRepositoryImpl(
     }
 
     private fun atomicWrite(target: File, bytes: ByteArray) {
-        val temporary = File(target.parentFile, "${target.name}.tmp")
-        temporary.writeBytes(bytes)
-        target.delete()
-        if (!temporary.renameTo(target)) {
-            temporary.delete()
-            throw IOException("Unable to commit profile emoji cache")
+        val atomicFile = AtomicFile(target)
+        val output = atomicFile.startWrite()
+        try {
+            output.write(bytes)
+            atomicFile.finishWrite(output)
+        } catch (error: Throwable) {
+            atomicFile.failWrite(output)
+            throw error
         }
     }
 

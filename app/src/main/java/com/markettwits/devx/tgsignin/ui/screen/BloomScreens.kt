@@ -52,7 +52,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -93,6 +92,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.SubcomposeAsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
@@ -146,7 +146,7 @@ fun ProfileSetupScreen(
     onCancel: () -> Unit
 ) {
     val emojiRepository: ProfileEmojiRepository = koinInject()
-    val emojiCatalog by emojiRepository.catalog.collectAsState()
+    val emojiCatalog by emojiRepository.catalog.collectAsStateWithLifecycle()
     val isEditing = session.profile != null
     val pagerState = rememberPagerState(pageCount = { SETUP_PAGE_COUNT })
     val scope = rememberCoroutineScope()
@@ -574,8 +574,8 @@ fun BloomProfileScreen(
     onModalVisibilityChanged: (Boolean) -> Unit = {}
 ) {
     val emojiRepository: ProfileEmojiRepository = koinInject()
-    val emojiCatalog by emojiRepository.catalog.collectAsState()
-    val recentEmojiSelections by emojiRepository.recentSelections.collectAsState()
+    val emojiCatalog by emojiRepository.catalog.collectAsStateWithLifecycle()
+    val recentEmojiSelections by emojiRepository.recentSelections.collectAsStateWithLifecycle()
     val profile = requireNotNull(session.profile)
     var confirmDelete by rememberSaveable { mutableStateOf(false) }
     var showEmojiPicker by rememberSaveable { mutableStateOf(false) }
