@@ -67,6 +67,24 @@ class AppUpdateRepositoryTest {
     }
 
     @Test
+    fun `forced check bypasses fresh cache and uses etag`() = runBlocking {
+        val remote = FakeGitHubReleaseDataSource(GitHubReleaseResponse.NotModified)
+        val local = FakeAppUpdateLocalDataSource(
+            AppUpdateCache(
+                release = appRelease(versionCode = 3),
+                etag = "etag-3",
+                checkedAtEpochMillis = NOW - 1_000
+            )
+        )
+        val repository = AppUpdateRepositoryImpl(remote, local, 2, clock = { NOW })
+
+        assertTrue(repository.checkForUpdate(forceRefresh = true) is AppUpdateAvailability.Available)
+        assertEquals(1, remote.calls)
+        assertEquals("etag-3", remote.requestedEtag)
+        assertEquals(NOW, local.cache.checkedAtEpochMillis)
+    }
+
+    @Test
     fun `stale cache sends etag and 304 reuses release`() = runBlocking {
         val remote = FakeGitHubReleaseDataSource(GitHubReleaseResponse.NotModified)
         val local = FakeAppUpdateLocalDataSource(
