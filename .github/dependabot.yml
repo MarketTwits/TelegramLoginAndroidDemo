@@ -1,0 +1,52 @@
+version: 2
+
+registries:
+  telegram-github-packages:
+    type: maven-repository
+    url: https://maven.pkg.github.com/telegrammessenger/telegram-login-android
+    username: ${{ secrets.PACKAGES_USERNAME }}
+    password: ${{ secrets.PACKAGES_READ_TOKEN }}
+
+updates:
+  - package-ecosystem: gradle
+    directory: /
+    registries:
+      - telegram-github-packages
+    # Gradle execution is required when Dependabot updates the wrapper. Code
+    # execution can access only the registry associated with this update block.
+    insecure-external-code-execution: allow
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Novosibirsk
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps(android)
+
+  - package-ecosystem: npm
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:30"
+      timezone: Asia/Novosibirsk
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps(backend)
+
+  - package-ecosystem: docker
+    directory: /backend
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: deps(docker)
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: deps(actions)
