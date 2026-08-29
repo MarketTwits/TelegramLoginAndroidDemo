@@ -12,9 +12,6 @@ updates:
     directory: /
     registries:
       - telegram-github-packages
-    # Gradle execution is required when Dependabot updates the wrapper. Code
-    # execution can access only the registry associated with this update block.
-    insecure-external-code-execution: allow
     schedule:
       interval: weekly
       day: monday
