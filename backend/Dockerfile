@@ -1,9 +1,9 @@
-FROM node:22-alpine AS dependencies
+FROM node:26-alpine AS dependencies
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
-FROM node:22-alpine AS runtime
+FROM node:26-alpine AS runtime
 ARG BUILD_REVISION=development
 ENV NODE_ENV=production
 ENV APP_REVISION=$BUILD_REVISION
