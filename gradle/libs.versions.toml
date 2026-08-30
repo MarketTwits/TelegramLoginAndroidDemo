@@ -15,7 +15,7 @@ coil = "3.5.0"
 koin = "4.2.2"
 dataStore = "1.2.1"
 lottie = "6.7.1"
-libphonenumber = "9.0.37"
+libphonenumber = "9.0.38"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
