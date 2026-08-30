@@ -1,0 +1,64 @@
+name: Dependabot patch auto-merge
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  dependabot-patch:
+    name: Evaluate patch auto-merge policy
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.repository == 'MarketTwits/TelegramLoginAndroidDemo'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Read Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@d7267f607e9d3fb96fc2fbe83e0af444713e90b7
+        with:
+          github-token: ${{ github.token }}
+
+      - name: Evaluate auto-merge policy
+        id: policy
+        shell: bash
+        env:
+          UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+          DEPENDENCY_NAMES: ${{ steps.metadata.outputs.dependency-names }}
+        run: |
+          set -euo pipefail
+
+          eligible=false
+          if [[ "$UPDATE_TYPE" == "version-update:semver-patch" ]]; then
+            eligible=true
+            IFS=',' read -ra dependencies <<< "$DEPENDENCY_NAMES"
+            for dependency in "${dependencies[@]}"; do
+              dependency="${dependency#"${dependency%%[![:space:]]*}"}"
+              dependency="${dependency%"${dependency##*[![:space:]]}"}"
+              case "$dependency" in
+                gradle-wrapper|com.android.application|org.jetbrains.kotlin.*|org.telegram:login-sdk)
+                  eligible=false
+                  ;;
+              esac
+            done
+          fi
+
+          echo "eligible=$eligible" >> "$GITHUB_OUTPUT"
+
+      - name: Enable squash auto-merge
+        if: steps.policy.outputs.eligible == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge --auto --squash "$PR_URL"
+
+      - name: Keep update for manual review
+        if: steps.policy.outputs.eligible != 'true'
+        env:
+          UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+          DEPENDENCY_NAMES: ${{ steps.metadata.outputs.dependency-names }}
+        run: |
+          echo "Manual review required for $DEPENDENCY_NAMES ($UPDATE_TYPE)."
