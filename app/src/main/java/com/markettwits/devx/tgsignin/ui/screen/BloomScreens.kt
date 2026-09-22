@@ -581,6 +581,7 @@ private fun isSetupPageValid(page: Int, draft: ProfileDraft): Boolean = when (pa
 fun BloomProfileScreen(
     session: AuthenticationResult,
     isOffline: Boolean,
+    passkeysConfigured: Boolean,
     onEmojiChanged: (ProfileEmojiSelection) -> Unit,
     onDelete: () -> Unit,
     onModalVisibilityChanged: (Boolean) -> Unit = {}
@@ -706,7 +707,7 @@ fun BloomProfileScreen(
                     ))
                 }
                 TelegramIdentitySummary(session, profile.phoneNumber)
-                PasskeySection(session.accessToken, isOffline)
+                if (passkeysConfigured) PasskeySection(session.accessToken, isOffline)
                 TelegramDestructiveButton(
                     text = stringResource(R.string.bloom_delete_account),
                     onClick = { confirmDelete = true },
