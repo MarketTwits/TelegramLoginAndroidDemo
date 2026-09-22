@@ -40,6 +40,7 @@ fun TelegramLoginNavigation(
         is RootAuthenticationState.Authenticated -> BloomProfileScreen(
             session = state.session,
             isOffline = state.isOffline,
+            passkeysConfigured = passkeysConfigured,
             onEmojiChanged = onEmojiChanged,
             onDelete = onDeleteAccount,
             onModalVisibilityChanged = onModalVisibilityChanged
