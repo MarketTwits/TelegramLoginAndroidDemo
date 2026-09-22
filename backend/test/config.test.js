@@ -7,7 +7,11 @@ const CONFIGURATION_KEYS = [
   'APP_TOKEN',
   'PORT',
   'TELEGRAM_ISSUER',
-  'TELEGRAM_ALLOWED_ALGORITHMS'
+  'TELEGRAM_ALLOWED_ALGORITHMS',
+  'PASSKEY_RP_ID',
+  'PASSKEY_ALLOWED_ORIGINS',
+  'PASSKEY_ANDROID_PACKAGE',
+  'PASSKEY_ANDROID_CERT_SHA256'
 ];
 
 const withEnvironment = (values, block) => {
@@ -28,6 +32,32 @@ test('configuration rejects malformed numeric values', { concurrency: false }, (
   withEnvironment({ PORT: '8080invalid' }, () => {
     assert.throws(() => loadConfig(), /PORT must be an integer/);
   });
+});
+
+test('passkey configuration is all-or-nothing and validates identifiers', { concurrency: false }, () => {
+  const fingerprint = Array(32).fill('AA').join(':');
+  const androidOrigin = `android:apk-key-hash:${Buffer.from('AA'.repeat(32), 'hex').toString('base64url')}`;
+  withEnvironment({ PASSKEY_RP_ID: 'login.example.test' }, () => {
+    assert.throws(() => loadConfig(), /must be configured together/);
+  });
+  withEnvironment({
+    PASSKEY_RP_ID: 'https://login.example.test/path',
+    PASSKEY_ALLOWED_ORIGINS: 'android:apk-key-hash:abc',
+    PASSKEY_ANDROID_PACKAGE: 'com.example.app',
+    PASSKEY_ANDROID_CERT_SHA256: fingerprint
+  }, () => assert.throws(() => loadConfig(), /lowercase DNS hostname/));
+  withEnvironment({
+    PASSKEY_RP_ID: 'login.example.test',
+    PASSKEY_ALLOWED_ORIGINS: androidOrigin,
+    PASSKEY_ANDROID_PACKAGE: 'com.example.app',
+    PASSKEY_ANDROID_CERT_SHA256: fingerprint
+  }, () => assert.equal(loadConfig().passkeysConfigured, true));
+  withEnvironment({
+    PASSKEY_RP_ID: 'login.example.test',
+    PASSKEY_ALLOWED_ORIGINS: 'android:apk-key-hash:wrong,https://evil.example/path',
+    PASSKEY_ANDROID_PACKAGE: 'com.example.app',
+    PASSKEY_ANDROID_CERT_SHA256: fingerprint
+  }, () => assert.throws(() => loadConfig(), /matching each configured signing certificate/));
 });
 
 test('configuration normalizes a trailing issuer slash', { concurrency: false }, () => {

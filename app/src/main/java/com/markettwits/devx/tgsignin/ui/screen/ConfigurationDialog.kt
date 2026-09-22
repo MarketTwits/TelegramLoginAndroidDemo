@@ -159,7 +159,7 @@ private fun BackendReadinessSection(
             status = ConfigurationStatus.Checking(R.string.backend_checking)
         )
 
-        BackendReadinessUiState.Ready -> ConfigurationStatusSection(
+        is BackendReadinessUiState.Ready -> ConfigurationStatusSection(
             title = R.string.backend_service,
             status = ConfigurationStatus.Ready(R.string.backend_ready)
         )

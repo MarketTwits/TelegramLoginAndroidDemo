@@ -16,6 +16,7 @@ koin = "4.2.2"
 dataStore = "1.2.1"
 lottie = "6.7.1"
 libphonenumber = "9.0.39"
+credentials = "1.6.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -42,6 +43,8 @@ koin-androidx-compose = { module = "io.insert-koin:koin-androidx-compose", versi
 androidx-dataStore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "dataStore" }
 lottie-compose = { module = "com.airbnb.android:lottie-compose", version.ref = "lottie" }
 libphonenumber = { module = "com.googlecode.libphonenumber:libphonenumber", version.ref = "libphonenumber" }
+androidx-credentials = { module = "androidx.credentials:credentials", version.ref = "credentials" }
+androidx-credentials-play-services-auth = { module = "androidx.credentials:credentials-play-services-auth", version.ref = "credentials" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

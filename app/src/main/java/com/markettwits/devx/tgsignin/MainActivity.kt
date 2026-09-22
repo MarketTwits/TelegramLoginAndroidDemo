@@ -21,7 +21,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             TelegramLoginApp(
                 loginViewModel = loginViewModel,
-                onLogin = { loginViewModel.login(this@MainActivity) }
+                onLogin = { loginViewModel.login(this@MainActivity) },
+                onPasskeyLogin = { loginViewModel.loginWithPasskey(this@MainActivity) }
             )
         }
     }

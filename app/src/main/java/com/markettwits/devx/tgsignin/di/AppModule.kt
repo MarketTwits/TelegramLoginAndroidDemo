@@ -17,6 +17,8 @@ import com.markettwits.devx.tgsignin.data.datasource.GitHubReleaseDataSource
 import com.markettwits.devx.tgsignin.data.datasource.GitHubReleaseDataSourceImpl
 import com.markettwits.devx.tgsignin.data.datasource.ProfileEmojiRemoteDataSource
 import com.markettwits.devx.tgsignin.data.datasource.ProfileEmojiRemoteDataSourceImpl
+import com.markettwits.devx.tgsignin.data.datasource.PasskeyCredentialDataSource
+import com.markettwits.devx.tgsignin.data.datasource.PasskeyCredentialDataSourceImpl
 import com.markettwits.devx.tgsignin.data.datasource.TelegramAuthApiDataSource
 import com.markettwits.devx.tgsignin.data.datasource.TelegramAuthApiDataSourceImpl
 import com.markettwits.devx.tgsignin.data.datasource.TelegramLoginDataSource
@@ -83,6 +85,7 @@ val appModule = module {
         )
     }
     single<TelegramLoginDataSource> { TelegramLoginDataSourceImpl(get()) }
+    single<PasskeyCredentialDataSource> { PasskeyCredentialDataSourceImpl(androidContext()) }
     single<TelegramAuthApiDataSource> {
         TelegramAuthApiDataSourceImpl(
             config = get(),
@@ -124,7 +127,8 @@ val appModule = module {
             telegramLoginDataSource = get(),
             telegramAuthApiDataSource = get(),
             authenticationLocalDataSource = get(),
-            applicationScope = get(applicationScopeQualifier)
+            applicationScope = get(applicationScopeQualifier),
+            passkeyCredentialDataSource = get()
         )
     }
     single<AppearanceLocalDataSource> { AppearanceLocalDataSourceImpl(androidContext()) }

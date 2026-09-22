@@ -15,7 +15,7 @@ import kotlinx.coroutines.launch
 
 sealed interface BackendReadinessUiState {
     data object Checking : BackendReadinessUiState
-    data object Ready : BackendReadinessUiState
+    data class Ready(val passkeysConfigured: Boolean) : BackendReadinessUiState
     data class Error(@StringRes val messageRes: Int) : BackendReadinessUiState
 }
 
@@ -48,7 +48,7 @@ class BackendReadinessViewModel(
         !databaseConnected -> BackendReadinessUiState.Error(R.string.backend_database_unavailable)
         !telegramConfigured -> BackendReadinessUiState.Error(R.string.backend_telegram_not_configured)
         !isApiCompatible -> BackendReadinessUiState.Error(R.string.error_incompatible_backend)
-        else -> BackendReadinessUiState.Ready
+        else -> BackendReadinessUiState.Ready(passkeysConfigured)
     }
 }
 

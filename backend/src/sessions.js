@@ -12,7 +12,7 @@ const BEARER_PREFIX = 'Bearer ';
 export const hashSessionToken = (token) =>
   crypto.createHash('sha256').update(token, 'utf8').digest('hex');
 
-export const createSession = async (database, userId, ttlDays) => {
+export const createSession = async (database, userId, ttlDays, authenticationMethod = 'TELEGRAM') => {
   const token = crypto.randomBytes(SESSION_TOKEN_BYTES).toString('base64url');
   const ttlMilliseconds = ttlDays
     * HOURS_PER_DAY
@@ -20,7 +20,7 @@ export const createSession = async (database, userId, ttlDays) => {
     * SECONDS_PER_MINUTE
     * MILLISECONDS_PER_SECOND;
   const expiresAt = new Date(Date.now() + ttlMilliseconds);
-  await database.createSession(hashSessionToken(token), userId, expiresAt);
+  await database.createSession(hashSessionToken(token), userId, expiresAt, authenticationMethod);
   return { token, expiresAt };
 };
 

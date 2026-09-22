@@ -3,6 +3,7 @@ package com.markettwits.devx.tgsignin.data.repository
 import android.content.Context
 import android.net.Uri
 import com.markettwits.devx.tgsignin.data.datasource.AuthenticationLocalDataSource
+import com.markettwits.devx.tgsignin.data.datasource.PasskeyCredentialDataSource
 import com.markettwits.devx.tgsignin.data.datasource.TelegramAuthApiDataSource
 import com.markettwits.devx.tgsignin.data.datasource.TelegramLoginDataSource
 import com.markettwits.devx.tgsignin.data.model.AuthenticationError
@@ -27,8 +28,10 @@ interface AuthenticationRepository {
     val state: StateFlow<RootAuthenticationState>
 
     fun startTelegramLogin(context: Context, scopes: Set<TelegramScope>)
+    fun startTelegramReauthentication(context: Context)
     fun isTelegramCallback(uri: Uri): Boolean
     suspend fun completeTelegramLogin(callbackUri: Uri): Result<AuthenticationResult>
+    suspend fun signInWithPasskey(context: Context): Result<AuthenticationResult>
     suspend fun saveDraft(draft: ProfileDraft)
     suspend fun saveProfile(draft: ProfileDraft): Result<AuthenticationResult>
     suspend fun beginProfileEditing()
@@ -42,11 +45,13 @@ class AuthenticationRepositoryImpl(
     private val telegramLoginDataSource: TelegramLoginDataSource,
     private val telegramAuthApiDataSource: TelegramAuthApiDataSource,
     private val authenticationLocalDataSource: AuthenticationLocalDataSource,
-    applicationScope: CoroutineScope
+    applicationScope: CoroutineScope,
+    private val passkeyCredentialDataSource: PasskeyCredentialDataSource? = null
 ) : AuthenticationRepository {
     private val _state = MutableStateFlow<RootAuthenticationState>(RootAuthenticationState.Loading)
     override val state = _state.asStateFlow()
     private val localMutationMutex = Mutex()
+    @Volatile private var telegramReauthenticationPending = false
 
     init {
         applicationScope.launch { bootstrap() }
@@ -95,6 +100,7 @@ class AuthenticationRepositoryImpl(
     }
 
     override fun startTelegramLogin(context: Context, scopes: Set<TelegramScope>) {
+        telegramReauthenticationPending = false
         try {
             telegramLoginDataSource.startLogin(context, scopes)
         } catch (error: CancellationException) {
@@ -104,12 +110,28 @@ class AuthenticationRepositoryImpl(
         }
     }
 
+    override fun startTelegramReauthentication(context: Context) {
+        checkNotNull(_state.value.sessionOrNull) { "No authenticated session" }
+        telegramReauthenticationPending = true
+        try {
+            telegramLoginDataSource.startLogin(context, setOf(TelegramScope.Profile))
+        } catch (error: Throwable) {
+            telegramReauthenticationPending = false
+            throw error.toAuthenticationError()
+        }
+    }
+
     override fun isTelegramCallback(uri: Uri): Boolean = telegramLoginDataSource.isTelegramCallback(uri)
 
     override suspend fun completeTelegramLogin(callbackUri: Uri): Result<AuthenticationResult> = try {
-        val result = telegramAuthApiDataSource.authenticate(
-            telegramLoginDataSource.consumeCallback(callbackUri)
-        )
+        val idToken = telegramLoginDataSource.consumeCallback(callbackUri)
+        if (telegramReauthenticationPending) {
+            val current = checkNotNull(_state.value.sessionOrNull) { "No authenticated session" }
+            telegramAuthApiDataSource.reauthenticateWithTelegram(current.accessToken, idToken)
+            telegramReauthenticationPending = false
+            return Result.success(current)
+        }
+        val result = telegramAuthApiDataSource.authenticate(idToken)
         localMutationMutex.withLock { authenticationLocalDataSource.save(result) }
         val draft = authenticationLocalDataSource.profileDraft.first()
             ?.withTelegramPhone(result)
@@ -117,6 +139,22 @@ class AuthenticationRepositoryImpl(
         if (result.account.onboardingState == OnboardingState.PROFILE_REQUIRED) {
             localMutationMutex.withLock { authenticationLocalDataSource.saveDraft(draft) }
         }
+        _state.value = route(result, draft)
+        Result.success(result)
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Throwable) {
+        telegramReauthenticationPending = false
+        Result.failure(error.toAuthenticationError())
+    }
+
+    override suspend fun signInWithPasskey(context: Context): Result<AuthenticationResult> = try {
+        val credentials = checkNotNull(passkeyCredentialDataSource) { "Passkeys are unavailable" }
+        val options = telegramAuthApiDataSource.beginPasskeyAuthentication()
+        val response = credentials.get(context, options.requestJson)
+        val result = telegramAuthApiDataSource.finishPasskeyAuthentication(options.operationId, response)
+        localMutationMutex.withLock { authenticationLocalDataSource.save(result) }
+        val draft = authenticationLocalDataSource.profileDraft.first()
         _state.value = route(result, draft)
         Result.success(result)
     } catch (error: CancellationException) {
@@ -232,6 +270,7 @@ class AuthenticationRepositoryImpl(
             if (session != null) runCatching {
                 telegramAuthApiDataSource.revokeSession(session.accessToken)
             }.onFailure { if (it is CancellationException) throw it }
+            runCatching { passkeyCredentialDataSource?.clearState() }
             localMutationMutex.withLock { authenticationLocalDataSource.clear() }
             _state.value = RootAuthenticationState.Unauthenticated()
         } catch (error: CancellationException) {

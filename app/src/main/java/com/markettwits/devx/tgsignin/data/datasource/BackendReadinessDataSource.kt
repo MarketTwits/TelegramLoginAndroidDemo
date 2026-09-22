@@ -72,6 +72,7 @@ class BackendReadinessDataSourceImpl(
             serviceReady = response.optString(JSON_STATUS) == STATUS_READY,
             databaseConnected = response.optString(JSON_DATABASE) == DATABASE_CONNECTED,
             telegramConfigured = response.optString(JSON_TELEGRAM) == TELEGRAM_CONFIGURED,
+            passkeysConfigured = response.optString(JSON_PASSKEYS) == PASSKEYS_CONFIGURED,
             apiVersion = response.optInt(JSON_API_VERSION, 0)
         )
     }
@@ -87,10 +88,12 @@ class BackendReadinessDataSourceImpl(
         const val JSON_STATUS = "status"
         const val JSON_DATABASE = "database"
         const val JSON_TELEGRAM = "telegram"
+        const val JSON_PASSKEYS = "passkeys"
         const val JSON_API_VERSION = "apiVersion"
         const val STATUS_READY = "ready"
         const val DATABASE_CONNECTED = "connected"
         const val TELEGRAM_CONFIGURED = "configured"
+        const val PASSKEYS_CONFIGURED = "configured"
         val SUCCESS_STATUS_CODES = 200..299
     }
 }

@@ -26,6 +26,7 @@ import com.markettwits.devx.tgsignin.ui.theme.rememberAppThemeAnimationState
 import com.markettwits.devx.tgsignin.ui.viewmodel.AppLinkVerificationViewModel
 import com.markettwits.devx.tgsignin.ui.viewmodel.AppUpdateViewModel
 import com.markettwits.devx.tgsignin.ui.viewmodel.AppearanceViewModel
+import com.markettwits.devx.tgsignin.ui.viewmodel.BackendReadinessUiState
 import com.markettwits.devx.tgsignin.ui.viewmodel.BackendReadinessViewModel
 import com.markettwits.devx.tgsignin.ui.viewmodel.LoginViewModel
 import com.markettwits.devx.tgsignin.ui.viewmodel.ProfileUiEvent
@@ -38,6 +39,7 @@ import org.koin.compose.koinInject
 fun TelegramLoginApp(
     loginViewModel: LoginViewModel,
     onLogin: () -> Unit,
+    onPasskeyLogin: () -> Unit,
     profileViewModel: ProfileViewModel = koinViewModel(),
     appearanceViewModel: AppearanceViewModel = koinViewModel(),
     backendReadinessViewModel: BackendReadinessViewModel = koinViewModel(),
@@ -81,8 +83,11 @@ fun TelegramLoginApp(
                 TelegramLoginNavigation(
                     profileUiState = profileUiState,
                     loginUiState = loginUiState,
+                    passkeysConfigured = (backendReadinessState as? BackendReadinessUiState.Ready)
+                        ?.passkeysConfigured == true,
                     snackbarHostState = snackbarHostState,
                     onLogin = onLogin,
+                    onPasskeyLogin = onPasskeyLogin,
                     onScopesChanged = loginViewModel::updateScopes,
                     onDraftChanged = profileViewModel::updateDraft,
                     onSaveProfile = profileViewModel::saveProfile,

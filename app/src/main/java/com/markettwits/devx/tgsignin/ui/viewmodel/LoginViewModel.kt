@@ -6,6 +6,7 @@ import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.markettwits.devx.tgsignin.data.model.TelegramScope
+import com.markettwits.devx.tgsignin.data.model.AuthenticationError
 import com.markettwits.devx.tgsignin.data.repository.AuthenticationRepository
 import com.markettwits.devx.tgsignin.ui.model.toUserMessageRes
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,6 +24,7 @@ sealed interface LoginState {
     data object Ready : LoginState
     data object AwaitingConfirmation : LoginState
     data object Verifying : LoginState
+    data object VerifyingPasskey : LoginState
     data object Cancelled : LoginState
     data class Error(@StringRes val messageRes: Int) : LoginState
 }
@@ -48,6 +50,26 @@ class LoginViewModel(
             .onFailure { error -> _uiState.update { it.copy(loginState = LoginState.Error(error.toUserMessageRes())) } }
     }
 
+    fun loginWithPasskey(context: Context) {
+        if (uiState.value.loginState.isInProgress) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(loginState = LoginState.VerifyingPasskey) }
+            authenticationRepository.signInWithPasskey(context)
+                .onSuccess { _uiState.update { it.copy(loginState = LoginState.Ready) } }
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(
+                            loginState = if (error is AuthenticationError.PasskeyCancelled) {
+                                LoginState.Cancelled
+                            } else {
+                                LoginState.Error(error.toUserMessageRes())
+                            }
+                        )
+                    }
+                }
+        }
+    }
+
     fun consumeCallback(uri: Uri) {
         if (!authenticationRepository.isTelegramCallback(uri)) return
         if (uiState.value.loginState is LoginState.Verifying) return
@@ -71,5 +93,7 @@ class LoginViewModel(
     }
 
     private val LoginState.isInProgress: Boolean
-        get() = this is LoginState.AwaitingConfirmation || this is LoginState.Verifying
+        get() = this is LoginState.AwaitingConfirmation ||
+            this is LoginState.Verifying ||
+            this is LoginState.VerifyingPasskey
 }

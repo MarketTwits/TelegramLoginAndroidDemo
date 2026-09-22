@@ -4,6 +4,7 @@ data class BackendReadiness(
     val serviceReady: Boolean,
     val databaseConnected: Boolean,
     val telegramConfigured: Boolean,
+    val passkeysConfigured: Boolean = false,
     val apiVersion: Int = 0
 ) {
     val isApiCompatible: Boolean
