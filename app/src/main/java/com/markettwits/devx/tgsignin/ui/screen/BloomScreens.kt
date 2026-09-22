@@ -85,6 +85,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -765,6 +766,7 @@ private fun PasskeySection(accessToken: String, isOffline: Boolean) {
     val credentialManager: PasskeyCredentialDataSource = koinInject()
     val authenticationRepository: AuthenticationRepository = koinInject()
     val context = LocalContext.current
+    val resources = LocalResources.current
     val scope = rememberCoroutineScope()
     var passkeys by remember(accessToken) { mutableStateOf<List<PasskeyInfo>>(emptyList()) }
     var loading by remember(accessToken) { mutableStateOf(true) }
@@ -800,7 +802,7 @@ private fun PasskeySection(accessToken: String, isOffline: Boolean) {
             error = null
             runCatching { api.listPasskeys(accessToken) }
                 .onSuccess { passkeys = it }
-                .onFailure { error = context.getString(R.string.passkey_load_failed) }
+                .onFailure { error = resources.getString(R.string.passkey_load_failed) }
             loading = false
         }
     }
@@ -880,7 +882,7 @@ private fun PasskeySection(accessToken: String, isOffline: Boolean) {
                                         passkeys = it
                                         editingId = null
                                     }.onFailure { failure ->
-                                        error = context.getString(
+                                        error = resources.getString(
                                             if (failure is TelegramReauthenticationStarted) {
                                                 R.string.passkey_telegram_reauth_started
                                             } else R.string.passkey_rename_failed
@@ -915,7 +917,7 @@ private fun PasskeySection(accessToken: String, isOffline: Boolean) {
                         }
                     }.onSuccess { passkeys = it }
                         .onFailure { failure ->
-                            error = context.getString(
+                            error = resources.getString(
                                 if (failure is TelegramReauthenticationStarted) {
                                     R.string.passkey_telegram_reauth_started
                                 } else R.string.passkey_add_failed
@@ -950,7 +952,7 @@ private fun PasskeySection(accessToken: String, isOffline: Boolean) {
                         credentialManager.signalUnknownCredential(deleted.rpId, deleted.credentialId)
                     }
                 }.onFailure { failure ->
-                    error = context.getString(
+                    error = resources.getString(
                         if (failure is TelegramReauthenticationStarted) {
                             R.string.passkey_telegram_reauth_started
                         } else R.string.passkey_delete_failed
