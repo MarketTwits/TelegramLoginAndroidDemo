@@ -44,6 +44,8 @@ trap 'rm -f "$compose_override"' EXIT
 cat > "$compose_override" <<'YAML'
 services:
   backend:
+    env_file:
+      - .env
     environment:
       APP_TOKEN: ${APP_TOKEN:?APP_TOKEN is required}
     healthcheck:

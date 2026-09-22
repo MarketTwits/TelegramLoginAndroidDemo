@@ -12,6 +12,11 @@ services:
       # Optional at startup. Set it in .env to enable real Telegram authentication.
       TELEGRAM_CLIENT_ID: ${TELEGRAM_CLIENT_ID:-}
       APP_TOKEN: ${APP_TOKEN:?APP_TOKEN is required}
+      PASSKEY_RP_ID: ${PASSKEY_RP_ID:-}
+      PASSKEY_RP_NAME: ${PASSKEY_RP_NAME:-Telegram Login Demo}
+      PASSKEY_ALLOWED_ORIGINS: ${PASSKEY_ALLOWED_ORIGINS:-}
+      PASSKEY_ANDROID_PACKAGE: ${PASSKEY_ANDROID_PACKAGE:-}
+      PASSKEY_ANDROID_CERT_SHA256: ${PASSKEY_ANDROID_CERT_SHA256:-}
       TRUST_PROXY: ${TRUST_PROXY:-false}
     ports:
       - "127.0.0.1:8080:8080"
