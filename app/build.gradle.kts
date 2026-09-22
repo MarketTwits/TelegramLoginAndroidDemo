@@ -172,6 +172,8 @@ dependencies {
     implementation(libs.koin.androidx.compose)
     implementation(libs.lottie.compose)
     implementation(libs.libphonenumber)
+    implementation(libs.androidx.credentials)
+    implementation(libs.androidx.credentials.play.services.auth)
     implementation(libs.androidx.dataStore.preferences)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)

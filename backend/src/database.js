@@ -1,9 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 
 const SQLITE_BUSY_TIMEOUT_MS = 5_000;
-const DATABASE_SCHEMA_VERSION = 8;
+const DATABASE_SCHEMA_VERSION = 9;
 const DEFAULT_PROFILE_EMOJI_SET_ID = 'spotty-persik';
 const DEFAULT_PROFILE_EMOJI_ID = 'e-0007fab99d521710';
 const REVOKED_SESSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -22,6 +23,7 @@ const baseUserSchema = `
     phone_number TEXT,
     phone_verified INTEGER NOT NULL DEFAULT 0 CHECK (phone_verified IN (0, 1)),
     picture_url TEXT,
+    webauthn_user_handle TEXT UNIQUE,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     last_login_at INTEGER NOT NULL
@@ -58,6 +60,7 @@ const schema = `
     phone_number TEXT,
     phone_verified INTEGER NOT NULL DEFAULT 0 CHECK (phone_verified IN (0, 1)),
     picture_url TEXT,
+    webauthn_user_handle TEXT UNIQUE,
     onboarding_state TEXT NOT NULL DEFAULT 'PROFILE_REQUIRED'
       CHECK (onboarding_state IN ('PROFILE_REQUIRED', 'PROFILE_COMPLETED', 'DISABLED')),
     member_number INTEGER UNIQUE,
@@ -74,7 +77,43 @@ const schema = `
     created_at INTEGER NOT NULL,
     expires_at INTEGER NOT NULL,
     last_seen_at INTEGER NOT NULL,
+    revoked_at INTEGER,
+    authentication_method TEXT NOT NULL DEFAULT 'TELEGRAM',
+    reauthenticated_at INTEGER NOT NULL DEFAULT 0
+  ) STRICT;
+
+  CREATE TABLE IF NOT EXISTS passkey_credentials (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+    credential_id TEXT NOT NULL UNIQUE,
+    public_key BLOB NOT NULL,
+    counter INTEGER NOT NULL DEFAULT 0,
+    transports_json TEXT NOT NULL DEFAULT '[]',
+    aaguid TEXT,
+    device_type TEXT,
+    backed_up INTEGER NOT NULL DEFAULT 0 CHECK (backed_up IN (0, 1)),
+    display_name TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    last_used_at INTEGER,
     revoked_at INTEGER
+  ) STRICT;
+
+  CREATE TABLE IF NOT EXISTS webauthn_operations (
+    id TEXT PRIMARY KEY,
+    purpose TEXT NOT NULL CHECK (purpose IN ('REGISTRATION', 'AUTHENTICATION', 'REAUTHENTICATION')),
+    challenge TEXT NOT NULL,
+    user_id TEXT REFERENCES app_users(id) ON DELETE CASCADE,
+    session_token_hash TEXT,
+    rp_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    consumed_at INTEGER
+  ) STRICT;
+
+  CREATE TABLE IF NOT EXISTS reauthentication_proofs (
+    proof_hash TEXT PRIMARY KEY CHECK (length(proof_hash) = 64),
+    user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+    used_at INTEGER NOT NULL
   ) STRICT;
 
   ${profileTableSchema().replace('CREATE TABLE app_profiles', 'CREATE TABLE IF NOT EXISTS app_profiles')}
@@ -83,6 +122,9 @@ const schema = `
   CREATE INDEX IF NOT EXISTS app_sessions_expires_at_idx ON app_sessions(expires_at);
   CREATE UNIQUE INDEX IF NOT EXISTS app_users_member_number_idx ON app_users(member_number);
   CREATE UNIQUE INDEX IF NOT EXISTS app_users_telegram_user_id_idx ON app_users(telegram_user_id);
+  CREATE UNIQUE INDEX IF NOT EXISTS app_users_webauthn_user_handle_idx ON app_users(webauthn_user_handle);
+  CREATE INDEX IF NOT EXISTS passkey_credentials_user_id_idx ON passkey_credentials(user_id);
+  CREATE INDEX IF NOT EXISTS webauthn_operations_expires_at_idx ON webauthn_operations(expires_at);
 `;
 
 const legacyColumns = [
@@ -90,7 +132,8 @@ const legacyColumns = [
   ['onboarding_state', "TEXT NOT NULL DEFAULT 'PROFILE_REQUIRED'"],
   ['member_number', 'INTEGER'],
   ['login_count', 'INTEGER NOT NULL DEFAULT 0'],
-  ['telegram_synced_at', 'INTEGER NOT NULL DEFAULT 0']
+  ['telegram_synced_at', 'INTEGER NOT NULL DEFAULT 0'],
+  ['webauthn_user_handle', 'TEXT']
 ];
 
 const migrateLegacyUsers = (database) => {
@@ -106,6 +149,25 @@ const migrateLegacyUsers = (database) => {
     SET telegram_synced_at = updated_at
     WHERE telegram_synced_at = 0;
   `);
+  const missingHandles = database.prepare(
+    'SELECT id FROM app_users WHERE webauthn_user_handle IS NULL'
+  ).all();
+  const updateHandle = database.prepare(
+    'UPDATE app_users SET webauthn_user_handle = ? WHERE id = ?'
+  );
+  for (const { id } of missingHandles) {
+    updateHandle.run(crypto.randomBytes(32).toString('base64url'), id);
+  }
+};
+
+const migrateLegacySessions = (database) => {
+  const columns = new Set(database.prepare('PRAGMA table_info(app_sessions)').all().map((row) => row.name));
+  if (columns.size > 0 && !columns.has('authentication_method')) {
+    database.exec("ALTER TABLE app_sessions ADD COLUMN authentication_method TEXT NOT NULL DEFAULT 'TELEGRAM'");
+  }
+  if (columns.size > 0 && !columns.has('reauthenticated_at')) {
+    database.exec('ALTER TABLE app_sessions ADD COLUMN reauthenticated_at INTEGER NOT NULL DEFAULT 0');
+  }
 };
 
 const migrateLegacyProfiles = (database) => {
@@ -194,6 +256,7 @@ export const createDatabase = (config) => {
   database.exec(baseUserSchema);
   migrateLegacyUsers(database);
   database.exec(schema);
+  migrateLegacySessions(database);
   migrateLegacyProfiles(database);
   database.exec(`PRAGMA user_version = ${DATABASE_SCHEMA_VERSION}`);
 
@@ -209,9 +272,9 @@ export const createDatabase = (config) => {
   const insertUser = database.prepare(`
     INSERT INTO app_users (
       id, telegram_subject, telegram_user_id, name, given_name, family_name, username, phone_number,
-      phone_verified, picture_url, onboarding_state, member_number, login_count,
+      phone_verified, picture_url, webauthn_user_handle, onboarding_state, member_number, login_count,
       created_at, updated_at, last_login_at, telegram_synced_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PROFILE_REQUIRED', ?, 1, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PROFILE_REQUIRED', ?, 1, ?, ?, ?, ?)
   `);
   const updateUserLogin = database.prepare(`
     UPDATE app_users SET
@@ -225,8 +288,10 @@ export const createDatabase = (config) => {
     UPDATE app_users SET onboarding_state = 'DISABLED', updated_at = ? WHERE id = ?
   `);
   const insertSession = database.prepare(`
-    INSERT INTO app_sessions (token_hash, user_id, created_at, expires_at, last_seen_at)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO app_sessions (
+      token_hash, user_id, created_at, expires_at, last_seen_at,
+      authentication_method, reauthenticated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
   const revokeSession = database.prepare(`
     UPDATE app_sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL
@@ -235,8 +300,12 @@ export const createDatabase = (config) => {
     UPDATE app_sessions SET last_seen_at = ?
     WHERE token_hash = ? AND revoked_at IS NULL AND expires_at > ? AND last_seen_at <= ?
   `);
+  const reauthenticateSession = database.prepare(`
+    UPDATE app_sessions SET reauthenticated_at = ?
+    WHERE token_hash = ? AND user_id = ? AND revoked_at IS NULL AND expires_at > ?
+  `);
   const accountProfileProjection = `
-    SELECT account.*, session.expires_at,
+    SELECT account.*, session.expires_at, session.authentication_method, session.reauthenticated_at,
            profile.id AS profile_id, profile.display_name, profile.headline,
            profile.intent, profile.topics_json, profile.avatar_source,
            profile.emoji_set_id, profile.emoji_id, profile.visual_seed,
@@ -291,6 +360,56 @@ export const createDatabase = (config) => {
       ORDER BY created_at DESC, rowid DESC LIMIT ?
     )
   `);
+  const insertPasskey = database.prepare(`
+    INSERT INTO passkey_credentials (
+      id, user_id, credential_id, public_key, counter, transports_json, aaguid,
+      device_type, backed_up, display_name, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const selectPasskeyByCredentialId = database.prepare(`
+    SELECT credential.*, account.webauthn_user_handle, account.onboarding_state
+    FROM passkey_credentials AS credential
+    JOIN app_users AS account ON account.id = credential.user_id
+    WHERE credential.credential_id = ? AND credential.revoked_at IS NULL
+  `);
+  const selectPasskeysByUser = database.prepare(`
+    SELECT * FROM passkey_credentials
+    WHERE user_id = ? AND revoked_at IS NULL ORDER BY created_at DESC
+  `);
+  const updatePasskeyUsage = database.prepare(`
+    UPDATE passkey_credentials SET counter = ?, last_used_at = ?
+    WHERE credential_id = ? AND counter = ? AND revoked_at IS NULL
+  `);
+  const renamePasskey = database.prepare(`
+    UPDATE passkey_credentials SET display_name = ?
+    WHERE id = ? AND user_id = ? AND revoked_at IS NULL
+  `);
+  const revokePasskey = database.prepare(`
+    UPDATE passkey_credentials SET revoked_at = ?
+    WHERE id = ? AND user_id = ? AND revoked_at IS NULL
+  `);
+  const selectPasskeyByIdForUser = database.prepare(`
+    SELECT * FROM passkey_credentials WHERE id = ? AND user_id = ? AND revoked_at IS NULL
+  `);
+  const insertWebAuthnOperation = database.prepare(`
+    INSERT INTO webauthn_operations (
+      id, purpose, challenge, user_id, session_token_hash, rp_id, created_at, expires_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const consumeWebAuthnOperation = database.prepare(`
+    UPDATE webauthn_operations SET consumed_at = ?
+    WHERE id = ? AND purpose = ? AND consumed_at IS NULL AND expires_at > ?
+  `);
+  const selectWebAuthnOperation = database.prepare('SELECT * FROM webauthn_operations WHERE id = ?');
+  const cleanupWebAuthnOperations = database.prepare(
+    'DELETE FROM webauthn_operations WHERE expires_at <= ? OR consumed_at IS NOT NULL'
+  );
+  const insertReauthenticationProof = database.prepare(`
+    INSERT INTO reauthentication_proofs (proof_hash, user_id, used_at) VALUES (?, ?, ?)
+  `);
+  const cleanupReauthenticationProofs = database.prepare(
+    'DELETE FROM reauthentication_proofs WHERE used_at < ?'
+  );
 
   const readAccount = (row) => row ? ({
     account: normalizeUserRow(row),
@@ -333,7 +452,8 @@ export const createDatabase = (config) => {
     insertUser.run(
       profile.id, profile.telegramSubject, profile.telegramUserId, profile.name, profile.givenName,
       profile.familyName, profile.username, profile.phoneNumber,
-      profile.phoneVerified ? 1 : 0, profile.picture, memberNumber,
+      profile.phoneVerified ? 1 : 0, profile.picture,
+      crypto.randomBytes(32).toString('base64url'), memberNumber,
       now, now, now, now
     );
     return readAccount(selectAccountWithProfile.get(profile.id));
@@ -353,12 +473,18 @@ export const createDatabase = (config) => {
   });
 
   const deleteAccount = transaction((userId) => deleteUserAccount.run(userId).changes === 1);
+  const reauthenticateWithProof = transaction((tokenHash, userId, proofHash) => {
+    const now = Date.now();
+    insertReauthenticationProof.run(proofHash, userId, now);
+    return reauthenticateSession.run(now, tokenHash, userId, now).changes === 1;
+  });
 
   return {
     path: databasePath,
     migrate() {
       migrateLegacyUsers(database);
       database.exec(schema);
+      migrateLegacySessions(database);
       migrateLegacyProfiles(database);
       database.exec(`PRAGMA user_version = ${DATABASE_SCHEMA_VERSION}`);
     },
@@ -378,23 +504,85 @@ export const createDatabase = (config) => {
       disableUser.run(Date.now(), userId);
     },
 
-    createSession(tokenHash, userId, expiresAt) {
+    createSession(tokenHash, userId, expiresAt, authenticationMethod = 'TELEGRAM') {
       const now = Date.now();
       pruneUserSessions.run(userId, userId, now, MAX_ACTIVE_SESSIONS_PER_USER - 1);
-      insertSession.run(tokenHash, userId, now, expiresAt.getTime(), now);
+      insertSession.run(tokenHash, userId, now, expiresAt.getTime(), now, authenticationMethod, now);
     },
     revokeSession(tokenHash) {
       revokeSession.run(Date.now(), tokenHash);
     },
+    reauthenticateSession(tokenHash, userId) {
+      const now = Date.now();
+      return reauthenticateSession.run(now, tokenHash, userId, now).changes === 1;
+    },
+    reauthenticateWithProof,
     findSession(tokenHash) {
       const now = Date.now();
       touchSession.run(now, tokenHash, now, now - SESSION_LAST_SEEN_WRITE_INTERVAL_MS);
       const row = selectSession.get(tokenHash, now);
-      return row ? { ...readAccount(row), expiresAt: new Date(row.expires_at) } : null;
+      return row ? {
+        ...readAccount(row),
+        expiresAt: new Date(row.expires_at),
+        authenticationMethod: row.authentication_method,
+        reauthenticatedAt: new Date(row.reauthenticated_at)
+      } : null;
     },
     deleteExpiredSessions() {
       const now = Date.now();
       cleanupSessions.run(now, now - REVOKED_SESSION_RETENTION_MS);
+      cleanupWebAuthnOperations.run(now);
+      cleanupReauthenticationProofs.run(now - REVOKED_SESSION_RETENTION_MS);
+    },
+    listPasskeys(userId) {
+      return selectPasskeysByUser.all(userId).map((row) => ({
+        ...row,
+        transports: JSON.parse(row.transports_json),
+        backed_up: row.backed_up === 1,
+        created_at: new Date(row.created_at),
+        last_used_at: row.last_used_at == null ? null : new Date(row.last_used_at)
+      }));
+    },
+    findPasskeyByCredentialId(credentialId) {
+      const row = selectPasskeyByCredentialId.get(credentialId);
+      return row ? {
+        ...row,
+        transports: JSON.parse(row.transports_json),
+        backed_up: row.backed_up === 1
+      } : null;
+    },
+    createPasskey(userId, credential) {
+      insertPasskey.run(
+        credential.id, userId, credential.credentialId, credential.publicKey,
+        credential.counter, JSON.stringify(credential.transports ?? []), credential.aaguid ?? null,
+        credential.deviceType ?? null, credential.backedUp ? 1 : 0,
+        credential.displayName, Date.now()
+      );
+    },
+    updatePasskeyUsage(credentialId, previousCounter, counter) {
+      return updatePasskeyUsage.run(counter, Date.now(), credentialId, previousCounter).changes === 1;
+    },
+    renamePasskey(userId, id, displayName) {
+      return renamePasskey.run(displayName, id, userId).changes === 1;
+    },
+    revokePasskey(userId, id) {
+      const credential = selectPasskeyByIdForUser.get(id, userId);
+      if (!credential || revokePasskey.run(Date.now(), id, userId).changes !== 1) return null;
+      return credential;
+    },
+    createWebAuthnOperation(operation) {
+      cleanupWebAuthnOperations.run(Date.now());
+      insertWebAuthnOperation.run(
+        operation.id, operation.purpose, operation.challenge, operation.userId ?? null,
+        operation.sessionTokenHash ?? null, operation.rpId,
+        operation.createdAt.getTime(), operation.expiresAt.getTime()
+      );
+    },
+    consumeWebAuthnOperation(id, purpose) {
+      const now = Date.now();
+      const operation = selectWebAuthnOperation.get(id);
+      if (!operation || consumeWebAuthnOperation.run(now, id, purpose, now).changes !== 1) return null;
+      return operation;
     }
   };
 };

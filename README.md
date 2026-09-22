@@ -19,6 +19,10 @@ the Jetpack Compose client, a Node.js backend, and SQLite storage.
 Telegram proves identity; the backend owns the application account, session, profile, and
 emoji selection. Tokens and profile data are cached encrypted on Android.
 
+Existing accounts can also register discoverable passkeys from the profile and use them for
+subsequent sign-in through Android Credential Manager. Telegram remains the account bootstrap
+and recovery method.
+
 ## Local setup
 
 Requirements: Android Studio with JDK 21, Node.js 22.13+ or Docker, and a GitHub token with
@@ -56,3 +60,7 @@ Sync Gradle and run the `app` configuration from Android Studio.
 - Keep TLS termination at the reverse proxy, restrict CORS to known origins if browser
   clients are introduced, and do not publish database files, logs, metrics, or management
   endpoints.
+- Passkeys require `PASSKEY_RP_ID`, the allowed Android origin, application package, and signing
+  certificate fingerprints from `.env.example`. The backend publishes the matching Digital
+  Asset Links document at `/.well-known/assetlinks.json`; the RP ID must resolve to that same
+  HTTPS backend host.

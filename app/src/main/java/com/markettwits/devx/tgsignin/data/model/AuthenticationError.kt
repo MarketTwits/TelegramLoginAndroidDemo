@@ -14,6 +14,8 @@ sealed class AuthenticationError(cause: Throwable? = null) : Exception(cause) {
     class InvalidConfiguration(cause: Throwable? = null) : AuthenticationError(cause)
     class TelegramSdk(cause: Throwable) : AuthenticationError(cause)
     class BrowserUnavailable(cause: Throwable) : AuthenticationError(cause)
+    class PasskeyCancelled(cause: Throwable) : AuthenticationError(cause)
+    class PasskeyUnavailable(cause: Throwable) : AuthenticationError(cause)
     class LocalStorage(cause: Throwable) : AuthenticationError(cause)
     class Unknown(cause: Throwable) : AuthenticationError(cause)
 }

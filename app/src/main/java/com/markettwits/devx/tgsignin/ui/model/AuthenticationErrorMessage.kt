@@ -19,6 +19,8 @@ fun Throwable.toUserMessageRes(): Int = when (this) {
     is AuthenticationError.InvalidConfiguration -> R.string.error_invalid_configuration
     is AuthenticationError.TelegramSdk -> R.string.error_telegram_sdk
     is AuthenticationError.BrowserUnavailable -> R.string.error_browser_unavailable
+    is AuthenticationError.PasskeyCancelled -> R.string.login_cancelled
+    is AuthenticationError.PasskeyUnavailable -> R.string.error_passkey_unavailable
     is AuthenticationError.LocalStorage -> R.string.error_local_storage
     is AuthenticationError.Unknown -> R.string.error_unknown
     else -> R.string.error_unknown

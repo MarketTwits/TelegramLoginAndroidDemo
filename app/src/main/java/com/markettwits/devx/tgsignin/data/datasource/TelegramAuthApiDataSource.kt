@@ -4,6 +4,9 @@ import com.markettwits.devx.tgsignin.data.model.AuthenticationResult
 import com.markettwits.devx.tgsignin.data.model.AvatarSource
 import com.markettwits.devx.tgsignin.data.model.DEFAULT_PROFILE_EMOJI
 import com.markettwits.devx.tgsignin.data.model.OnboardingState
+import com.markettwits.devx.tgsignin.data.model.DeletedPasskey
+import com.markettwits.devx.tgsignin.data.model.PasskeyInfo
+import com.markettwits.devx.tgsignin.data.model.PasskeyOptions
 import com.markettwits.devx.tgsignin.data.model.ProfileDraft
 import com.markettwits.devx.tgsignin.data.model.ProfileEmojiSelection
 import com.markettwits.devx.tgsignin.data.model.ProfileIntent
@@ -29,6 +32,33 @@ interface TelegramAuthApiDataSource {
     suspend fun saveProfile(accessToken: String, draft: ProfileDraft): AuthenticationResult
     suspend fun deleteAccount(accessToken: String)
     suspend fun revokeSession(accessToken: String)
+    suspend fun beginPasskeyAuthentication(): PasskeyOptions = error("Passkeys are unavailable")
+    suspend fun finishPasskeyAuthentication(operationId: String, credentialJson: String): AuthenticationResult =
+        error("Passkeys are unavailable")
+    suspend fun listPasskeys(accessToken: String): List<PasskeyInfo> = error("Passkeys are unavailable")
+    suspend fun beginPasskeyRegistration(accessToken: String): PasskeyOptions = error("Passkeys are unavailable")
+    suspend fun finishPasskeyRegistration(
+        accessToken: String,
+        operationId: String,
+        credentialJson: String,
+        name: String
+    ): List<PasskeyInfo> = error("Passkeys are unavailable")
+    suspend fun renamePasskey(accessToken: String, id: String, name: String): List<PasskeyInfo> =
+        error("Passkeys are unavailable")
+    suspend fun beginPasskeyReauthentication(accessToken: String): PasskeyOptions =
+        error("Passkeys are unavailable")
+    suspend fun reauthenticateWithTelegram(accessToken: String, idToken: String): Unit =
+        error("Telegram reauthentication is unavailable")
+    suspend fun finishPasskeyReauthentication(
+        accessToken: String,
+        operationId: String,
+        credentialJson: String
+    ): Unit {
+        error("Passkeys are unavailable")
+    }
+    suspend fun deletePasskey(accessToken: String, id: String): DeletedPasskey {
+        error("Passkeys are unavailable")
+    }
 }
 
 /** Real backend client. Telegram credentials are never interpreted on-device. */
@@ -81,6 +111,94 @@ class TelegramAuthApiDataSourceImpl(
     override suspend fun revokeSession(accessToken: String) {
         request(path = "/auth/session", method = "DELETE", accessToken = accessToken) { }
     }
+
+    override suspend fun beginPasskeyAuthentication(): PasskeyOptions = request(
+        path = "/auth/passkeys/options", method = "POST", accessToken = null, body = JSONObject()
+    ) { it.toPasskeyOptions() }
+
+    override suspend fun finishPasskeyAuthentication(
+        operationId: String,
+        credentialJson: String
+    ): AuthenticationResult = request(
+        path = "/auth/passkeys/verify",
+        method = "POST",
+        accessToken = null,
+        body = JSONObject()
+            .put("operationId", operationId)
+            .put("credential", JSONObject(credentialJson))
+    ) { json -> parseAuthenticationResult(json, json.getString("sessionToken")) }
+
+    override suspend fun listPasskeys(accessToken: String): List<PasskeyInfo> = request(
+        path = "/me/passkeys", method = "GET", accessToken = accessToken
+    ) { it.getJSONArray("passkeys").toPasskeys() }
+
+    override suspend fun beginPasskeyRegistration(accessToken: String): PasskeyOptions = request(
+        path = "/me/passkeys/registration/options",
+        method = "POST",
+        accessToken = accessToken,
+        body = JSONObject()
+    ) { it.toPasskeyOptions() }
+
+    override suspend fun finishPasskeyRegistration(
+        accessToken: String,
+        operationId: String,
+        credentialJson: String,
+        name: String
+    ): List<PasskeyInfo> = request(
+        path = "/me/passkeys/registration/verify",
+        method = "POST",
+        accessToken = accessToken,
+        body = JSONObject()
+            .put("operationId", operationId)
+            .put("credential", JSONObject(credentialJson))
+            .put("name", name)
+    ) { it.getJSONArray("passkeys").toPasskeys() }
+
+    override suspend fun renamePasskey(
+        accessToken: String,
+        id: String,
+        name: String
+    ): List<PasskeyInfo> = request(
+        path = "/me/passkeys/$id",
+        method = "PATCH",
+        accessToken = accessToken,
+        body = JSONObject().put("name", name)
+    ) { it.getJSONArray("passkeys").toPasskeys() }
+
+    override suspend fun beginPasskeyReauthentication(accessToken: String): PasskeyOptions = request(
+        path = "/me/reauth/passkeys/options",
+        method = "POST",
+        accessToken = accessToken,
+        body = JSONObject()
+    ) { it.toPasskeyOptions() }
+
+    override suspend fun reauthenticateWithTelegram(accessToken: String, idToken: String) {
+        request(
+            path = "/me/reauth/telegram",
+            method = "POST",
+            accessToken = accessToken,
+            body = JSONObject().put("idToken", idToken)
+        ) { }
+    }
+
+    override suspend fun finishPasskeyReauthentication(
+        accessToken: String,
+        operationId: String,
+        credentialJson: String
+    ) {
+        request(
+            path = "/me/reauth/passkeys/verify",
+            method = "POST",
+            accessToken = accessToken,
+            body = JSONObject()
+                .put("operationId", operationId)
+                .put("credential", JSONObject(credentialJson))
+        ) { }
+    }
+
+    override suspend fun deletePasskey(accessToken: String, id: String): DeletedPasskey = request(
+        path = "/me/passkeys/$id", method = "DELETE", accessToken = accessToken
+    ) { DeletedPasskey(it.getString("credentialId"), it.getString("rpId")) }
 
     private suspend fun <T> request(
         path: String,
@@ -217,6 +335,25 @@ private fun JSONObject.optionalString(key: String): String? =
     optString(key).takeIf { it.isNotBlank() && it != JSONObject.NULL.toString() }
 
 private fun JSONArray.toStrings(): List<String> = (0 until length()).map(::getString)
+
+private fun JSONObject.toPasskeyOptions() = PasskeyOptions(
+    operationId = getString("operationId"),
+    requestJson = getJSONObject("publicKey").toString()
+)
+
+private fun JSONArray.toPasskeys(): List<PasskeyInfo> = (0 until length()).map { index ->
+    getJSONObject(index).let { value ->
+        PasskeyInfo(
+            id = value.getString("id"),
+            credentialId = value.getString("credentialId"),
+            name = value.getString("name"),
+            createdAt = value.getString("createdAt"),
+            lastUsedAt = value.optionalString("lastUsedAt"),
+            deviceType = value.optionalString("deviceType"),
+            backedUp = value.optBoolean("backedUp")
+        )
+    }
+}
 
 private fun ProfileEmojiSelection.toJson(): JSONObject = JSONObject()
     .put("setId", setId)

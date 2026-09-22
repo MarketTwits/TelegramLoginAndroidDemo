@@ -1,5 +1,7 @@
 package com.markettwits.devx.tgsignin.ui.screen
 
+import android.os.Build
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
@@ -43,12 +45,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -98,6 +103,10 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.markettwits.devx.tgsignin.R
 import com.markettwits.devx.tgsignin.data.model.AuthenticationResult
+import com.markettwits.devx.tgsignin.data.model.PasskeyInfo
+import com.markettwits.devx.tgsignin.data.datasource.PasskeyCredentialDataSource
+import com.markettwits.devx.tgsignin.data.datasource.TelegramAuthApiDataSource
+import com.markettwits.devx.tgsignin.data.datasource.BackendHttpException
 import com.markettwits.devx.tgsignin.data.model.ProfileDraft
 import com.markettwits.devx.tgsignin.data.model.ProfileEmojiCatalog
 import com.markettwits.devx.tgsignin.data.model.ProfileEmojiSelection
@@ -110,6 +119,7 @@ import com.markettwits.devx.tgsignin.data.model.isValidOptionalInternationalPhon
 import com.markettwits.devx.tgsignin.data.model.normalizedInternationalPhoneNumberOrNull
 import com.markettwits.devx.tgsignin.data.model.normalizedTelegramPhoneNumberOrNull
 import com.markettwits.devx.tgsignin.data.repository.ProfileEmojiRepository
+import com.markettwits.devx.tgsignin.data.repository.AuthenticationRepository
 import com.markettwits.devx.tgsignin.ui.component.InternationalPhoneVisualTransformation
 import com.markettwits.devx.tgsignin.ui.component.ProfileEmojiImage
 import com.markettwits.devx.tgsignin.ui.component.TelegramChoice
@@ -134,6 +144,7 @@ import kotlin.math.roundToInt
 
 private const val SETUP_PAGE_COUNT = 4
 private const val EMOJI_SET_PREFETCH_COUNT = 20
+private class TelegramReauthenticationStarted : Exception()
 
 @Composable
 fun ProfileSetupScreen(
@@ -694,6 +705,7 @@ fun BloomProfileScreen(
                     ))
                 }
                 TelegramIdentitySummary(session, profile.phoneNumber)
+                PasskeySection(session.accessToken, isOffline)
                 TelegramDestructiveButton(
                     text = stringResource(R.string.bloom_delete_account),
                     onClick = { confirmDelete = true },
@@ -744,6 +756,209 @@ fun BloomProfileScreen(
         onConfirm = { confirmDelete = false; onDelete() },
         onDismiss = { confirmDelete = false },
         destructive = true
+    )
+}
+
+@Composable
+private fun PasskeySection(accessToken: String, isOffline: Boolean) {
+    val api: TelegramAuthApiDataSource = koinInject()
+    val credentialManager: PasskeyCredentialDataSource = koinInject()
+    val authenticationRepository: AuthenticationRepository = koinInject()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var passkeys by remember(accessToken) { mutableStateOf<List<PasskeyInfo>>(emptyList()) }
+    var loading by remember(accessToken) { mutableStateOf(true) }
+    var changing by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var editingId by remember { mutableStateOf<String?>(null) }
+    var deletingId by remember { mutableStateOf<String?>(null) }
+    var editedName by remember { mutableStateOf("") }
+
+    suspend fun reauthenticateWithPasskey() {
+        val options = try {
+            api.beginPasskeyReauthentication(accessToken)
+        } catch (error: BackendHttpException) {
+            if (error.errorCode != "PASSKEY_REQUIRED") throw error
+            authenticationRepository.startTelegramReauthentication(context)
+            throw TelegramReauthenticationStarted()
+        }
+        val response = credentialManager.get(context, options.requestJson)
+        api.finishPasskeyReauthentication(accessToken, options.operationId, response)
+    }
+
+    suspend fun <T> withFreshAuthentication(block: suspend () -> T): T = try {
+        block()
+    } catch (error: BackendHttpException) {
+        if (error.errorCode != "REAUTHENTICATION_REQUIRED") throw error
+        reauthenticateWithPasskey()
+        block()
+    }
+
+    fun reload() {
+        scope.launch {
+            loading = true
+            error = null
+            runCatching { api.listPasskeys(accessToken) }
+                .onSuccess { passkeys = it }
+                .onFailure { error = context.getString(R.string.passkey_load_failed) }
+            loading = false
+        }
+    }
+
+    LaunchedEffect(accessToken) { reload() }
+
+    TelegramSection(title = stringResource(R.string.passkey_section_title)) {
+        Text(
+            stringResource(R.string.passkey_section_description),
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        when {
+            loading -> CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+            passkeys.isEmpty() -> Text(stringResource(R.string.passkey_empty))
+            else -> passkeys.forEach { passkey ->
+                Surface(
+                    shape = MaterialTheme.shapes.small,
+                    color = MaterialTheme.colorScheme.surfaceVariant
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        androidx.compose.material3.Icon(
+                            Icons.Outlined.Key,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                            Text(passkey.name, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                stringResource(R.string.passkey_created, formatDate(passkey.createdAt)),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        TelegramIconAction(
+                            icon = Icons.Outlined.Edit,
+                            contentDescription = stringResource(R.string.passkey_rename),
+                            enabled = !changing && !isOffline,
+                            onClick = {
+                                editingId = passkey.id
+                                editedName = passkey.name
+                            }
+                        )
+                        Spacer(Modifier.size(8.dp))
+                        TelegramIconAction(
+                            icon = Icons.Outlined.DeleteOutline,
+                            contentDescription = stringResource(R.string.passkey_delete),
+                            enabled = !changing && !isOffline,
+                            onClick = { deletingId = passkey.id }
+                        )
+                    }
+                }
+                if (editingId == passkey.id) {
+                    TelegramTextField(
+                        value = editedName,
+                        onValueChange = { editedName = it.take(80) },
+                        label = stringResource(R.string.passkey_name),
+                        singleLine = true
+                    )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = { editingId = null }) {
+                            Text(stringResource(R.string.cancel))
+                        }
+                        TextButton(
+                            enabled = editedName.isNotBlank() && !changing,
+                            onClick = {
+                                scope.launch {
+                                    changing = true
+                                    error = null
+                                    runCatching {
+                                        withFreshAuthentication {
+                                            api.renamePasskey(accessToken, passkey.id, editedName.trim())
+                                        }
+                                    }.onSuccess {
+                                        passkeys = it
+                                        editingId = null
+                                    }.onFailure { failure ->
+                                        error = context.getString(
+                                            if (failure is TelegramReauthenticationStarted) {
+                                                R.string.passkey_telegram_reauth_started
+                                            } else R.string.passkey_rename_failed
+                                        )
+                                    }
+                                    changing = false
+                                }
+                            }
+                        ) { Text(stringResource(R.string.done)) }
+                    }
+                }
+            }
+        }
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        TelegramPrimaryButton(
+            text = stringResource(R.string.passkey_add),
+            enabled = credentialManager.isSupported && !changing && !isOffline,
+            onClick = {
+                scope.launch {
+                    changing = true
+                    error = null
+                    runCatching {
+                        withFreshAuthentication {
+                            val options = api.beginPasskeyRegistration(accessToken)
+                            val response = credentialManager.create(context, options.requestJson)
+                            api.finishPasskeyRegistration(
+                                accessToken = accessToken,
+                                operationId = options.operationId,
+                                credentialJson = response,
+                                name = Build.MODEL.take(80)
+                            )
+                        }
+                    }.onSuccess { passkeys = it }
+                        .onFailure { failure ->
+                            error = context.getString(
+                                if (failure is TelegramReauthenticationStarted) {
+                                    R.string.passkey_telegram_reauth_started
+                                } else R.string.passkey_add_failed
+                            )
+                        }
+                    changing = false
+                }
+            }
+        )
+    }
+
+    val deletingPasskey = passkeys.firstOrNull { it.id == deletingId }
+    if (deletingPasskey != null) TelegramConfirmationDialog(
+        title = stringResource(R.string.passkey_delete_title),
+        message = stringResource(R.string.passkey_delete_confirmation, deletingPasskey.name),
+        confirmText = stringResource(R.string.passkey_delete),
+        dismissText = stringResource(R.string.cancel),
+        destructive = true,
+        onDismiss = { deletingId = null },
+        onConfirm = {
+            deletingId = null
+            scope.launch {
+                changing = true
+                error = null
+                runCatching {
+                    withFreshAuthentication {
+                        api.deletePasskey(accessToken, deletingPasskey.id)
+                    }
+                }.onSuccess { deleted ->
+                    passkeys = passkeys.filterNot { it.id == deletingPasskey.id }
+                    runCatching {
+                        credentialManager.signalUnknownCredential(deleted.rpId, deleted.credentialId)
+                    }
+                }.onFailure { failure ->
+                    error = context.getString(
+                        if (failure is TelegramReauthenticationStarted) {
+                            R.string.passkey_telegram_reauth_started
+                        } else R.string.passkey_delete_failed
+                    )
+                }
+                changing = false
+            }
+        }
     )
 }
 

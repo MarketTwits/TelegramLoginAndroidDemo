@@ -8,6 +8,7 @@
     <string name="awaiting_confirmation">Waiting for confirmation…</string>
     <string name="verifying_sign_in">Verifying sign-in…</string>
     <string name="sign_in_with_telegram">Sign in with Telegram</string>
+    <string name="sign_in_with_passkey">Sign in with passkey</string>
     <string name="requested_data_title">Profile data</string>
     <string name="sign_in_data_title">Sign-in data</string>
     <string name="sign_in_data_description">Choose which data Telegram may share with the app.</string>
@@ -107,6 +108,7 @@
     <string name="error_invalid_configuration">Telegram sign-in is not configured. Check the application configuration.</string>
     <string name="error_telegram_sdk">Telegram could not complete authentication. Start the sign-in flow again.</string>
     <string name="error_browser_unavailable">Could not open the Telegram page. Check the browser on this device.</string>
+    <string name="error_passkey_unavailable">No passkey is available. Use Telegram or check your credential provider.</string>
     <string name="error_local_storage">Could not save the account data on this device. Try again.</string>
     <string name="error_unknown">An unexpected error occurred. Try again.</string>
 
@@ -169,6 +171,21 @@
     <string name="bloom_hide_telegram_user_id">Hide Telegram user ID</string>
     <string name="bloom_edit_profile">Edit profile</string>
     <string name="bloom_delete_account">Delete account</string>
+    <string name="passkey_section_title">Passkeys</string>
+    <string name="passkey_section_description">Use a passkey to sign in without opening Telegram.</string>
+    <string name="passkey_empty">No passkeys added yet.</string>
+    <string name="passkey_add">Add passkey</string>
+    <string name="passkey_delete">Delete</string>
+    <string name="passkey_delete_title">Delete passkey?</string>
+    <string name="passkey_delete_confirmation">“%1$s” will no longer work for signing in to this account.</string>
+    <string name="passkey_rename">Rename</string>
+    <string name="passkey_name">Passkey name</string>
+    <string name="passkey_created">Created %1$s</string>
+    <string name="passkey_load_failed">Could not load passkeys.</string>
+    <string name="passkey_add_failed">Could not add the passkey. Sign in again and retry.</string>
+    <string name="passkey_delete_failed">Could not delete the passkey. Sign in again and retry.</string>
+    <string name="passkey_rename_failed">Could not rename the passkey. Sign in again and retry.</string>
+    <string name="passkey_telegram_reauth_started">Confirm your Telegram account, then repeat this action.</string>
     <string name="bloom_delete_title">Delete your account?</string>
     <string name="bloom_delete_confirmation">Your Bloom account, profile, and active sessions will be permanently deleted. You will return to Telegram sign-in.</string>
     <string name="bloom_next">Next</string>

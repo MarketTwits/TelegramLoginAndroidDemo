@@ -276,7 +276,7 @@ test('Backend starts without Telegram configuration and reports setup mode', asy
   assert.equal(healthResponse.status, 200);
   assert.deepEqual(await healthResponse.json(), {
     status: 'ready', database: 'connected', telegram: 'configuration_required',
-    apiVersion: 8, revision: 'development'
+    passkeys: 'configuration_required', apiVersion: 8, revision: 'development'
   });
   assert.equal(healthResponse.headers.get('x-telegram-bloom-api-version'), '8');
   const response = await fetch(`${baseUrl}/auth/telegram`, {
@@ -310,9 +310,80 @@ test('disabled account cannot restore, edit, or create another successful login'
   });
   assert.equal(profileResponse.status, 403);
 
+  const passkeyRequests = [
+    ['/me/passkeys', 'GET'],
+    ['/me/reauth/passkeys/options', 'POST'],
+    ['/me/reauth/telegram', 'POST'],
+    ['/me/passkeys/registration/options', 'POST'],
+    ['/me/passkeys/registration/verify', 'POST'],
+    ['/me/passkeys/missing', 'PATCH'],
+    ['/me/passkeys/missing', 'DELETE']
+  ];
+  for (const [path, method] of passkeyRequests) {
+    const response = await fetch(`${baseUrl}${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${first.body.sessionToken}`,
+        ...(method === 'POST' || method === 'PATCH' ? { 'Content-Type': 'application/json' } : {})
+      },
+      ...(method === 'POST' || method === 'PATCH' ? { body: '{}' } : {})
+    });
+    assert.equal(response.status, 403, `${method} ${path}`);
+    assert.equal((await response.json()).code, 'ACCOUNT_DISABLED');
+  }
+
   const repeated = await login(baseUrl);
   assert.equal(repeated.response.status, 403);
   assert.equal(database.getAccount(first.body.account.id).account.login_count, 1);
+});
+
+test('Telegram reauthentication is account-bound and rejects replayed proofs', async (context) => {
+  let verifiedProfile = telegramProfile();
+  const { baseUrl } = await startServer(context, async () => verifiedProfile);
+  const authenticated = await login(baseUrl);
+  const request = () => fetch(`${baseUrl}/me/reauth/telegram`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${authenticated.body.sessionToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ idToken: 'r'.repeat(40) })
+  });
+
+  assert.equal((await request()).status, 204);
+  assert.equal((await request()).status, 409);
+  verifiedProfile = telegramProfile({ telegramUserId: '123456789' });
+  const mismatch = await fetch(`${baseUrl}/me/reauth/telegram`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${authenticated.body.sessionToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ idToken: 'm'.repeat(40) })
+  });
+  assert.equal(mismatch.status, 403);
+  assert.equal((await mismatch.json()).code, 'ACCOUNT_MISMATCH');
+});
+
+test('Digital Asset Links exposes only configured Android signing identities', async (context) => {
+  const fingerprint = Array(32).fill('AA').join(':');
+  const configured = {
+    ...config,
+    passkeyAndroidPackage: 'com.example.app',
+    passkeyAndroidCertSha256: [fingerprint]
+  };
+  const { baseUrl } = await startServer(context, async () => telegramProfile(), configured);
+  const response = await fetch(`${baseUrl}/.well-known/assetlinks.json`);
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type'), /^application\/json/);
+  assert.deepEqual(await response.json(), [{
+    relation: ['delegate_permission/common.get_login_creds'],
+    target: {
+      namespace: 'android_app',
+      package_name: 'com.example.app',
+      sha256_cert_fingerprints: [fingerprint]
+    }
+  }]);
 });
 
 test('profile emoji catalog groups one compact TGS format with verified thumbnails', async (context) => {

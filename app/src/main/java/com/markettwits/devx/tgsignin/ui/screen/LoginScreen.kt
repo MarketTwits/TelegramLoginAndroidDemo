@@ -1,5 +1,7 @@
 package com.markettwits.devx.tgsignin.ui.screen
 
+import android.os.Build
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -8,7 +10,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -22,8 +23,7 @@ import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.PhoneAndroid
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import com.markettwits.devx.tgsignin.R
 import com.markettwits.devx.tgsignin.data.model.TelegramScope
 import com.markettwits.devx.tgsignin.ui.component.TelegramModalBottomSheet
+import com.markettwits.devx.tgsignin.ui.component.TelegramPrimaryButton
 import com.markettwits.devx.tgsignin.ui.component.showTelegramSnackbar
 import com.markettwits.devx.tgsignin.ui.viewmodel.LoginState
 import com.markettwits.devx.tgsignin.ui.viewmodel.LoginUiState
@@ -60,9 +61,11 @@ import com.markettwits.devx.tgsignin.ui.viewmodel.LoginUiState
 fun LoginScreen(
     uiState: LoginUiState,
     snackbarHostState: SnackbarHostState,
+    passkeysConfigured: Boolean,
     sessionExpired: Boolean = false,
     onScopesChanged: (Set<TelegramScope>) -> Unit,
     onLogin: () -> Unit,
+    onPasskeyLogin: () -> Unit,
     onModalVisibilityChanged: (Boolean) -> Unit = {}
 ) {
     var pickerExpanded by remember { mutableStateOf(false) }
@@ -134,22 +137,47 @@ fun LoginScreen(
                 }
             )
         }
-        Button(
-            onClick = {
-                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                onLogin()
-            },
-            enabled = uiState.loginState !is LoginState.AwaitingConfirmation &&
-                uiState.loginState !is LoginState.Verifying,
+        Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .widthIn(max = 420.dp)
                 .fillMaxWidth()
-                .padding(horizontal = 32.dp, vertical = 36.dp)
-                .defaultMinSize(minHeight = 54.dp),
-            shape = RoundedCornerShape(28.dp),
-            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                .padding(horizontal = 32.dp, vertical = 36.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+        if (passkeysConfigured && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) TelegramPrimaryButton(
+            text = stringResource(R.string.sign_in_with_passkey),
+            onClick = onPasskeyLogin,
+            enabled = !uiState.loginState.isInProgress,
+            secondary = true
+        ) {
+            if (uiState.loginState is LoginState.VerifyingPasskey) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Icon(Icons.Outlined.Key, contentDescription = null)
+            }
+            Spacer(Modifier.size(10.dp))
+            Text(
+                if (uiState.loginState is LoginState.VerifyingPasskey) {
+                    stringResource(R.string.verifying_sign_in)
+                } else {
+                    stringResource(R.string.sign_in_with_passkey)
+                },
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+        TelegramPrimaryButton(
+            text = stringResource(R.string.sign_in_with_telegram),
+            onClick = {
+                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onLogin()
+            },
+            enabled = !uiState.loginState.isInProgress
         ) {
             if (uiState.loginState is LoginState.AwaitingConfirmation || uiState.loginState is LoginState.Verifying) {
                 CircularProgressIndicator(
@@ -169,6 +197,7 @@ fun LoginScreen(
                 fontWeight = FontWeight.SemiBold
             )
         }
+        }
     }
 
     if (pickerExpanded) {
@@ -179,6 +208,11 @@ fun LoginScreen(
         )
     }
 }
+
+private val LoginState.isInProgress: Boolean
+    get() = this is LoginState.AwaitingConfirmation ||
+        this is LoginState.Verifying ||
+        this is LoginState.VerifyingPasskey
 
 @Composable
 private fun TelegramPlane() {

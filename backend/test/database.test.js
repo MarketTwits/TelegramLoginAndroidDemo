@@ -198,8 +198,60 @@ test('SQLite legacy badge profile migrates to the canonical default and drops ol
   assert.equal(columnNames.includes('emoji'), false);
   assert.equal(columns.find(({ name }) => name === 'emoji_set_id').notnull, 1);
   assert.equal(columns.find(({ name }) => name === 'emoji_id').notnull, 1);
-  assert.equal(migrated.prepare('PRAGMA user_version').get().user_version, 8);
+  assert.equal(migrated.prepare('PRAGMA user_version').get().user_version, 9);
   migrated.close();
+});
+
+test('SQLite stores, lists, renames, uses, and revokes passkeys per account', (context) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'telegram-passkeys-'));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const database = createDatabase({ databasePath: path.join(directory, 'auth.sqlite') });
+  const firstUserId = database.upsertTelegramUser(profile('passkey-user-1'));
+  const secondUserId = database.upsertTelegramUser(profile('passkey-user-2', {
+    telegramSubject: 'subject-2', telegramUserId: '123456789'
+  }));
+  const firstHandle = database.getAccount(firstUserId).account.webauthn_user_handle;
+  const secondHandle = database.getAccount(secondUserId).account.webauthn_user_handle;
+  assert.match(firstHandle, /^[A-Za-z0-9_-]{43}$/);
+  assert.match(secondHandle, /^[A-Za-z0-9_-]{43}$/);
+  assert.notEqual(firstHandle, secondHandle);
+  database.createPasskey(firstUserId, {
+    id: 'internal-key-id', credentialId: 'credential-id', publicKey: Buffer.from([1, 2, 3]),
+    counter: 0, transports: ['internal'], aaguid: 'aaguid', deviceType: 'multiDevice',
+    backedUp: true, displayName: 'Pixel'
+  });
+
+  assert.equal(database.listPasskeys(firstUserId).length, 1);
+  assert.equal(database.listPasskeys(secondUserId).length, 0);
+  assert.equal(database.renamePasskey(secondUserId, 'internal-key-id', 'Stolen'), false);
+  assert.equal(database.renamePasskey(firstUserId, 'internal-key-id', 'Phone'), true);
+  assert.equal(database.updatePasskeyUsage('credential-id', 0, 2), true);
+  assert.equal(database.updatePasskeyUsage('credential-id', 0, 3), false);
+  assert.equal(database.findPasskeyByCredentialId('credential-id').counter, 2);
+  assert.equal(database.revokePasskey(secondUserId, 'internal-key-id'), null);
+  assert.equal(database.revokePasskey(firstUserId, 'internal-key-id').credential_id, 'credential-id');
+  assert.equal(database.findPasskeyByCredentialId('credential-id'), null);
+  database.close();
+});
+
+test('SQLite consumes WebAuthn operations once and rejects expired operations', (context) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'telegram-webauthn-'));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const database = createDatabase({ databasePath: path.join(directory, 'auth.sqlite') });
+  const now = new Date();
+  database.createWebAuthnOperation({
+    id: 'valid', purpose: 'AUTHENTICATION', challenge: 'challenge', rpId: 'example.test',
+    createdAt: now, expiresAt: new Date(now.getTime() + 60_000)
+  });
+  assert.equal(database.consumeWebAuthnOperation('valid', 'REGISTRATION'), null);
+  assert.equal(database.consumeWebAuthnOperation('valid', 'AUTHENTICATION').challenge, 'challenge');
+  assert.equal(database.consumeWebAuthnOperation('valid', 'AUTHENTICATION'), null);
+  database.createWebAuthnOperation({
+    id: 'expired', purpose: 'AUTHENTICATION', challenge: 'old', rpId: 'example.test',
+    createdAt: new Date(now.getTime() - 120_000), expiresAt: new Date(now.getTime() - 60_000)
+  });
+  assert.equal(database.consumeWebAuthnOperation('expired', 'AUTHENTICATION'), null);
+  database.close();
 });
 
 test('SQLite v4 profile gains an optional phone without losing existing data', (context) => {

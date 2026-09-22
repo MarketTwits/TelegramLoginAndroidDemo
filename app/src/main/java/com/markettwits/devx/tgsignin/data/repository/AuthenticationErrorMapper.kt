@@ -9,6 +9,9 @@ import com.markettwits.devx.tgsignin.data.datasource.BackendResponseException
 import com.markettwits.devx.tgsignin.data.datasource.TelegramConfigurationException
 import com.markettwits.devx.tgsignin.data.datasource.TelegramLoginException
 import com.markettwits.devx.tgsignin.data.model.AuthenticationError
+import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.GetCredentialProviderConfigurationException
+import androidx.credentials.exceptions.NoCredentialException
 import java.io.IOException
 import java.net.ConnectException
 import java.net.MalformedURLException
@@ -25,6 +28,12 @@ private val SERVER_ERROR_STATUS_CODES = 500..599
 internal fun Throwable.toAuthenticationError(): AuthenticationError {
     if (this is AuthenticationError) return this
     val causes = generateSequence(this as Throwable?) { it.cause }.toList()
+    causes.filterIsInstance<GetCredentialCancellationException>().firstOrNull()?.let {
+        return AuthenticationError.PasskeyCancelled(it)
+    }
+    causes.firstOrNull {
+        it is NoCredentialException || it is GetCredentialProviderConfigurationException
+    }?.let { return AuthenticationError.PasskeyUnavailable(it) }
 
     causes.filterIsInstance<BackendHttpException>().firstOrNull()?.let { error ->
         return when (error.statusCode) {

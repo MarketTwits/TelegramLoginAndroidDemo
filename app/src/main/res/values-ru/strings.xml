@@ -8,6 +8,7 @@
     <string name="awaiting_confirmation">Ожидаем подтверждение…</string>
     <string name="verifying_sign_in">Проверяем вход…</string>
     <string name="sign_in_with_telegram">Войти через Telegram</string>
+    <string name="sign_in_with_passkey">Войти по ключу доступа</string>
     <string name="requested_data_title">Данные профиля</string>
     <string name="sign_in_data_title">Данные для входа</string>
     <string name="sign_in_data_description">Выберите, какие данные Telegram сможет передать приложению.</string>
@@ -105,6 +106,7 @@
     <string name="error_invalid_configuration">Вход через Telegram не настроен. Проверьте конфигурацию приложения.</string>
     <string name="error_telegram_sdk">Telegram не смог завершить авторизацию. Попробуйте начать вход заново.</string>
     <string name="error_browser_unavailable">Не удалось открыть страницу Telegram. Проверьте браузер на устройстве.</string>
+    <string name="error_passkey_unavailable">Ключ доступа не найден. Используйте Telegram или проверьте менеджер паролей.</string>
     <string name="error_local_storage">Не удалось сохранить данные аккаунта на устройстве. Попробуйте ещё раз.</string>
     <string name="error_unknown">Произошла непредвиденная ошибка. Попробуйте ещё раз.</string>
 
@@ -169,6 +171,21 @@
     <string name="bloom_hide_telegram_user_id">Скрыть ID пользователя Telegram</string>
     <string name="bloom_edit_profile">Редактировать профиль</string>
     <string name="bloom_delete_account">Удалить аккаунт</string>
+    <string name="passkey_section_title">Ключи доступа</string>
+    <string name="passkey_section_description">Ключ доступа позволяет входить без открытия Telegram.</string>
+    <string name="passkey_empty">Ключи доступа ещё не добавлены.</string>
+    <string name="passkey_add">Добавить ключ доступа</string>
+    <string name="passkey_delete">Удалить</string>
+    <string name="passkey_delete_title">Удалить ключ доступа?</string>
+    <string name="passkey_delete_confirmation">Ключ «%1$s» больше нельзя будет использовать для входа в этот аккаунт.</string>
+    <string name="passkey_rename">Переименовать</string>
+    <string name="passkey_name">Название ключа</string>
+    <string name="passkey_created">Создан %1$s</string>
+    <string name="passkey_load_failed">Не удалось загрузить ключи доступа.</string>
+    <string name="passkey_add_failed">Не удалось добавить ключ. Войдите заново и повторите попытку.</string>
+    <string name="passkey_delete_failed">Не удалось удалить ключ. Войдите заново и повторите попытку.</string>
+    <string name="passkey_rename_failed">Не удалось переименовать ключ. Войдите заново и повторите попытку.</string>
+    <string name="passkey_telegram_reauth_started">Подтвердите аккаунт Telegram, затем повторите действие.</string>
     <string name="bloom_delete_title">Удалить аккаунт?</string>
     <string name="bloom_delete_confirmation">Аккаунт Bloom, профиль и активные сессии будут удалены безвозвратно. После удаления откроется экран входа через Telegram.</string>
     <string name="bloom_next">Далее</string>

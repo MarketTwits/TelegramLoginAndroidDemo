@@ -24,8 +24,10 @@ import com.markettwits.devx.tgsignin.ui.viewmodel.ProfileUiState
 fun TelegramLoginNavigation(
     profileUiState: ProfileUiState,
     loginUiState: LoginUiState,
+    passkeysConfigured: Boolean,
     snackbarHostState: SnackbarHostState,
     onLogin: () -> Unit,
+    onPasskeyLogin: () -> Unit,
     onScopesChanged: (Set<TelegramScope>) -> Unit,
     onDraftChanged: (ProfileDraft) -> Unit,
     onSaveProfile: (ProfileDraft) -> Unit,
@@ -58,11 +60,13 @@ fun TelegramLoginNavigation(
         is RootAuthenticationState.Unauthenticated,
         is RootAuthenticationState.RecoverableError -> LoginScreen(
             uiState = loginUiState,
+            passkeysConfigured = passkeysConfigured,
             snackbarHostState = snackbarHostState,
             sessionExpired = (state as? RootAuthenticationState.Unauthenticated)
                 ?.sessionExpired == true,
             onScopesChanged = onScopesChanged,
             onLogin = onLogin,
+            onPasskeyLogin = onPasskeyLogin,
             onModalVisibilityChanged = onModalVisibilityChanged
         )
     }
