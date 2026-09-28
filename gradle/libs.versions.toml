@@ -15,7 +15,7 @@ coil = "3.6.3"
 koin = "4.2.2"
 dataStore = "1.2.1"
 lottie = "6.7.1"
-libphonenumber = "9.0.39"
+libphonenumber = "9.0.40"
 credentials = "1.6.0"
 
 [libraries]
