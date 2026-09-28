@@ -18,6 +18,6 @@
     "express-rate-limit": "^8.1.0",
     "helmet": "^8.1.0",
     "jose": "^6.2.12",
-    "libphonenumber-js": "^1.13.13"
+    "libphonenumber-js": "^1.13.14"
   }
 }
