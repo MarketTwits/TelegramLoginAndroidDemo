@@ -122,7 +122,6 @@ const schema = `
 
   CREATE INDEX IF NOT EXISTS app_sessions_user_id_idx ON app_sessions(user_id);
   CREATE INDEX IF NOT EXISTS app_sessions_expires_at_idx ON app_sessions(expires_at);
-  CREATE UNIQUE INDEX IF NOT EXISTS app_sessions_id_idx ON app_sessions(id);
   CREATE UNIQUE INDEX IF NOT EXISTS app_users_member_number_idx ON app_users(member_number);
   CREATE UNIQUE INDEX IF NOT EXISTS app_users_telegram_user_id_idx ON app_users(telegram_user_id);
   CREATE UNIQUE INDEX IF NOT EXISTS app_users_webauthn_user_handle_idx ON app_users(webauthn_user_handle);
@@ -274,6 +273,8 @@ export const createDatabase = (config) => {
   database.exec('PRAGMA synchronous = NORMAL');
   database.exec(baseUserSchema);
   migrateLegacyUsers(database);
+  migrateLegacySessions(database);
+  migrateLegacyProfiles(database);
   database.exec(schema);
   migrateLegacySessions(database);
   migrateLegacyProfiles(database);
@@ -526,6 +527,8 @@ export const createDatabase = (config) => {
     path: databasePath,
     migrate() {
       migrateLegacyUsers(database);
+      migrateLegacySessions(database);
+      migrateLegacyProfiles(database);
       database.exec(schema);
       migrateLegacySessions(database);
       migrateLegacyProfiles(database);

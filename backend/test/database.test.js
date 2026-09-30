@@ -350,3 +350,63 @@ test('SQLite manages user sessions, lists active sessions, and revokes other ses
 
   database.close();
 });
+
+test('SQLite v1 database with unmigrated sessions upgrades without error', (context) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'telegram-legacy-sessions-'));
+  const databasePath = path.join(directory, 'auth.sqlite');
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  const legacy = new DatabaseSync(databasePath);
+  legacy.exec(`
+    CREATE TABLE app_users (
+      id TEXT PRIMARY KEY,
+      telegram_subject TEXT NOT NULL UNIQUE,
+      name TEXT,
+      given_name TEXT,
+      family_name TEXT,
+      username TEXT,
+      phone_number TEXT,
+      phone_verified INTEGER NOT NULL DEFAULT 0 CHECK (phone_verified IN (0, 1)),
+      picture_url TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      last_login_at INTEGER NOT NULL
+    ) STRICT;
+
+    CREATE TABLE app_sessions (
+      token_hash TEXT PRIMARY KEY CHECK (length(token_hash) = 64),
+      user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      last_seen_at INTEGER NOT NULL,
+      revoked_at INTEGER
+    ) STRICT;
+  `);
+
+  const userId = 'legacy-user-1';
+  const tokenHash = crypto.createHash('sha256').update('legacy-token').digest('hex');
+  const now = Date.now();
+  legacy.prepare(`
+    INSERT INTO app_users (id, telegram_subject, created_at, updated_at, last_login_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(userId, 'subject-1', now, now, now);
+  legacy.prepare(`
+    INSERT INTO app_sessions (token_hash, user_id, created_at, expires_at, last_seen_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(tokenHash, userId, now, now + 60000, now);
+  legacy.close();
+
+  // Must open and migrate without throwing "no such column: id"
+  const database = createDatabase({ databasePath });
+  const session = database.findSession(tokenHash);
+  assert.ok(session);
+  assert.equal(session.account.id, userId);
+
+  const userSessions = database.listUserSessions(userId, tokenHash);
+  assert.equal(userSessions.length, 1);
+  assert.ok(userSessions[0].id); // id backfilled with UUID
+  assert.equal(userSessions[0].authenticationMethod, 'TELEGRAM');
+
+  database.close();
+});
+
