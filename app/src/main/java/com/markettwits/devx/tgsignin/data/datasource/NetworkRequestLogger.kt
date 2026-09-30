@@ -12,13 +12,13 @@ import java.net.URL
 internal object NetworkRequestLogger {
     private const val TAG = "TelegramBloomHttp"
 
-    fun start(method: String, url: URL): Long = SystemClock.elapsedRealtime().also {
-        if (BuildConfig.DEBUG) Log.d(TAG, "--> $method ${url.safeAddress()}")
+    fun start(method: String, url: URL): Long = System.currentTimeMillis().also {
+        if (BuildConfig.DEBUG) safeLog { Log.d(TAG, "--> $method ${url.safeAddress()}") }
     }
 
     fun success(method: String, url: URL, statusCode: Int, startedAt: Long) {
         if (BuildConfig.DEBUG) {
-            Log.d(TAG, "<-- $statusCode $method ${url.safeAddress()} (${elapsed(startedAt)} ms)")
+            safeLog { Log.d(TAG, "<-- $statusCode $method ${url.safeAddress()} (${elapsed(startedAt)} ms)") }
         }
     }
 
@@ -35,30 +35,36 @@ internal object NetworkRequestLogger {
             errorCode?.let { "code=$it" },
             requestId?.let { "requestId=$it" }
         ).joinToString(separator = " ", prefix = " ").trimEnd()
-        Log.w(
-            TAG,
-            "<-- $statusCode $method ${url.safeAddress()} (${elapsed(startedAt)} ms)$diagnostics"
-        )
+        safeLog {
+            Log.w(
+                TAG,
+                "<-- $statusCode $method ${url.safeAddress()} (${elapsed(startedAt)} ms)$diagnostics"
+            )
+        }
     }
 
     fun transportFailure(method: String, url: URL, startedAt: Long, error: Throwable) {
         if (!BuildConfig.DEBUG) return
-        Log.e(
-            TAG,
-            "<-- NETWORK_ERROR $method ${url.safeAddress()} (${elapsed(startedAt)} ms) " +
-                "${error.javaClass.simpleName}: ${error.message.orEmpty()}",
-            error
-        )
+        safeLog {
+            Log.e(
+                TAG,
+                "<-- NETWORK_ERROR $method ${url.safeAddress()} (${elapsed(startedAt)} ms) " +
+                    "${error.javaClass.simpleName}: ${error.message.orEmpty()}",
+                error
+            )
+        }
     }
 
     fun invalidResponse(method: String, url: URL, startedAt: Long, error: Throwable) {
         if (!BuildConfig.DEBUG) return
-        Log.e(
-            TAG,
-            "<-- INVALID_RESPONSE $method ${url.safeAddress()} (${elapsed(startedAt)} ms) " +
-                error.javaClass.simpleName,
-            error
-        )
+        safeLog {
+            Log.e(
+                TAG,
+                "<-- INVALID_RESPONSE $method ${url.safeAddress()} (${elapsed(startedAt)} ms) " +
+                    error.javaClass.simpleName,
+                error
+            )
+        }
     }
 
     fun incompatibleBackend(
@@ -69,14 +75,23 @@ internal object NetworkRequestLogger {
         actualVersion: Int?
     ) {
         if (!BuildConfig.DEBUG) return
-        Log.e(
-            TAG,
-            "<-- INCOMPATIBLE_API $method ${url.safeAddress()} (${elapsed(startedAt)} ms) " +
-                "expected=$expectedVersion actual=${actualVersion ?: "missing"}"
-        )
+        safeLog {
+            Log.e(
+                TAG,
+                "<-- INCOMPATIBLE_API $method ${url.safeAddress()} (${elapsed(startedAt)} ms) " +
+                    "expected=$expectedVersion actual=${actualVersion ?: "missing"}"
+            )
+        }
     }
 
-    private fun elapsed(startedAt: Long): Long = SystemClock.elapsedRealtime() - startedAt
+    private inline fun safeLog(block: () -> Unit) {
+        try {
+            block()
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun elapsed(startedAt: Long): Long = System.currentTimeMillis() - startedAt
 
     private fun URL.safeAddress(): String = buildString {
         append(protocol)

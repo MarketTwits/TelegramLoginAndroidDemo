@@ -9,6 +9,7 @@ import com.markettwits.devx.tgsignin.data.datasource.BackendResponseException
 import com.markettwits.devx.tgsignin.data.datasource.TelegramConfigurationException
 import com.markettwits.devx.tgsignin.data.datasource.TelegramLoginException
 import com.markettwits.devx.tgsignin.data.model.AuthenticationError
+import com.markettwits.devx.tgsignin.data.model.PasskeyError
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialProviderConfigurationException
 import androidx.credentials.exceptions.NoCredentialException
@@ -28,6 +29,19 @@ private val SERVER_ERROR_STATUS_CODES = 500..599
 internal fun Throwable.toAuthenticationError(): AuthenticationError {
     if (this is AuthenticationError) return this
     val causes = generateSequence(this as Throwable?) { it.cause }.toList()
+    causes.filterIsInstance<PasskeyError>().firstOrNull()?.let { passkeyError ->
+        return when (passkeyError) {
+            is PasskeyError.Cancelled -> AuthenticationError.PasskeyCancelled(passkeyError)
+            is PasskeyError.ScreenLockRequired,
+            is PasskeyError.ProviderUnavailable,
+            is PasskeyError.CredentialNotFound -> AuthenticationError.PasskeyUnavailable(passkeyError)
+            is PasskeyError.NetworkUnavailable -> AuthenticationError.NetworkUnavailable(passkeyError)
+            is PasskeyError.SessionExpired -> AuthenticationError.AuthorizationRejected(passkeyError)
+            is PasskeyError.BackendNotConfigured -> AuthenticationError.ServerUnavailable(passkeyError)
+            is PasskeyError.DigitalAssetLinksInvalid -> AuthenticationError.InvalidConfiguration(passkeyError)
+            else -> AuthenticationError.Unknown(passkeyError)
+        }
+    }
     causes.filterIsInstance<GetCredentialCancellationException>().firstOrNull()?.let {
         return AuthenticationError.PasskeyCancelled(it)
     }

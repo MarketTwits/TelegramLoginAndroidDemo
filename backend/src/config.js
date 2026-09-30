@@ -111,10 +111,12 @@ const passkeyConfiguration = () => {
 export const loadConfig = () => {
   const nodeEnv = process.env.NODE_ENV?.trim() || 'development';
   const telegramClientId = process.env.TELEGRAM_CLIENT_ID?.trim() || null;
-  const appToken = process.env.APP_TOKEN?.trim() || null;
+  const singleAppToken = process.env.APP_TOKEN?.trim() || null;
+  const rawAppTokens = process.env.APP_TOKENS ? commaSeparated('APP_TOKENS') : [];
+  const appTokens = Array.from(new Set([...rawAppTokens, ...(singleAppToken ? [singleAppToken] : [])]));
   const passkey = passkeyConfiguration();
-  if (nodeEnv === 'production' && !appToken) {
-    throw new Error('APP_TOKEN is required when NODE_ENV=production');
+  if (nodeEnv === 'production' && appTokens.length === 0) {
+    throw new Error('APP_TOKEN or APP_TOKENS is required when NODE_ENV=production');
   }
   return {
     nodeEnv,
@@ -135,7 +137,9 @@ export const loadConfig = () => {
       'AUTH_RATE_LIMIT_PER_MINUTE',
       DEFAULT_AUTH_RATE_LIMIT_PER_MINUTE
     ),
-    appToken,
+    appToken: appTokens[0] || null,
+    appTokens,
+    appTokensConfigured: appTokens.length > 0,
     trustProxy: trustProxy()
   };
 };

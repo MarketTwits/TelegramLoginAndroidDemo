@@ -14,6 +14,7 @@ import com.markettwits.devx.tgsignin.data.model.ProfileTopic
 import com.markettwits.devx.tgsignin.data.model.ServiceAccount
 import com.markettwits.devx.tgsignin.data.model.ServiceProfile
 import com.markettwits.devx.tgsignin.data.model.TelegramIdentity
+import com.markettwits.devx.tgsignin.data.model.UserSessionInfo
 import com.markettwits.devx.tgsignin.data.model.normalizedInternationalPhoneNumberOrNull
 import com.markettwits.devx.tgsignin.data.telegram.TelegramLoginConfig
 import kotlinx.coroutines.CoroutineDispatcher
@@ -59,6 +60,9 @@ interface TelegramAuthApiDataSource {
     suspend fun deletePasskey(accessToken: String, id: String): DeletedPasskey {
         error("Passkeys are unavailable")
     }
+    suspend fun listSessions(accessToken: String): List<UserSessionInfo> = emptyList()
+    suspend fun revokeSessionById(accessToken: String, sessionId: String) {}
+    suspend fun revokeOtherSessions(accessToken: String): Int = 0
 }
 
 /** Real backend client. Telegram credentials are never interpreted on-device. */
@@ -200,6 +204,43 @@ class TelegramAuthApiDataSourceImpl(
         path = "/me/passkeys/$id", method = "DELETE", accessToken = accessToken
     ) { DeletedPasskey(it.getString("credentialId"), it.getString("rpId")) }
 
+    override suspend fun listSessions(accessToken: String): List<UserSessionInfo> = request(
+        path = "/me/sessions",
+        method = "GET",
+        accessToken = accessToken
+    ) { json ->
+        val array = json.getJSONArray("sessions")
+        (0 until array.length()).map { index ->
+            val item = array.getJSONObject(index)
+            UserSessionInfo(
+                id = item.getString("id"),
+                createdAt = item.getString("createdAt"),
+                lastSeenAt = item.getString("lastSeenAt"),
+                expiresAt = item.getString("expiresAt"),
+                authenticationMethod = item.getString("authenticationMethod"),
+                deviceLabel = item.optString("deviceLabel").ifBlank { null },
+                current = item.optBoolean("current", false)
+            )
+        }
+    }
+
+    override suspend fun revokeSessionById(accessToken: String, sessionId: String) {
+        request(
+            path = "/me/sessions/$sessionId",
+            method = "DELETE",
+            accessToken = accessToken
+        ) { }
+    }
+
+    override suspend fun revokeOtherSessions(accessToken: String): Int = request(
+        path = "/me/sessions/revoke-others",
+        method = "POST",
+        accessToken = accessToken,
+        body = JSONObject()
+    ) { json ->
+        json.optInt("revokedCount", 0)
+    }
+
     private suspend fun <T> request(
         path: String,
         method: String,
@@ -271,11 +312,31 @@ class TelegramAuthApiDataSourceImpl(
 
     private fun openConnection(url: URL, method: String): HttpURLConnection =
         (url.openConnection() as HttpURLConnection).apply {
-            requestMethod = method
+            setRequestMethodSafely(method)
             connectTimeout = 15_000
             readTimeout = 15_000
             setRequestProperty("Accept", "application/json")
         }
+
+    private fun HttpURLConnection.setRequestMethodSafely(method: String) {
+        try {
+            requestMethod = method
+        } catch (e: java.net.ProtocolException) {
+            if (method == "PATCH") {
+                try {
+                    val field = java.net.HttpURLConnection::class.java.getDeclaredField("method")
+                    field.isAccessible = true
+                    field.set(this, "PATCH")
+                    return
+                } catch (_: Throwable) {
+                    requestMethod = "POST"
+                    setRequestProperty("X-HTTP-Method-Override", "PATCH")
+                    return
+                }
+            }
+            throw e
+        }
+    }
 
     private fun parseAuthenticationResult(
         json: JSONObject,

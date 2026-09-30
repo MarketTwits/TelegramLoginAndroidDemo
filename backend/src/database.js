@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 
 const SQLITE_BUSY_TIMEOUT_MS = 5_000;
-const DATABASE_SCHEMA_VERSION = 9;
+const DATABASE_SCHEMA_VERSION = 10;
 const DEFAULT_PROFILE_EMOJI_SET_ID = 'spotty-persik';
 const DEFAULT_PROFILE_EMOJI_ID = 'e-0007fab99d521710';
 const REVOKED_SESSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -73,13 +73,15 @@ const schema = `
 
   CREATE TABLE IF NOT EXISTS app_sessions (
     token_hash TEXT PRIMARY KEY CHECK (length(token_hash) = 64),
+    id TEXT UNIQUE,
     user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
     created_at INTEGER NOT NULL,
     expires_at INTEGER NOT NULL,
     last_seen_at INTEGER NOT NULL,
     revoked_at INTEGER,
     authentication_method TEXT NOT NULL DEFAULT 'TELEGRAM',
-    reauthenticated_at INTEGER NOT NULL DEFAULT 0
+    reauthenticated_at INTEGER NOT NULL DEFAULT 0,
+    device_label TEXT
   ) STRICT;
 
   CREATE TABLE IF NOT EXISTS passkey_credentials (
@@ -120,6 +122,7 @@ const schema = `
 
   CREATE INDEX IF NOT EXISTS app_sessions_user_id_idx ON app_sessions(user_id);
   CREATE INDEX IF NOT EXISTS app_sessions_expires_at_idx ON app_sessions(expires_at);
+  CREATE UNIQUE INDEX IF NOT EXISTS app_sessions_id_idx ON app_sessions(id);
   CREATE UNIQUE INDEX IF NOT EXISTS app_users_member_number_idx ON app_users(member_number);
   CREATE UNIQUE INDEX IF NOT EXISTS app_users_telegram_user_id_idx ON app_users(telegram_user_id);
   CREATE UNIQUE INDEX IF NOT EXISTS app_users_webauthn_user_handle_idx ON app_users(webauthn_user_handle);
@@ -167,6 +170,22 @@ const migrateLegacySessions = (database) => {
   }
   if (columns.size > 0 && !columns.has('reauthenticated_at')) {
     database.exec('ALTER TABLE app_sessions ADD COLUMN reauthenticated_at INTEGER NOT NULL DEFAULT 0');
+  }
+  if (columns.size > 0 && !columns.has('id')) {
+    database.exec('ALTER TABLE app_sessions ADD COLUMN id TEXT');
+  }
+  if (columns.size > 0 && !columns.has('device_label')) {
+    database.exec('ALTER TABLE app_sessions ADD COLUMN device_label TEXT');
+  }
+  if (columns.size > 0) {
+    const missingIds = database.prepare('SELECT token_hash FROM app_sessions WHERE id IS NULL').all();
+    if (missingIds.length > 0) {
+      const updateId = database.prepare('UPDATE app_sessions SET id = ? WHERE token_hash = ?');
+      for (const { token_hash } of missingIds) {
+        updateId.run(crypto.randomUUID(), token_hash);
+      }
+    }
+    database.exec('CREATE UNIQUE INDEX IF NOT EXISTS app_sessions_id_idx ON app_sessions(id)');
   }
 };
 
@@ -289,12 +308,31 @@ export const createDatabase = (config) => {
   `);
   const insertSession = database.prepare(`
     INSERT INTO app_sessions (
-      token_hash, user_id, created_at, expires_at, last_seen_at,
-      authentication_method, reauthenticated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      token_hash, id, user_id, created_at, expires_at, last_seen_at,
+      authentication_method, reauthenticated_at, device_label
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const revokeSession = database.prepare(`
     UPDATE app_sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL
+  `);
+  const revokeUserSessionById = database.prepare(`
+    UPDATE app_sessions SET revoked_at = ?
+    WHERE id = ? AND user_id = ? AND revoked_at IS NULL
+  `);
+  const revokeOtherUserSessions = database.prepare(`
+    UPDATE app_sessions SET revoked_at = ?
+    WHERE user_id = ? AND token_hash != ? AND revoked_at IS NULL
+  `);
+  const selectUserSessions = database.prepare(`
+    SELECT id, created_at, expires_at, last_seen_at, authentication_method, device_label, token_hash
+    FROM app_sessions
+    WHERE user_id = ? AND revoked_at IS NULL AND expires_at > ?
+    ORDER BY last_seen_at DESC, created_at DESC
+  `);
+  const selectUserSessionById = database.prepare(`
+    SELECT id, created_at, expires_at, last_seen_at, authentication_method, device_label, token_hash
+    FROM app_sessions
+    WHERE id = ? AND user_id = ? AND revoked_at IS NULL AND expires_at > ?
   `);
   const touchSession = database.prepare(`
     UPDATE app_sessions SET last_seen_at = ?
@@ -305,7 +343,9 @@ export const createDatabase = (config) => {
     WHERE token_hash = ? AND user_id = ? AND revoked_at IS NULL AND expires_at > ?
   `);
   const accountProfileProjection = `
-    SELECT account.*, session.expires_at, session.authentication_method, session.reauthenticated_at,
+    SELECT account.*, session.id AS session_id, session.created_at AS session_created_at,
+           session.last_seen_at AS session_last_seen_at, session.expires_at,
+           session.authentication_method, session.reauthenticated_at, session.device_label,
            profile.id AS profile_id, profile.display_name, profile.headline,
            profile.intent, profile.topics_json, profile.avatar_source,
            profile.emoji_set_id, profile.emoji_id, profile.visual_seed,
@@ -390,6 +430,9 @@ export const createDatabase = (config) => {
   `);
   const selectPasskeyByIdForUser = database.prepare(`
     SELECT * FROM passkey_credentials WHERE id = ? AND user_id = ? AND revoked_at IS NULL
+  `);
+  const selectAnyPasskeyByIdForUser = database.prepare(`
+    SELECT * FROM passkey_credentials WHERE id = ? AND user_id = ?
   `);
   const insertWebAuthnOperation = database.prepare(`
     INSERT INTO webauthn_operations (
@@ -504,10 +547,65 @@ export const createDatabase = (config) => {
       disableUser.run(Date.now(), userId);
     },
 
-    createSession(tokenHash, userId, expiresAt, authenticationMethod = 'TELEGRAM') {
+    createSession(tokenHashOrOptions, userId, expiresAt, authenticationMethod = 'TELEGRAM', id = null, deviceLabel = null) {
       const now = Date.now();
-      pruneUserSessions.run(userId, userId, now, MAX_ACTIVE_SESSIONS_PER_USER - 1);
-      insertSession.run(tokenHash, userId, now, expiresAt.getTime(), now, authenticationMethod, now);
+      let tokenHash;
+      let uId;
+      let expAt;
+      let authMethod;
+      let sId;
+      let devLabel;
+
+      if (typeof tokenHashOrOptions === 'object' && tokenHashOrOptions !== null) {
+        tokenHash = tokenHashOrOptions.tokenHash;
+        uId = tokenHashOrOptions.userId;
+        expAt = tokenHashOrOptions.expiresAt;
+        authMethod = tokenHashOrOptions.authenticationMethod || 'TELEGRAM';
+        sId = tokenHashOrOptions.id || crypto.randomUUID();
+        devLabel = tokenHashOrOptions.deviceLabel || null;
+      } else {
+        tokenHash = tokenHashOrOptions;
+        uId = userId;
+        expAt = expiresAt;
+        authMethod = authenticationMethod;
+        sId = id || crypto.randomUUID();
+        devLabel = deviceLabel || null;
+      }
+      pruneUserSessions.run(uId, uId, now, MAX_ACTIVE_SESSIONS_PER_USER - 1);
+      const expiresAtMillis = typeof expAt === 'number' ? expAt : expAt.getTime();
+      insertSession.run(tokenHash, sId, uId, now, expiresAtMillis, now, authMethod, now, devLabel);
+      return sId;
+    },
+    listUserSessions(userId, currentTokenHash) {
+      const now = Date.now();
+      return selectUserSessions.all(userId, now).map((row) => ({
+        id: row.id,
+        createdAt: new Date(row.created_at),
+        lastSeenAt: new Date(row.last_seen_at),
+        expiresAt: new Date(row.expires_at),
+        authenticationMethod: row.authentication_method,
+        deviceLabel: row.device_label,
+        current: row.token_hash === currentTokenHash
+      }));
+    },
+    findUserSessionById(userId, sessionId) {
+      const now = Date.now();
+      const row = selectUserSessionById.get(sessionId, userId, now);
+      return row ? {
+        id: row.id,
+        createdAt: new Date(row.created_at),
+        lastSeenAt: new Date(row.last_seen_at),
+        expiresAt: new Date(row.expires_at),
+        authenticationMethod: row.authentication_method,
+        deviceLabel: row.device_label,
+        tokenHash: row.token_hash
+      } : null;
+    },
+    revokeUserSessionById(userId, sessionId) {
+      return revokeUserSessionById.run(Date.now(), sessionId, userId).changes === 1;
+    },
+    revokeOtherUserSessions(userId, currentTokenHash) {
+      return revokeOtherUserSessions.run(Date.now(), userId, currentTokenHash).changes;
     },
     revokeSession(tokenHash) {
       revokeSession.run(Date.now(), tokenHash);
@@ -523,9 +621,13 @@ export const createDatabase = (config) => {
       const row = selectSession.get(tokenHash, now);
       return row ? {
         ...readAccount(row),
+        sessionId: row.session_id,
+        createdAt: new Date(row.session_created_at),
+        lastSeenAt: new Date(row.session_last_seen_at),
         expiresAt: new Date(row.expires_at),
         authenticationMethod: row.authentication_method,
-        reauthenticatedAt: new Date(row.reauthenticated_at)
+        reauthenticatedAt: new Date(row.reauthenticated_at),
+        deviceLabel: row.device_label
       } : null;
     },
     deleteExpiredSessions() {
@@ -563,12 +665,23 @@ export const createDatabase = (config) => {
       return updatePasskeyUsage.run(counter, Date.now(), credentialId, previousCounter).changes === 1;
     },
     renamePasskey(userId, id, displayName) {
+      const existing = selectPasskeyByIdForUser.get(id, userId);
+      if (!existing) return false;
+      if (existing.display_name === displayName) return true;
       return renamePasskey.run(displayName, id, userId).changes === 1;
     },
     revokePasskey(userId, id) {
       const credential = selectPasskeyByIdForUser.get(id, userId);
-      if (!credential || revokePasskey.run(Date.now(), id, userId).changes !== 1) return null;
-      return credential;
+      if (credential) {
+        if (revokePasskey.run(Date.now(), id, userId).changes === 1) {
+          return credential;
+        }
+      }
+      const anyCredential = selectAnyPasskeyByIdForUser.get(id, userId);
+      if (anyCredential && anyCredential.revoked_at != null) {
+        return anyCredential;
+      }
+      return null;
     },
     createWebAuthnOperation(operation) {
       cleanupWebAuthnOperations.run(Date.now());

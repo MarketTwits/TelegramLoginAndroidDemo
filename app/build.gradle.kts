@@ -140,6 +140,17 @@ android {
         compose = true
         buildConfig = true
     }
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
+        }
+    }
+    lint {
+        abortOnError = true
+        checkReleaseBuilds = true
+        warningsAsErrors = false
+        disable += listOf("NewerVersionAvailable", "GradleDependency")
+    }
 }
 
 val apkBaseName = "TelegramLoginAndroidDemo"
@@ -186,6 +197,8 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
     testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.json)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)

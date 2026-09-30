@@ -49,10 +49,10 @@ Sync Gradle and run the `app` configuration from Android Studio.
 
 ## Production notes
 
-- `APP_TOKEN` is mandatory when `NODE_ENV=production`. It identifies an approved client
-  and limits casual API abuse, but it is embedded in the Android application and therefore
-  is not a secret or a substitute for a user session. Profile access remains protected by
-  the server-issued bearer session.
+- `APP_TOKEN` / `APP_TOKENS`: Mandatory when `NODE_ENV=production`. Identifies an approved client
+  and limits casual API abuse. To perform zero-downtime rotation, set `APP_TOKENS=new_token,old_token`
+  during rollout, release the updated Android client, and safely retire `old_token` once adoption is complete.
+  Token comparison is timing-attack safe (`crypto.timingSafeEqual`).
 - `/api/health/live` is intentionally public and returns only a minimal process status.
   `/api/health/ready` exposes dependency readiness and requires `X-App-Token`.
 - `/` is a static, non-interactive service notice. It does not enumerate routes,
@@ -64,3 +64,34 @@ Sync Gradle and run the `app` configuration from Android Studio.
   certificate fingerprints from `.env.example`. The backend publishes the matching Digital
   Asset Links document at `/.well-known/assetlinks.json`; the RP ID must resolve to that same
   HTTPS backend host.
+
+## Observability & Logging
+
+- Set `LOG_FORMAT=json` for machine-parseable JSON logs in production (defaults to `json` when `NODE_ENV=production`).
+- Sensitive data (bearer tokens, session secrets, WebAuthn challenge/signature payloads, user phone/names)
+  are strictly redacted or SHA-256 hashed before logging.
+- Passkey audit events log operation type, outcome, credential ID hash, and duration without leaking crypto payloads.
+
+## Operational Scripts
+
+- **Production Passkey Verification:**
+  ```bash
+  ./scripts/verify-production-passkeys.sh https://your-domain.com
+  ```
+  Verifies Digital Asset Links, HTTPS headers, package name, fingerprint matching, and readiness without leaking secrets.
+
+- **Production Smoke Check:**
+  ```bash
+  ./scripts/smoke-check-production.sh https://your-domain.com your-app-token
+  ```
+  Runs safe read-only queries against `/api/health/live`, `/api/health/ready`, and AssetLinks.
+
+- **SQLite Disaster Recovery:**
+  ```bash
+  # Create a consistent online backup with SHA-256 checksum and integrity verification:
+  ./scripts/backup-sqlite.sh /path/to/app.db /path/to/backups
+
+  # Verify and restore a backup into a target database:
+  ./scripts/restore-sqlite.sh /path/to/backups/sqlite-backup-YYYYMMDD-HHMMSS.db /path/to/restored.db
+  ```
+

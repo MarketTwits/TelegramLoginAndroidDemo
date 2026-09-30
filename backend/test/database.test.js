@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
@@ -198,7 +199,7 @@ test('SQLite legacy badge profile migrates to the canonical default and drops ol
   assert.equal(columnNames.includes('emoji'), false);
   assert.equal(columns.find(({ name }) => name === 'emoji_set_id').notnull, 1);
   assert.equal(columns.find(({ name }) => name === 'emoji_id').notnull, 1);
-  assert.equal(migrated.prepare('PRAGMA user_version').get().user_version, 9);
+  assert.equal(migrated.prepare('PRAGMA user_version').get().user_version, 10);
   migrated.close();
 });
 
@@ -225,10 +226,12 @@ test('SQLite stores, lists, renames, uses, and revokes passkeys per account', (c
   assert.equal(database.listPasskeys(secondUserId).length, 0);
   assert.equal(database.renamePasskey(secondUserId, 'internal-key-id', 'Stolen'), false);
   assert.equal(database.renamePasskey(firstUserId, 'internal-key-id', 'Phone'), true);
+  assert.equal(database.renamePasskey(firstUserId, 'internal-key-id', 'Phone'), true);
   assert.equal(database.updatePasskeyUsage('credential-id', 0, 2), true);
   assert.equal(database.updatePasskeyUsage('credential-id', 0, 3), false);
   assert.equal(database.findPasskeyByCredentialId('credential-id').counter, 2);
   assert.equal(database.revokePasskey(secondUserId, 'internal-key-id'), null);
+  assert.equal(database.revokePasskey(firstUserId, 'internal-key-id').credential_id, 'credential-id');
   assert.equal(database.revokePasskey(firstUserId, 'internal-key-id').credential_id, 'credential-id');
   assert.equal(database.findPasskeyByCredentialId('credential-id'), null);
   database.close();
@@ -279,5 +282,71 @@ test('SQLite v4 profile gains an optional phone without losing existing data', (
   assert.equal(returning.profile.emoji_set_id, 'spotty-persik');
   assert.equal(returning.profile.emoji_id, 'e-0007fab99d521710');
   assert.equal(returning.account.onboarding_state, 'PROFILE_COMPLETED');
+  database.close();
+});
+
+test('SQLite manages user sessions, lists active sessions, and revokes other sessions', (context) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'telegram-sessions-'));
+  const databasePath = path.join(directory, 'auth.sqlite');
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  const database = createDatabase({ databasePath });
+  database.migrate();
+  const userId = database.upsertTelegramUser(profile('session-user'));
+
+  const tokenHash1 = crypto.createHash('sha256').update('token-1').digest('hex');
+  const tokenHash2 = crypto.createHash('sha256').update('token-2').digest('hex');
+  const tokenHash3 = crypto.createHash('sha256').update('token-3').digest('hex');
+
+  const now = Date.now();
+  const expiresAt = new Date(now + 86400000);
+
+  const sessionId1 = database.createSession({
+    tokenHash: tokenHash1,
+    userId,
+    expiresAt,
+    authenticationMethod: 'TELEGRAM',
+    deviceLabel: 'Pixel 8'
+  });
+
+  const sessionId2 = database.createSession({
+    tokenHash: tokenHash2,
+    userId,
+    expiresAt,
+    authenticationMethod: 'PASSKEY',
+    deviceLabel: 'MacBook Pro'
+  });
+
+  const sessionId3 = database.createSession({
+    tokenHash: tokenHash3,
+    userId,
+    expiresAt,
+    authenticationMethod: 'TELEGRAM',
+    deviceLabel: 'iPad Air'
+  });
+
+  // List sessions from perspective of token 1
+  const sessions = database.listUserSessions(userId, tokenHash1);
+  assert.equal(sessions.length, 3);
+  const current = sessions.find((s) => s.current);
+  assert.equal(current.id, sessionId1);
+  assert.equal(current.deviceLabel, 'Pixel 8');
+  assert.equal(current.authenticationMethod, 'TELEGRAM');
+
+  // Revoke session 3 by ID
+  assert.equal(database.revokeUserSessionById(userId, sessionId3), true);
+  const afterRevoke3 = database.listUserSessions(userId, tokenHash1);
+  assert.equal(afterRevoke3.length, 2);
+  assert.equal(afterRevoke3.some((s) => s.id === sessionId3), false);
+
+  // Revoke other sessions (leaving only token 1 active)
+  const revokedCount = database.revokeOtherUserSessions(userId, tokenHash1);
+  assert.equal(revokedCount, 1); // session 2 was revoked
+
+  const afterRevokeOthers = database.listUserSessions(userId, tokenHash1);
+  assert.equal(afterRevokeOthers.length, 1);
+  assert.equal(afterRevokeOthers[0].id, sessionId1);
+  assert.equal(afterRevokeOthers[0].current, true);
+
   database.close();
 });

@@ -34,6 +34,24 @@ fi
 
 : > "$output_file"
 
+if [[ -n "${APK_SHA256:-}" || -n "${SIGNING_CERT_SHA256:-}" ]]; then
+  version_part="${release_tag%.*}"
+  code_part="${release_tag##*.}"
+  cat >> "$output_file" <<EOF
+### Release Verification
+- **Version**: \`v$version_part\` (Build \`$code_part\`)
+- **Target Commit**: \`$release_ref\`
+EOF
+  if [[ -n "${APK_SHA256:-}" ]]; then
+    printf -- '- **APK SHA-256**: `%s`\n' "$APK_SHA256" >> "$output_file"
+  fi
+  if [[ -n "${SIGNING_CERT_SHA256:-}" ]]; then
+    printf -- '- **Signing Certificate SHA-256**: `%s`\n' "$SIGNING_CERT_SHA256" >> "$output_file"
+  fi
+  printf -- '- **Minimum Backend API Version**: `%s`\n\n' "${MIN_BACKEND_API_VERSION:-8}" >> "$output_file"
+  printf '### What'\''s Changed\n\n' >> "$output_file"
+fi
+
 while IFS=$'\t' read -r commit subject; do
   [[ -n "$commit" && -n "$subject" ]] || continue
   printf -- '- [%s](%s/%s/commit/%s)\n' \

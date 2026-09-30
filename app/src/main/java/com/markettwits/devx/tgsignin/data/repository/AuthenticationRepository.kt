@@ -13,7 +13,9 @@ import com.markettwits.devx.tgsignin.data.model.ProfileDraft
 import com.markettwits.devx.tgsignin.data.model.ProfileEmojiSelection
 import com.markettwits.devx.tgsignin.data.model.RootAuthenticationState
 import com.markettwits.devx.tgsignin.data.model.TelegramScope
+import com.markettwits.devx.tgsignin.data.model.UserSessionInfo
 import com.markettwits.devx.tgsignin.data.model.normalizedTelegramPhoneNumberOrNull
+import com.markettwits.devx.tgsignin.data.model.sessionOrNull
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -39,6 +41,9 @@ interface AuthenticationRepository {
     suspend fun updateProfileEmoji(selection: ProfileEmojiSelection): Result<Unit>
     suspend fun deleteAccount(): Result<Unit>
     suspend fun logout()
+    suspend fun listSessions(): Result<List<UserSessionInfo>>
+    suspend fun revokeSessionById(sessionId: String, isCurrentSession: Boolean): Result<Unit>
+    suspend fun revokeOtherSessions(): Result<Int>
 }
 
 class AuthenticationRepositoryImpl(
@@ -280,6 +285,37 @@ class AuthenticationRepositoryImpl(
         }
     }
 
+    override suspend fun listSessions(): Result<List<UserSessionInfo>> = runCatching {
+        val current = _state.value.sessionOrNull
+            ?: throw IllegalStateException("Not authenticated")
+        telegramAuthApiDataSource.listSessions(current.accessToken)
+    }.recoverCatching { error ->
+        if (error is CancellationException) throw error
+        throw error.toAuthenticationError()
+    }
+
+    override suspend fun revokeSessionById(sessionId: String, isCurrentSession: Boolean): Result<Unit> = runCatching {
+        val current = _state.value.sessionOrNull
+            ?: throw IllegalStateException("Not authenticated")
+        if (isCurrentSession) {
+            logout()
+        } else {
+            telegramAuthApiDataSource.revokeSessionById(current.accessToken, sessionId)
+        }
+    }.recoverCatching { error ->
+        if (error is CancellationException) throw error
+        throw error.toAuthenticationError()
+    }
+
+    override suspend fun revokeOtherSessions(): Result<Int> = runCatching {
+        val current = _state.value.sessionOrNull
+            ?: throw IllegalStateException("Not authenticated")
+        telegramAuthApiDataSource.revokeOtherSessions(current.accessToken)
+    }.recoverCatching { error ->
+        if (error is CancellationException) throw error
+        throw error.toAuthenticationError()
+    }
+
     private fun route(
         session: AuthenticationResult,
         draft: ProfileDraft?,
@@ -327,11 +363,3 @@ private fun ProfileDraft.withTelegramPhone(session: AuthenticationResult): Profi
 private val RootAuthenticationState.isProfileEditing: Boolean
     get() = this is RootAuthenticationState.OnboardingRequired && session.profile != null
 
-private val RootAuthenticationState.sessionOrNull: AuthenticationResult?
-    get() = when (this) {
-        is RootAuthenticationState.Authenticated -> session
-        is RootAuthenticationState.OnboardingRequired -> session
-        is RootAuthenticationState.RecoverableError -> cachedSession
-        RootAuthenticationState.Loading,
-        is RootAuthenticationState.Unauthenticated -> null
-    }
