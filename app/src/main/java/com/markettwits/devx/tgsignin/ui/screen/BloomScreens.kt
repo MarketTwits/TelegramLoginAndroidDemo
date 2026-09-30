@@ -45,6 +45,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Devices
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material3.CircularProgressIndicator
@@ -98,6 +99,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.SubcomposeAsyncImage
 import coil3.request.ImageRequest
@@ -121,6 +125,21 @@ import com.markettwits.devx.tgsignin.data.model.normalizedInternationalPhoneNumb
 import com.markettwits.devx.tgsignin.data.model.normalizedTelegramPhoneNumberOrNull
 import com.markettwits.devx.tgsignin.data.repository.ProfileEmojiRepository
 import com.markettwits.devx.tgsignin.data.repository.AuthenticationRepository
+import com.markettwits.devx.tgsignin.data.repository.toPasskeyError
+import com.markettwits.devx.tgsignin.ui.model.toPasskeyErrorMessage
+import com.markettwits.devx.tgsignin.ui.viewmodel.PasskeyPendingAction
+import com.markettwits.devx.tgsignin.ui.viewmodel.PasskeyUiEvent
+import com.markettwits.devx.tgsignin.ui.viewmodel.PasskeyUiState
+import com.markettwits.devx.tgsignin.ui.viewmodel.PasskeyViewModel
+import com.markettwits.devx.tgsignin.data.model.UserSessionInfo
+import com.markettwits.devx.tgsignin.ui.viewmodel.SessionUiState
+import com.markettwits.devx.tgsignin.ui.viewmodel.SessionViewModel
+import com.markettwits.devx.tgsignin.ui.viewmodel.isBusy
+import com.markettwits.devx.tgsignin.ui.viewmodel.passkeys
+import com.markettwits.devx.tgsignin.ui.viewmodel.sessions
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.collectLatest
+import org.koin.androidx.compose.koinViewModel
 import com.markettwits.devx.tgsignin.ui.component.InternationalPhoneVisualTransformation
 import com.markettwits.devx.tgsignin.ui.component.ProfileEmojiImage
 import com.markettwits.devx.tgsignin.ui.component.TelegramChoice
@@ -145,7 +164,6 @@ import kotlin.math.roundToInt
 
 private const val SETUP_PAGE_COUNT = 4
 private const val EMOJI_SET_PREFETCH_COUNT = 20
-private class TelegramReauthenticationStarted : Exception()
 
 @Composable
 fun ProfileSetupScreen(
@@ -707,7 +725,8 @@ fun BloomProfileScreen(
                     ))
                 }
                 TelegramIdentitySummary(session, profile.phoneNumber)
-                if (passkeysConfigured) PasskeySection(session.accessToken, isOffline)
+                if (passkeysConfigured) PasskeySection(isOffline)
+                SessionSection(isOffline)
                 TelegramDestructiveButton(
                     text = stringResource(R.string.bloom_delete_account),
                     onClick = { confirmDelete = true },
@@ -762,53 +781,65 @@ fun BloomProfileScreen(
 }
 
 @Composable
-private fun PasskeySection(accessToken: String, isOffline: Boolean) {
-    val api: TelegramAuthApiDataSource = koinInject()
-    val credentialManager: PasskeyCredentialDataSource = koinInject()
+private fun PasskeySection(
+    isOffline: Boolean,
+    viewModel: PasskeyViewModel = koinViewModel()
+) {
+    val credentialDataSource: PasskeyCredentialDataSource = koinInject()
     val authenticationRepository: AuthenticationRepository = koinInject()
     val context = LocalContext.current
-    val resources = LocalResources.current
     val scope = rememberCoroutineScope()
-    var passkeys by remember(accessToken) { mutableStateOf<List<PasskeyInfo>>(emptyList()) }
-    var loading by remember(accessToken) { mutableStateOf(true) }
-    var changing by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var editingId by remember { mutableStateOf<String?>(null) }
     var deletingId by remember { mutableStateOf<String?>(null) }
     var editedName by remember { mutableStateOf("") }
+    var showCreateDialog by remember { mutableStateOf(false) }
+    var newPasskeyName by remember { mutableStateOf("") }
 
-    suspend fun reauthenticateWithPasskey() {
-        val options = try {
-            api.beginPasskeyReauthentication(accessToken)
-        } catch (error: BackendHttpException) {
-            if (error.errorCode != "PASSKEY_REQUIRED") throw error
-            authenticationRepository.startTelegramReauthentication(context)
-            throw TelegramReauthenticationStarted()
+    val passkeys = uiState.passkeys
+    val isBusy = uiState.isBusy
+
+    LaunchedEffect(viewModel) {
+        viewModel.events.collectLatest { event ->
+            when (event) {
+                is PasskeyUiEvent.LaunchCredentialCreation -> {
+                    scope.launch {
+                        try {
+                            val credentialJson = credentialDataSource.create(context, event.requestJson)
+                            viewModel.onCredentialCreated(event.operationId, credentialJson, event.name)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Throwable) {
+                            viewModel.onCredentialError(e.toPasskeyError())
+                        }
+                    }
+                }
+                is PasskeyUiEvent.LaunchCredentialAuthentication -> {
+                    scope.launch {
+                        try {
+                            val assertionJson = credentialDataSource.get(context, event.requestJson)
+                            viewModel.completePasskeyReauthentication(event.operationId, assertionJson, event.pendingAction)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Throwable) {
+                            viewModel.onCredentialError(e.toPasskeyError())
+                        }
+                    }
+                }
+                is PasskeyUiEvent.LaunchTelegramReauthentication -> {
+                    authenticationRepository.startTelegramReauthentication(context)
+                    viewModel.onTelegramReauthenticationStarted(event.pendingAction)
+                }
+                is PasskeyUiEvent.ShowSnackbar -> {
+                    // Handled via UI state
+                }
+            }
         }
-        val response = credentialManager.get(context, options.requestJson)
-        api.finishPasskeyReauthentication(accessToken, options.operationId, response)
     }
 
-    suspend fun <T> withFreshAuthentication(block: suspend () -> T): T = try {
-        block()
-    } catch (error: BackendHttpException) {
-        if (error.errorCode != "REAUTHENTICATION_REQUIRED") throw error
-        reauthenticateWithPasskey()
-        block()
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        viewModel.resumeAfterExternalAuth()
     }
-
-    fun reload() {
-        scope.launch {
-            loading = true
-            error = null
-            runCatching { api.listPasskeys(accessToken) }
-                .onSuccess { passkeys = it }
-                .onFailure { error = resources.getString(R.string.passkey_load_failed) }
-            loading = false
-        }
-    }
-
-    LaunchedEffect(accessToken) { reload() }
 
     TelegramSection(title = stringResource(R.string.passkey_section_title)) {
         Text(
@@ -816,7 +847,7 @@ private fun PasskeySection(accessToken: String, isOffline: Boolean) {
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         when {
-            loading -> CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+            uiState is PasskeyUiState.Loading -> CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
             passkeys.isEmpty() -> Text(stringResource(R.string.passkey_empty))
             else -> passkeys.forEach { passkey ->
                 Surface(
@@ -832,18 +863,51 @@ private fun PasskeySection(accessToken: String, isOffline: Boolean) {
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary
                         )
-                        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                            Text(passkey.name, fontWeight = FontWeight.SemiBold)
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(horizontal = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(passkey.name, fontWeight = FontWeight.SemiBold)
+                                val syncBadgeText = if (passkey.backedUp) {
+                                    stringResource(R.string.passkey_synced)
+                                } else {
+                                    stringResource(R.string.passkey_this_device)
+                                }
+                                Surface(
+                                    shape = CircleShape,
+                                    color = if (passkey.backedUp) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                                ) {
+                                    Text(
+                                        text = syncBadgeText,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (passkey.backedUp) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
                             Text(
                                 stringResource(R.string.passkey_created, formatDate(passkey.createdAt)),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            if (passkey.lastUsedAt != null) {
+                                Text(
+                                    stringResource(R.string.passkey_last_used, formatDate(passkey.lastUsedAt)),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                         TelegramIconAction(
                             icon = Icons.Outlined.Edit,
                             contentDescription = stringResource(R.string.passkey_rename),
-                            enabled = !changing && !isOffline,
+                            enabled = !isBusy && !isOffline,
                             onClick = {
                                 editingId = passkey.id
                                 editedName = passkey.name
@@ -853,7 +917,7 @@ private fun PasskeySection(accessToken: String, isOffline: Boolean) {
                         TelegramIconAction(
                             icon = Icons.Outlined.DeleteOutline,
                             contentDescription = stringResource(R.string.passkey_delete),
-                            enabled = !changing && !isOffline,
+                            enabled = !isBusy && !isOffline,
                             onClick = { deletingId = passkey.id }
                         )
                     }
@@ -870,99 +934,251 @@ private fun PasskeySection(accessToken: String, isOffline: Boolean) {
                             Text(stringResource(R.string.cancel))
                         }
                         TextButton(
-                            enabled = editedName.isNotBlank() && !changing,
+                            enabled = editedName.isNotBlank() && !isBusy,
                             onClick = {
-                                scope.launch {
-                                    changing = true
-                                    error = null
-                                    runCatching {
-                                        withFreshAuthentication {
-                                            api.renamePasskey(accessToken, passkey.id, editedName.trim())
-                                        }
-                                    }.onSuccess {
-                                        passkeys = it
-                                        editingId = null
-                                    }.onFailure { failure ->
-                                        error = resources.getString(
-                                            if (failure is TelegramReauthenticationStarted) {
-                                                R.string.passkey_telegram_reauth_started
-                                            } else R.string.passkey_rename_failed
-                                        )
-                                    }
-                                    changing = false
-                                }
+                                val newName = editedName.trim()
+                                editingId = null
+                                viewModel.renamePasskey(passkey.id, newName)
                             }
                         ) { Text(stringResource(R.string.done)) }
                     }
                 }
             }
         }
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        if (uiState is PasskeyUiState.Error) {
+            val error = (uiState as PasskeyUiState.Error).error
+            val message = error.toPasskeyErrorMessage(context)
+            Text(message.message, color = MaterialTheme.colorScheme.error)
+        }
         TelegramPrimaryButton(
             text = stringResource(R.string.passkey_add),
-            enabled = credentialManager.isSupported && !changing && !isOffline,
+            enabled = viewModel.isPasskeySupported && !isBusy && !isOffline,
             onClick = {
-                scope.launch {
-                    changing = true
-                    error = null
-                    runCatching {
-                        withFreshAuthentication {
-                            val options = api.beginPasskeyRegistration(accessToken)
-                            val response = credentialManager.create(context, options.requestJson)
-                            api.finishPasskeyRegistration(
-                                accessToken = accessToken,
-                                operationId = options.operationId,
-                                credentialJson = response,
-                                name = Build.MODEL.take(80)
-                            )
-                        }
-                    }.onSuccess { passkeys = it }
-                        .onFailure { failure ->
-                            error = resources.getString(
-                                if (failure is TelegramReauthenticationStarted) {
-                                    R.string.passkey_telegram_reauth_started
-                                } else R.string.passkey_add_failed
-                            )
-                        }
-                    changing = false
-                }
+                newPasskeyName = Build.MODEL.take(80)
+                showCreateDialog = true
             }
         )
     }
 
-    val deletingPasskey = passkeys.firstOrNull { it.id == deletingId }
-    if (deletingPasskey != null) TelegramConfirmationDialog(
-        title = stringResource(R.string.passkey_delete_title),
-        message = stringResource(R.string.passkey_delete_confirmation, deletingPasskey.name),
-        confirmText = stringResource(R.string.passkey_delete),
-        dismissText = stringResource(R.string.cancel),
-        destructive = true,
-        onDismiss = { deletingId = null },
-        onConfirm = {
-            deletingId = null
-            scope.launch {
-                changing = true
-                error = null
-                runCatching {
-                    withFreshAuthentication {
-                        api.deletePasskey(accessToken, deletingPasskey.id)
-                    }
-                }.onSuccess { deleted ->
-                    passkeys = passkeys.filterNot { it.id == deletingPasskey.id }
-                    runCatching {
-                        credentialManager.signalUnknownCredential(deleted.rpId, deleted.credentialId)
-                    }
-                }.onFailure { failure ->
-                    error = resources.getString(
-                        if (failure is TelegramReauthenticationStarted) {
-                            R.string.passkey_telegram_reauth_started
-                        } else R.string.passkey_delete_failed
+    if (showCreateDialog) {
+        Dialog(onDismissRequest = { showCreateDialog = false }) {
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = MaterialTheme.colorScheme.surface,
+                shadowElevation = 12.dp
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(22.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.passkey_create_title),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold
                     )
+                    TelegramTextField(
+                        value = newPasskeyName,
+                        onValueChange = { newPasskeyName = it.take(80) },
+                        label = stringResource(R.string.passkey_name),
+                        singleLine = true
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = { showCreateDialog = false }) {
+                            Text(stringResource(R.string.cancel))
+                        }
+                        TextButton(
+                            enabled = newPasskeyName.isNotBlank() && !isBusy,
+                            onClick = {
+                                val nameToUse = newPasskeyName.trim()
+                                showCreateDialog = false
+                                viewModel.createPasskey(nameToUse)
+                            }
+                        ) {
+                            Text(stringResource(R.string.bloom_next), fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                 }
-                changing = false
             }
         }
-    )
+    }
+
+    val deletingPasskey = passkeys.firstOrNull { it.id == deletingId }
+    if (deletingPasskey != null) {
+        val isOnlyPasskey = passkeys.size == 1
+        TelegramConfirmationDialog(
+            title = stringResource(
+                if (isOnlyPasskey) R.string.passkey_delete_last_title else R.string.passkey_delete_title
+            ),
+            message = stringResource(
+                if (isOnlyPasskey) R.string.passkey_delete_last_confirmation else R.string.passkey_delete_confirmation,
+                deletingPasskey.name
+            ),
+            confirmText = stringResource(R.string.passkey_delete),
+            dismissText = stringResource(R.string.cancel),
+            destructive = true,
+            onDismiss = { deletingId = null },
+            onConfirm = {
+                val passkeyToDelete = deletingPasskey.id
+                deletingId = null
+                viewModel.deletePasskey(passkeyToDelete)
+            }
+        )
+    }
+}
+
+@Composable
+private fun SessionSection(
+    isOffline: Boolean,
+    viewModel: SessionViewModel = koinViewModel()
+) {
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    var targetSessionToRevoke by remember { mutableStateOf<UserSessionInfo?>(null) }
+    var confirmRevokeOthers by remember { mutableStateOf(false) }
+
+    val sessions = uiState.sessions
+    val isBusy = uiState.isBusy
+
+    TelegramSection(title = stringResource(R.string.sessions_title)) {
+        Text(
+            stringResource(R.string.sessions_description),
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        when {
+            uiState is SessionUiState.Loading && sessions.isEmpty() -> {
+                CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+            }
+            sessions.isEmpty() -> {
+                Text(stringResource(R.string.sessions_empty))
+            }
+            else -> {
+                sessions.forEach { userSession ->
+                    Surface(
+                        shape = MaterialTheme.shapes.small,
+                        color = MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            androidx.compose.material3.Icon(
+                                Icons.Outlined.Devices,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(horizontal = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = userSession.deviceLabel ?: stringResource(R.string.sessions_unknown_device),
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    if (userSession.current) {
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = MaterialTheme.colorScheme.primaryContainer
+                                        ) {
+                                            Text(
+                                                text = stringResource(R.string.sessions_current_badge),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                                val authMethodLabel = when (userSession.authenticationMethod) {
+                                    "passkey" -> stringResource(R.string.sessions_method_passkey)
+                                    "telegram" -> stringResource(R.string.sessions_method_telegram)
+                                    else -> null
+                                }
+                                if (authMethodLabel != null) {
+                                    Text(
+                                        text = authMethodLabel,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Text(
+                                    text = stringResource(R.string.sessions_created, formatDate(userSession.createdAt)),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = stringResource(R.string.sessions_last_active, formatDate(userSession.lastSeenAt)),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            TelegramIconAction(
+                                icon = Icons.Outlined.DeleteOutline,
+                                contentDescription = stringResource(R.string.sessions_revoke),
+                                enabled = !isBusy && !isOffline,
+                                onClick = { targetSessionToRevoke = userSession }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        if (uiState is SessionUiState.Error) {
+            val errorMessage = (uiState as SessionUiState.Error).message
+            Text(errorMessage, color = MaterialTheme.colorScheme.error)
+        }
+        val hasOtherSessions = sessions.any { !it.current }
+        if (hasOtherSessions) {
+            TelegramPrimaryButton(
+                text = stringResource(R.string.sessions_revoke_others),
+                secondary = true,
+                enabled = !isBusy && !isOffline,
+                onClick = { confirmRevokeOthers = true }
+            )
+        }
+    }
+
+    targetSessionToRevoke?.let { sessionToRevoke ->
+        TelegramConfirmationDialog(
+            title = stringResource(R.string.sessions_revoke_confirm_title),
+            message = stringResource(R.string.sessions_revoke_confirm_message),
+            confirmText = stringResource(R.string.sessions_revoke),
+            dismissText = stringResource(R.string.cancel),
+            destructive = true,
+            onDismiss = { targetSessionToRevoke = null },
+            onConfirm = {
+                val target = sessionToRevoke
+                targetSessionToRevoke = null
+                viewModel.revokeSession(target)
+            }
+        )
+    }
+
+    if (confirmRevokeOthers) {
+        TelegramConfirmationDialog(
+            title = stringResource(R.string.sessions_revoke_others_confirm_title),
+            message = stringResource(R.string.sessions_revoke_others_confirm_message),
+            confirmText = stringResource(R.string.sessions_revoke),
+            dismissText = stringResource(R.string.cancel),
+            destructive = true,
+            onDismiss = { confirmRevokeOthers = false },
+            onConfirm = {
+                confirmRevokeOthers = false
+                viewModel.revokeOtherSessions()
+            }
+        )
+    }
 }
 
 @Composable

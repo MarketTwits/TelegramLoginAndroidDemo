@@ -80,12 +80,27 @@ test('configuration rejects an empty algorithm list', { concurrency: false }, ()
 
 test('production configuration fails closed without an app token', { concurrency: false }, () => {
   withEnvironment({ NODE_ENV: 'production' }, () => {
-    assert.throws(() => loadConfig(), /APP_TOKEN is required/);
+    assert.throws(() => loadConfig(), /APP_TOKEN or APP_TOKENS is required/);
   });
 });
 
 test('production configuration accepts a non-empty app token', { concurrency: false }, () => {
   withEnvironment({ NODE_ENV: 'production', APP_TOKEN: 'production-token' }, () => {
-    assert.equal(loadConfig().appToken, 'production-token');
+    const config = loadConfig();
+    assert.equal(config.appToken, 'production-token');
+    assert.deepEqual(config.appTokens, ['production-token']);
+    assert.equal(config.appTokensConfigured, true);
+  });
+});
+
+test('production configuration accepts multiple APP_TOKENS for rotation', { concurrency: false }, () => {
+  withEnvironment({
+    NODE_ENV: 'production',
+    APP_TOKENS: 'new-token, old-token',
+    APP_TOKEN: 'primary-token'
+  }, () => {
+    const config = loadConfig();
+    assert.deepEqual(config.appTokens, ['new-token', 'old-token', 'primary-token']);
+    assert.equal(config.appTokensConfigured, true);
   });
 });

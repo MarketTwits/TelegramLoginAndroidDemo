@@ -11,6 +11,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 concurrency:
   group: telegram-bloom-android-release
@@ -108,6 +110,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+
+          # Ensure the released commit is strictly part of origin/main
+          git fetch --quiet --prune origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
           mapfile -t apks < <(find app/build -type f -name '*release*.apk' | sort)
           if [[ "${#apks[@]}" -ne 1 ]]; then
             printf 'Expected exactly one release APK, found %s:\n' "${#apks[@]}" >&2
@@ -129,6 +136,13 @@ jobs:
             | tr '[:upper:]' '[:lower:]')"
           [[ -n "$actual_sha256" && "$actual_sha256" == "$expected_sha256" ]]
 
+          # Verify application package and manifest metadata via apkanalyzer
+          apkanalyzer="$(find "$ANDROID_HOME/cmdline-tools" -type f -name apkanalyzer | sort -V | tail -n 1 || true)"
+          if [[ -x "$apkanalyzer" ]]; then
+            app_id="$("$apkanalyzer" manifest application-id "${apks[0]}")"
+            [[ "$app_id" == "com.markettwits.devx.tgsignin" ]]
+          fi
+
           metadata="app/build/outputs/apk/release/output-metadata.json"
           test -f "$metadata"
           version_name="$(jq -r '.elements[0].versionName' "$metadata")"
@@ -144,14 +158,30 @@ jobs:
 
           release_apk="$RUNNER_TEMP/TelegramLoginAndroidDemo-$version_name.apk"
           cp "${apks[0]}" "$release_apk"
+          sha256sum "$release_apk" | awk '{print $1}' > "$release_apk.sha256"
+          apk_sha256="$(cat "$release_apk.sha256")"
+
           echo "path=$release_apk" >> "$GITHUB_OUTPUT"
+          echo "checksum_path=$release_apk.sha256" >> "$GITHUB_OUTPUT"
+          echo "apk_sha256=$apk_sha256" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version_name=$version_name" >> "$GITHUB_OUTPUT"
+
+      - name: Attest APK build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            ${{ steps.apk.outputs.path }}
+            ${{ steps.apk.outputs.checksum_path }}
 
       - name: Publish GitHub release with generated changelog
         shell: bash
         env:
           APK_PATH: ${{ steps.apk.outputs.path }}
+          CHECKSUM_PATH: ${{ steps.apk.outputs.checksum_path }}
+          APK_SHA256: ${{ steps.apk.outputs.apk_sha256 }}
+          SIGNING_CERT_SHA256: ${{ secrets.ANDROID_SIGNING_SHA256 }}
+          MIN_BACKEND_API_VERSION: "8"
           RELEASE_TAG: ${{ steps.apk.outputs.tag }}
           RELEASE_VERSION_NAME: ${{ steps.apk.outputs.version_name }}
           PRERELEASE: ${{ inputs.prerelease }}
@@ -166,7 +196,7 @@ jobs:
             release_flags+=(--prerelease)
           fi
 
-          gh release create "$RELEASE_TAG" "$APK_PATH" \
+          gh release create "$RELEASE_TAG" "$APK_PATH" "$CHECKSUM_PATH" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "v$RELEASE_VERSION_NAME" \

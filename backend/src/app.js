@@ -14,6 +14,7 @@ import {
   profileEmojiCatalogResponse,
   resolveStoredProfileEmoji
 } from './profileEmojiSets.js';
+import { createLogger, createMetricsCollector } from './logger.js';
 
 const publicDirectory = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const asyncRoute = (handler) => (request, response, next) =>
@@ -139,8 +140,23 @@ const profileDraft = (body) => {
   };
 };
 
-export const createApp = ({ config, database, verifyTelegramToken }) => {
+const extractDeviceLabel = (request) => {
+  if (typeof request.body?.deviceLabel === 'string' && request.body.deviceLabel.trim().length > 0) {
+    return request.body.deviceLabel.trim().slice(0, 50);
+  }
+  const userAgent = request.get('User-Agent');
+  if (userAgent && typeof userAgent === 'string') {
+    return userAgent.slice(0, 50);
+  }
+  return null;
+};
+
+export const createApp = ({ config, database, verifyTelegramToken, logger, metrics }) => {
   const app = express();
+  const log = logger || createLogger({ nodeEnv: config.nodeEnv, revision: APP_REVISION });
+  const metricsCollector = metrics || createMetricsCollector();
+  app.logger = log;
+  app.metrics = metricsCollector;
   const passkeys = config.passkeysConfigured ? createPasskeyService({ config, database }) : null;
   app.disable('x-powered-by');
   app.set('trust proxy', config.trustProxy);
@@ -159,24 +175,39 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
     response.set('Permissions-Policy', 'camera=(), geolocation=(), microphone=()');
     next();
   });
+  app.use((request, _response, next) => {
+    const override = request.headers['x-http-method-override'];
+    if (override && typeof override === 'string') {
+      const normalized = override.trim().toUpperCase();
+      if (['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(normalized)) {
+        request.method = normalized;
+      }
+    }
+    next();
+  });
   app.use((request, response, next) => {
     const requestId = crypto.randomUUID();
     const startedAt = process.hrtime.bigint();
+    request.requestId = requestId;
     response.set('X-Request-Id', requestId);
     if (isApiClientPath(request.path)) {
       response.set('X-Telegram-Bloom-Api-Version', String(API_VERSION));
     }
     const logRequest = !request.path.startsWith(PROFILE_EMOJI_ASSET_PREFIX);
     if (logRequest) {
-      console.info(`[http] --> ${request.method} ${request.path} requestId=${requestId}`);
+      log.httpRequestStart({ requestId, method: request.method, route: request.path });
     }
     response.once('finish', () => {
-      if (!logRequest && response.statusCode < 400) return;
       const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
-      console.info(
-        `[http] <-- ${response.statusCode} ${request.method} ${request.path} ` +
-        `durationMs=${durationMs.toFixed(1)} requestId=${requestId}`
-      );
+      metricsCollector.recordRequest(request.method, request.route?.path || request.path, response.statusCode, durationMs);
+      if (!logRequest && response.statusCode < 400) return;
+      log.httpRequestEnd({
+        requestId,
+        method: request.method,
+        route: request.path,
+        statusCode: response.statusCode,
+        durationMs
+      });
     });
     next();
   });
@@ -203,10 +234,19 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
     legacyHeaders: false
   });
 
+  const sessionLimiter = rateLimit({
+    windowMs: 60_000,
+    limit: 30,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false
+  });
+
+  const appTokens = config.appTokens?.length > 0 ? config.appTokens : (config.appToken ? [config.appToken] : []);
   const requireAppToken = (request, response, next) => {
-    if (!config.appToken) return next();
+    if (appTokens.length === 0) return next();
     const token = request.get('X-App-Token');
-    if (!tokensMatch(token, config.appToken)) {
+    const matched = appTokens.some((expected) => tokensMatch(token, expected));
+    if (!matched) {
       response.set('Cache-Control', 'no-store');
       return response.status(403).json({ code: 'FORBIDDEN', message: 'Invalid or missing X-App-Token' });
     }
@@ -268,10 +308,20 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
       database: 'connected',
       telegram: config.telegramConfigured ? 'configured' : 'configuration_required',
       passkeys: config.passkeysConfigured ? 'configured' : 'configuration_required',
+      appToken: appTokens.length > 0 ? 'configured' : 'configuration_required',
       apiVersion: API_VERSION,
       revision: APP_REVISION
     });
   }));
+
+  app.get('/api/metrics', requireAppToken, (_request, response) => {
+    response.set('Cache-Control', 'no-store').json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      revision: APP_REVISION,
+      metrics: metricsCollector.snapshot()
+    });
+  });
 
   app.post('/auth/telegram', requireAppToken, requireJsonBody, authLimiter, asyncRoute(async (request, response) => {
     if (!config.telegramConfigured) {
@@ -289,7 +339,8 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
     try {
       telegramProfile = await verifyTelegramToken(idToken);
     } catch (error) {
-      console.warn('Rejected Telegram ID token:', error.code ?? error.message);
+      log.telegramAuthEvent({ requestId: request.requestId, outcome: 'failure', reason: error.code ?? error.message });
+      metricsCollector.recordTelegramAuth('failure');
       return response.status(401).json({
         code: 'INVALID_TELEGRAM_TOKEN',
         message: 'Telegram authorization was rejected'
@@ -298,9 +349,13 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
 
     const state = await database.authenticateTelegramUser(telegramProfile);
     if (state.account.onboarding_state === 'DISABLED') {
+      log.telegramAuthEvent({ requestId: request.requestId, outcome: 'failure', reason: 'ACCOUNT_DISABLED' });
+      metricsCollector.recordTelegramAuth('disabled');
       return response.status(403).json({ code: 'ACCOUNT_DISABLED', message: 'Account is disabled' });
     }
-    const session = await createSession(database, state.account.id, config.sessionTtlDays);
+    const session = await createSession(database, state.account.id, config.sessionTtlDays, 'TELEGRAM', extractDeviceLabel(request));
+    log.telegramAuthEvent({ requestId: request.requestId, outcome: 'success' });
+    metricsCollector.recordTelegramAuth('success');
     response.set('Cache-Control', 'no-store').json({
       sessionToken: session.token,
       ...authenticationStateResponse(state, session.expiresAt)
@@ -312,6 +367,7 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
       return response.status(503).json({ code: 'PASSKEYS_NOT_CONFIGURED', message: 'Passkey authentication is not configured' });
     }
     const options = await passkeys.authenticationOptions();
+    metricsCollector.recordWebauthnCreated();
     response.json({ ...options, expiresAt: options.expiresAt.toISOString() });
   }));
 
@@ -326,15 +382,46 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
     let verified;
     try {
       verified = await passkeys.verifyAuthentication({ operationId, credential });
+      log.passkeyEvent({
+        requestId: request.requestId,
+        operation: 'authentication',
+        outcome: 'success',
+        credentialId: credential.id
+      });
+      metricsCollector.recordPasskeyOperation('authentication', 'success');
     } catch (error) {
-      console.warn('Rejected passkey assertion:', error.message);
-    }
-    if (!verified) {
-      return response.status(401).json({ code: 'INVALID_PASSKEY', message: 'Passkey authentication was rejected' });
+      const code = error.code || 'INVALID_PASSKEY';
+      log.passkeyEvent({
+        requestId: request.requestId,
+        operation: 'authentication',
+        outcome: 'failure',
+        reason: code,
+        credentialId: credential?.id
+      });
+      metricsCollector.recordPasskeyOperation('authentication', code);
+      if (code === 'CHALLENGE_EXPIRED') {
+        metricsCollector.recordWebauthnExpired();
+      }
+      const statusMap = {
+        CHALLENGE_EXPIRED: 400,
+        CREDENTIAL_NOT_FOUND: 404,
+        ORIGIN_REJECTED: 400,
+        RP_ID_REJECTED: 400,
+        ACCOUNT_DISABLED: 403,
+        INVALID_PASSKEY: 401
+      };
+      return response.status(statusMap[code] || 401).json({ code, message: error.message });
     }
     const state = await database.getAccount(verified.userId);
-    const session = await createSession(database, verified.userId, config.sessionTtlDays, 'PASSKEY');
-    response.json({ sessionToken: session.token, ...authenticationStateResponse(state, session.expiresAt) });
+    const session = await createSession(database, verified.userId, config.sessionTtlDays, 'PASSKEY', extractDeviceLabel(request));
+    response.json({
+      sessionToken: session.token,
+      passkey: {
+        id: verified.passkeyId,
+        credentialId: verified.credentialId
+      },
+      ...authenticationStateResponse(state, session.expiresAt)
+    });
   }));
 
   app.get('/auth/session', requireAppToken, asyncRoute(async (request, response) => {
@@ -346,6 +433,61 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
     response.set('Cache-Control', 'no-store').json(
       authenticationStateResponse(session, session.expiresAt)
     );
+  }));
+
+  app.get('/me/sessions', requireAppToken, sessionLimiter, asyncRoute(async (request, response) => {
+    const token = bearerToken(request);
+    const tokenHash = token ? hashSessionToken(token) : null;
+    const session = tokenHash ? await database.findSession(tokenHash) : null;
+    if (!session) return response.status(401).json({ code: 'SESSION_INVALID', message: 'Session is missing or expired' });
+    if (rejectDisabledAccount(session, response)) return;
+
+    const sessions = database.listUserSessions(session.account.id, tokenHash).map((s) => ({
+      id: s.id,
+      createdAt: s.createdAt.toISOString(),
+      lastSeenAt: s.lastSeenAt.toISOString(),
+      expiresAt: s.expiresAt.toISOString(),
+      authenticationMethod: s.authenticationMethod,
+      deviceLabel: s.deviceLabel,
+      current: s.current
+    }));
+    response.json({ sessions });
+  }));
+
+  app.delete('/me/sessions/:id', requireAppToken, sessionLimiter, asyncRoute(async (request, response) => {
+    const token = bearerToken(request);
+    const tokenHash = token ? hashSessionToken(token) : null;
+    const session = tokenHash ? await database.findSession(tokenHash) : null;
+    if (!session) return response.status(401).json({ code: 'SESSION_INVALID', message: 'Session is missing or expired' });
+    if (rejectDisabledAccount(session, response)) return;
+
+    const targetSession = database.findUserSessionById(session.account.id, request.params.id);
+    if (!targetSession) {
+      return response.status(404).json({ code: 'SESSION_NOT_FOUND', message: 'Session not found' });
+    }
+
+    const isCurrentSession = targetSession.tokenHash === tokenHash;
+    if (!isCurrentSession && Date.now() - session.reauthenticatedAt.getTime() > FRESH_AUTHENTICATION_MS) {
+      return response.status(403).json({ code: 'REAUTHENTICATION_REQUIRED', message: 'Sign in again before revoking other sessions' });
+    }
+
+    database.revokeUserSessionById(session.account.id, request.params.id);
+    response.status(204).end();
+  }));
+
+  app.post('/me/sessions/revoke-others', requireAppToken, sessionLimiter, asyncRoute(async (request, response) => {
+    const token = bearerToken(request);
+    const tokenHash = token ? hashSessionToken(token) : null;
+    const session = tokenHash ? await database.findSession(tokenHash) : null;
+    if (!session) return response.status(401).json({ code: 'SESSION_INVALID', message: 'Session is missing or expired' });
+    if (rejectDisabledAccount(session, response)) return;
+
+    if (Date.now() - session.reauthenticatedAt.getTime() > FRESH_AUTHENTICATION_MS) {
+      return response.status(403).json({ code: 'REAUTHENTICATION_REQUIRED', message: 'Sign in again before revoking other sessions' });
+    }
+
+    const revokedCount = database.revokeOtherUserSessions(session.account.id, tokenHash);
+    response.json({ revokedCount });
   }));
 
   app.get('/me/passkeys', requireAppToken, asyncRoute(async (request, response) => {
@@ -364,6 +506,7 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
     if (!passkeys) return response.status(503).json({ code: 'PASSKEYS_NOT_CONFIGURED', message: 'Passkeys are not configured' });
     const options = await passkeys.reauthenticationOptions(session.account.id, tokenHash);
     if (!options) return response.status(409).json({ code: 'PASSKEY_REQUIRED', message: 'This account has no passkey for reauthentication' });
+    metricsCollector.recordWebauthnCreated();
     response.json({ ...options, expiresAt: options.expiresAt.toISOString() });
   }));
 
@@ -417,11 +560,39 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
     let verified;
     try {
       verified = await passkeys.verifyReauthentication({ operationId, credential, sessionTokenHash: tokenHash });
+      log.passkeyEvent({
+        requestId: request.requestId,
+        operation: 'reauthentication',
+        outcome: 'success',
+        credentialId: credential.id
+      });
+      metricsCollector.recordPasskeyOperation('reauthentication', 'success');
     } catch (error) {
-      console.warn('Rejected passkey reauthentication:', error.message);
+      const code = error.code || 'INVALID_PASSKEY';
+      log.passkeyEvent({
+        requestId: request.requestId,
+        operation: 'reauthentication',
+        outcome: 'failure',
+        reason: code,
+        credentialId: credential?.id
+      });
+      metricsCollector.recordPasskeyOperation('reauthentication', code);
+      if (code === 'CHALLENGE_EXPIRED') {
+        metricsCollector.recordWebauthnExpired();
+      }
+      const statusMap = {
+        CHALLENGE_EXPIRED: 400,
+        CREDENTIAL_NOT_FOUND: 404,
+        ORIGIN_REJECTED: 400,
+        RP_ID_REJECTED: 400,
+        ACCOUNT_DISABLED: 403,
+        SESSION_INVALID: 401,
+        INVALID_PASSKEY: 401
+      };
+      return response.status(statusMap[code] || 401).json({ code, message: error.message });
     }
-    if (!verified || !database.reauthenticateSession(tokenHash, verified.userId)) {
-      return response.status(401).json({ code: 'INVALID_PASSKEY', message: 'Passkey reauthentication was rejected' });
+    if (!database.reauthenticateSession(tokenHash, verified.userId)) {
+      return response.status(401).json({ code: 'SESSION_INVALID', message: 'Session is missing or expired' });
     }
     response.status(204).end();
   }));
@@ -438,6 +609,7 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
     let options;
     try {
       options = await passkeys.registrationOptions(session.account.id, hashSessionToken(token));
+      metricsCollector.recordWebauthnCreated();
     } catch (error) {
       if (error.code === 'PASSKEY_LIMIT_REACHED') {
         return response.status(409).json({ code: error.code, message: error.message });
@@ -463,10 +635,36 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
       registered = await passkeys.verifyRegistration({
         operationId, credential, displayName, sessionTokenHash: hashSessionToken(token)
       });
+      log.passkeyEvent({
+        requestId: request.requestId,
+        operation: 'registration',
+        outcome: 'success',
+        credentialId: credential.id
+      });
+      metricsCollector.recordPasskeyOperation('registration', 'success');
     } catch (error) {
-      console.warn('Rejected passkey registration:', error.message);
+      const code = error.code || 'INVALID_PASSKEY';
+      log.passkeyEvent({
+        requestId: request.requestId,
+        operation: 'registration',
+        outcome: 'failure',
+        reason: code,
+        credentialId: credential?.id
+      });
+      metricsCollector.recordPasskeyOperation('registration', code);
+      if (code === 'CHALLENGE_EXPIRED') {
+        metricsCollector.recordWebauthnExpired();
+      }
+      const statusMap = {
+        CHALLENGE_EXPIRED: 400,
+        CREDENTIAL_ALREADY_REGISTERED: 409,
+        ORIGIN_REJECTED: 400,
+        RP_ID_REJECTED: 400,
+        SESSION_INVALID: 401,
+        INVALID_PASSKEY: 401
+      };
+      return response.status(statusMap[code] || 401).json({ code, message: error.message });
     }
-    if (!registered) return response.status(401).json({ code: 'INVALID_PASSKEY', message: 'Passkey registration was rejected' });
     response.status(201).json({ passkeys: registered.map(passkeyResponse) });
   }));
 
@@ -490,8 +688,24 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
     if (Date.now() - session.reauthenticatedAt.getTime() > FRESH_AUTHENTICATION_MS) {
       return response.status(403).json({ code: 'REAUTHENTICATION_REQUIRED', message: 'Sign in again before changing passkeys' });
     }
+    const userPasskeys = database.listPasskeys(session.account.id);
+    const isLastPasskey = userPasskeys.length === 1 && userPasskeys[0].id === request.params.id;
+    const hasTelegramRecovery = Boolean(session.account.telegram_user_id || session.account.telegram_subject);
+    if (isLastPasskey && !hasTelegramRecovery && request.query?.force !== 'true') {
+      return response.status(409).json({
+        code: 'LAST_PASSKEY_RECOVERY_REQUIRED',
+        message: 'Cannot delete the only passkey without an alternate recovery method'
+      });
+    }
     const revoked = database.revokePasskey(session.account.id, request.params.id);
     if (!revoked) return response.status(404).json({ code: 'PASSKEY_NOT_FOUND', message: 'Passkey not found' });
+    log.passkeyEvent({
+      requestId: request.requestId,
+      operation: 'revocation',
+      outcome: 'success',
+      credentialId: revoked.credential_id
+    });
+    metricsCollector.recordPasskeyOperation('revocation', 'success');
     response.json({ credentialId: revoked.credential_id, rpId: config.passkeyRpId });
   }));
 
@@ -547,14 +761,17 @@ export const createApp = ({ config, database, verifyTelegramToken }) => {
   app.use((_request, response) => {
     response.status(404).json({ code: 'NOT_FOUND', message: 'Resource not found' });
   });
-  app.use((error, _request, response, _next) => {
+  app.use((error, request, response, _next) => {
     if (error?.type === 'entity.parse.failed') {
       return response.status(400).json({ code: 'INVALID_JSON', message: 'Request body must be valid JSON' });
     }
     if (error?.type === 'entity.too.large') {
       return response.status(413).json({ code: 'PAYLOAD_TOO_LARGE', message: 'Request body is too large' });
     }
-    console.error('Unhandled request error:', error);
+    if (error?.code?.includes?.('BUSY') || error?.code?.includes?.('LOCKED')) {
+      metricsCollector.recordSqliteBusy();
+    }
+    log.unhandledError({ requestId: request.requestId, error, route: request.path, method: request.method });
     response.status(500).json({ code: 'INTERNAL_ERROR', message: 'The server could not process the request' });
   });
 

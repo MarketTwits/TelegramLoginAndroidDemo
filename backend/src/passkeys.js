@@ -54,27 +54,78 @@ export const createPasskeyService = ({ config, database }) => ({
 
   async verifyRegistration({ operationId, credential, displayName, sessionTokenHash }) {
     const pending = database.consumeWebAuthnOperation(operationId, 'REGISTRATION');
-    if (!pending || pending.session_token_hash !== sessionTokenHash) return null;
-    const verification = await verifyRegistrationResponse({
-      response: credential,
-      expectedChallenge: pending.challenge,
-      expectedOrigin: config.passkeyAllowedOrigins,
-      expectedRPID: pending.rp_id,
-      requireUserVerification: true
-    });
-    if (!verification.verified || !verification.registrationInfo) return null;
+    if (!pending) {
+      const err = new Error('Challenge expired or already used');
+      err.code = 'CHALLENGE_EXPIRED';
+      throw err;
+    }
+    if (pending.session_token_hash !== sessionTokenHash) {
+      const err = new Error('Session is missing or expired');
+      err.code = 'SESSION_INVALID';
+      throw err;
+    }
+    const existing = database.findPasskeyByCredentialId(credential?.id);
+    if (existing) {
+      const err = new Error('Passkey is already registered');
+      err.code = 'CREDENTIAL_ALREADY_REGISTERED';
+      throw err;
+    }
+    let verification;
+    try {
+      verification = await verifyRegistrationResponse({
+        response: credential,
+        expectedChallenge: pending.challenge,
+        expectedOrigin: config.passkeyAllowedOrigins,
+        expectedRPID: pending.rp_id,
+        requireUserVerification: true
+      });
+    } catch (error) {
+      console.warn('Rejected passkey registration:', error.message);
+      if (error.name === 'UnexpectedRPIDHash') {
+        const err = new Error('RP ID rejected');
+        err.code = 'RP_ID_REJECTED';
+        throw err;
+      }
+      if (error.message?.includes('response origin')) {
+        const err = new Error('Origin rejected');
+        err.code = 'ORIGIN_REJECTED';
+        throw err;
+      }
+      if (error.message?.includes('response challenge')) {
+        const err = new Error('Challenge mismatch or expired');
+        err.code = 'CHALLENGE_EXPIRED';
+        throw err;
+      }
+      const err = new Error('Passkey registration was rejected');
+      err.code = 'INVALID_PASSKEY';
+      throw err;
+    }
+    if (!verification.verified || !verification.registrationInfo) {
+      const err = new Error('Passkey registration was rejected');
+      err.code = 'INVALID_PASSKEY';
+      throw err;
+    }
     const info = verification.registrationInfo;
-    database.createPasskey(pending.user_id, {
-      id: crypto.randomUUID(),
-      credentialId: info.credential.id,
-      publicKey: Buffer.from(info.credential.publicKey),
-      counter: info.credential.counter,
-      transports: info.credential.transports,
-      aaguid: info.aaguid,
-      deviceType: info.credentialDeviceType,
-      backedUp: info.credentialBackedUp,
-      displayName
-    });
+    try {
+      database.createPasskey(pending.user_id, {
+        id: crypto.randomUUID(),
+        credentialId: info.credential.id,
+        publicKey: Buffer.from(info.credential.publicKey),
+        counter: info.credential.counter,
+        transports: info.credential.transports,
+        aaguid: info.aaguid,
+        deviceType: info.credentialDeviceType,
+        backedUp: info.credentialBackedUp,
+        displayName
+      });
+    } catch (err) {
+      if (err.message?.includes('UNIQUE constraint failed')) {
+        const duplicateErr = new Error('Passkey is already registered');
+        duplicateErr.code = 'CREDENTIAL_ALREADY_REGISTERED';
+        throw duplicateErr;
+      }
+      throw err;
+    }
     return database.listPasskeys(pending.user_id);
   },
 
@@ -111,57 +162,156 @@ export const createPasskeyService = ({ config, database }) => ({
 
   async verifyAuthentication({ operationId, credential }) {
     const pending = database.consumeWebAuthnOperation(operationId, 'AUTHENTICATION');
-    if (!pending) return null;
+    if (!pending) {
+      const err = new Error('Challenge expired or already used');
+      err.code = 'CHALLENGE_EXPIRED';
+      throw err;
+    }
     const passkey = database.findPasskeyByCredentialId(credential?.id);
-    if (!passkey || passkey.onboarding_state === 'DISABLED') return null;
-    const verification = await verifyAuthenticationResponse({
-      response: credential,
-      expectedChallenge: pending.challenge,
-      expectedOrigin: config.passkeyAllowedOrigins,
-      expectedRPID: pending.rp_id,
-      credential: {
-        id: passkey.credential_id,
-        publicKey: new Uint8Array(passkey.public_key),
-        counter: passkey.counter,
-        transports: passkey.transports
-      },
-      requireUserVerification: true
-    });
-    if (!verification.verified) return null;
+    if (!passkey) {
+      const err = new Error('Passkey credential not found');
+      err.code = 'CREDENTIAL_NOT_FOUND';
+      throw err;
+    }
+    if (passkey.onboarding_state === 'DISABLED') {
+      const err = new Error('Account is disabled');
+      err.code = 'ACCOUNT_DISABLED';
+      throw err;
+    }
+    let verification;
+    try {
+      verification = await verifyAuthenticationResponse({
+        response: credential,
+        expectedChallenge: pending.challenge,
+        expectedOrigin: config.passkeyAllowedOrigins,
+        expectedRPID: pending.rp_id,
+        credential: {
+          id: passkey.credential_id,
+          publicKey: new Uint8Array(passkey.public_key),
+          counter: passkey.counter,
+          transports: passkey.transports
+        },
+        requireUserVerification: true
+      });
+    } catch (error) {
+      console.warn('Rejected passkey assertion:', error.message);
+      if (error.name === 'UnexpectedRPIDHash') {
+        const err = new Error('RP ID rejected');
+        err.code = 'RP_ID_REJECTED';
+        throw err;
+      }
+      if (error.message?.includes('response origin')) {
+        const err = new Error('Origin rejected');
+        err.code = 'ORIGIN_REJECTED';
+        throw err;
+      }
+      if (error.message?.includes('response challenge')) {
+        const err = new Error('Challenge mismatch or expired');
+        err.code = 'CHALLENGE_EXPIRED';
+        throw err;
+      }
+      const err = new Error('Passkey authentication was rejected');
+      err.code = 'INVALID_PASSKEY';
+      throw err;
+    }
+    if (!verification.verified) {
+      const err = new Error('Passkey authentication was rejected');
+      err.code = 'INVALID_PASSKEY';
+      throw err;
+    }
     const expectedUserHandle = passkey.webauthn_user_handle;
-    if (credential.response?.userHandle !== expectedUserHandle) return null;
+    if (credential.response?.userHandle !== expectedUserHandle) {
+      const err = new Error('User handle mismatch');
+      err.code = 'INVALID_PASSKEY';
+      throw err;
+    }
     if (!database.updatePasskeyUsage(
       passkey.credential_id, passkey.counter, verification.authenticationInfo.newCounter
-    )) return null;
-    return { userId: passkey.user_id, credentialId: passkey.credential_id };
+    )) {
+      const err = new Error('Counter update failed');
+      err.code = 'INVALID_PASSKEY';
+      throw err;
+    }
+    return { userId: passkey.user_id, credentialId: passkey.credential_id, passkeyId: passkey.id };
   },
 
   async verifyReauthentication({ operationId, credential, sessionTokenHash }) {
     const pending = database.consumeWebAuthnOperation(operationId, 'REAUTHENTICATION');
-    if (!pending || pending.session_token_hash !== sessionTokenHash) return null;
+    if (!pending) {
+      const err = new Error('Challenge expired or already used');
+      err.code = 'CHALLENGE_EXPIRED';
+      throw err;
+    }
+    if (pending.session_token_hash !== sessionTokenHash) {
+      const err = new Error('Session is missing or expired');
+      err.code = 'SESSION_INVALID';
+      throw err;
+    }
     const passkey = database.findPasskeyByCredentialId(credential?.id);
-    if (!passkey || passkey.user_id !== pending.user_id || passkey.onboarding_state === 'DISABLED') {
-      return null;
+    if (!passkey || passkey.user_id !== pending.user_id) {
+      const err = new Error('Passkey credential not found');
+      err.code = 'CREDENTIAL_NOT_FOUND';
+      throw err;
+    }
+    if (passkey.onboarding_state === 'DISABLED') {
+      const err = new Error('Account is disabled');
+      err.code = 'ACCOUNT_DISABLED';
+      throw err;
     }
     if (credential.response?.userHandle &&
-        credential.response.userHandle !== passkey.webauthn_user_handle) return null;
-    const verification = await verifyAuthenticationResponse({
-      response: credential,
-      expectedChallenge: pending.challenge,
-      expectedOrigin: config.passkeyAllowedOrigins,
-      expectedRPID: pending.rp_id,
-      credential: {
-        id: passkey.credential_id,
-        publicKey: new Uint8Array(passkey.public_key),
-        counter: passkey.counter,
-        transports: passkey.transports
-      },
-      requireUserVerification: true
-    });
-    if (!verification.verified) return null;
+        credential.response.userHandle !== passkey.webauthn_user_handle) {
+      const err = new Error('User handle mismatch');
+      err.code = 'INVALID_PASSKEY';
+      throw err;
+    }
+    let verification;
+    try {
+      verification = await verifyAuthenticationResponse({
+        response: credential,
+        expectedChallenge: pending.challenge,
+        expectedOrigin: config.passkeyAllowedOrigins,
+        expectedRPID: pending.rp_id,
+        credential: {
+          id: passkey.credential_id,
+          publicKey: new Uint8Array(passkey.public_key),
+          counter: passkey.counter,
+          transports: passkey.transports
+        },
+        requireUserVerification: true
+      });
+    } catch (error) {
+      console.warn('Rejected passkey reauthentication:', error.message);
+      if (error.name === 'UnexpectedRPIDHash') {
+        const err = new Error('RP ID rejected');
+        err.code = 'RP_ID_REJECTED';
+        throw err;
+      }
+      if (error.message?.includes('response origin')) {
+        const err = new Error('Origin rejected');
+        err.code = 'ORIGIN_REJECTED';
+        throw err;
+      }
+      if (error.message?.includes('response challenge')) {
+        const err = new Error('Challenge mismatch or expired');
+        err.code = 'CHALLENGE_EXPIRED';
+        throw err;
+      }
+      const err = new Error('Passkey reauthentication was rejected');
+      err.code = 'INVALID_PASSKEY';
+      throw err;
+    }
+    if (!verification.verified) {
+      const err = new Error('Passkey reauthentication was rejected');
+      err.code = 'INVALID_PASSKEY';
+      throw err;
+    }
     if (!database.updatePasskeyUsage(
       passkey.credential_id, passkey.counter, verification.authenticationInfo.newCounter
-    )) return null;
+    )) {
+      const err = new Error('Counter update failed');
+      err.code = 'INVALID_PASSKEY';
+      throw err;
+    }
     return { userId: passkey.user_id };
   }
 });

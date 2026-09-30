@@ -10,6 +10,8 @@ import androidx.credentials.GetCredentialRequest
 import androidx.credentials.GetPublicKeyCredentialOption
 import androidx.credentials.PublicKeyCredential
 import androidx.credentials.SignalUnknownCredentialRequest
+import com.markettwits.devx.tgsignin.data.model.PasskeyError
+import com.markettwits.devx.tgsignin.data.repository.toPasskeyError
 import org.json.JSONObject
 
 interface PasskeyCredentialDataSource {
@@ -28,24 +30,37 @@ class PasskeyCredentialDataSourceImpl(
     override val isSupported: Boolean
         get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
 
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.P)
+    @android.annotation.SuppressLint("PublicKeyCredential")
     override suspend fun create(context: Context, requestJson: String): String {
-        check(isSupported) { "Passkeys require Android 9 or newer" }
-        val result = manager.createCredential(
-            context = context,
-            request = CreatePublicKeyCredentialRequest(requestJson)
-        )
-        return (result as CreatePublicKeyCredentialResponse).registrationResponseJson
+        try {
+            val result = manager.createCredential(
+                context = context,
+                request = CreatePublicKeyCredentialRequest(requestJson)
+            )
+            return (result as CreatePublicKeyCredentialResponse).registrationResponseJson
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            throw e.toPasskeyError()
+        }
     }
 
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.P)
     override suspend fun get(context: Context, requestJson: String): String {
-        check(isSupported) { "Passkeys require Android 9 or newer" }
-        val result = manager.getCredential(
-            context = context,
-            request = GetCredentialRequest(
-                credentialOptions = listOf(GetPublicKeyCredentialOption(requestJson))
+        try {
+            val result = manager.getCredential(
+                context = context,
+                request = GetCredentialRequest(
+                    credentialOptions = listOf(GetPublicKeyCredentialOption(requestJson))
+                )
             )
-        )
-        return (result.credential as PublicKeyCredential).authenticationResponseJson
+            return (result.credential as PublicKeyCredential).authenticationResponseJson
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            throw e.toPasskeyError()
+        }
     }
 
     override suspend fun clearState() {

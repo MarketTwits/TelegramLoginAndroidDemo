@@ -175,3 +175,12 @@ sealed interface RootAuthenticationState {
     ) : RootAuthenticationState
     data class RecoverableError(val cachedSession: AuthenticationResult?) : RootAuthenticationState
 }
+
+val RootAuthenticationState.sessionOrNull: AuthenticationResult?
+    get() = when (this) {
+        is RootAuthenticationState.Authenticated -> session
+        is RootAuthenticationState.OnboardingRequired -> session
+        is RootAuthenticationState.RecoverableError -> cachedSession
+        else -> null
+    }
+

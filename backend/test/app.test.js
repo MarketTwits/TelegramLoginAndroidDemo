@@ -276,7 +276,7 @@ test('Backend starts without Telegram configuration and reports setup mode', asy
   assert.equal(healthResponse.status, 200);
   assert.deepEqual(await healthResponse.json(), {
     status: 'ready', database: 'connected', telegram: 'configuration_required',
-    passkeys: 'configuration_required', apiVersion: 8, revision: 'development'
+    passkeys: 'configuration_required', appToken: 'configuration_required', apiVersion: 8, revision: 'development'
   });
   assert.equal(healthResponse.headers.get('x-telegram-bloom-api-version'), '8');
   const response = await fetch(`${baseUrl}/auth/telegram`, {
@@ -434,3 +434,161 @@ test('profile emoji catalog groups one compact TGS format with verified thumbnai
   const liveAfterAssets = await fetch(`${baseUrl}/api/health/live`);
   assert.equal(liveAfterAssets.status, 200, 'asset traffic must not consume the API rate limit');
 });
+
+test('app tokens rotation: both current and previous tokens are accepted', async (context) => {
+  const { baseUrl } = await startServer(
+    context,
+    async () => telegramProfile(),
+    { ...config, appTokens: ['current-token-v2', 'previous-token-v1'] }
+  );
+
+  const res1 = await fetch(`${baseUrl}/api/health/ready`, {
+    headers: { 'X-App-Token': 'current-token-v2' }
+  });
+  assert.equal(res1.status, 200);
+  const data1 = await res1.json();
+  assert.equal(data1.appToken, 'configured');
+
+  const res2 = await fetch(`${baseUrl}/api/health/ready`, {
+    headers: { 'X-App-Token': 'previous-token-v1' }
+  });
+  assert.equal(res2.status, 200);
+
+  const res3 = await fetch(`${baseUrl}/api/health/ready`, {
+    headers: { 'X-App-Token': 'expired-token-v0' }
+  });
+  assert.equal(res3.status, 403);
+
+  const res4 = await fetch(`${baseUrl}/api/health/ready`);
+  assert.equal(res4.status, 403);
+});
+
+test('observability: GET /api/metrics returns aggregated metrics and tracks operations', async (context) => {
+  const { baseUrl } = await startServer(
+    context,
+    async () => telegramProfile(),
+    { ...config, appToken: 'metric-test-token' }
+  );
+
+  // Without token, returns 403
+  const unauthorized = await fetch(`${baseUrl}/api/metrics`);
+  assert.equal(unauthorized.status, 403);
+
+  // With token, returns metrics
+  const initial = await fetch(`${baseUrl}/api/metrics`, {
+    headers: { 'X-App-Token': 'metric-test-token' }
+  });
+  assert.equal(initial.status, 200);
+  const data = await initial.json();
+  assert.equal(data.status, 'ok');
+  assert.ok(data.metrics.http);
+  assert.ok(data.metrics.passkeys);
+  assert.ok(data.metrics.telegram);
+  assert.ok(data.metrics.webauthnOperations);
+  assert.ok(data.metrics.storage);
+
+  // Perform a Telegram login to generate metrics
+  const loginRes = await fetch(`${baseUrl}/auth/telegram`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-App-Token': 'metric-test-token'
+    },
+    body: JSON.stringify({ idToken: 'y'.repeat(40) })
+  });
+  assert.equal(loginRes.status, 200);
+
+  // Inspect metrics again
+  const after = await fetch(`${baseUrl}/api/metrics`, {
+    headers: { 'X-App-Token': 'metric-test-token' }
+  });
+  const afterData = await after.json();
+  assert.equal(afterData.metrics.telegram.byOutcome.success, 1);
+  assert.ok(afterData.metrics.http.totalRequests >= 3);
+});
+
+test('session management: list sessions, revoke others, and delete single session', async (context) => {
+  const { baseUrl } = await startServer(context, async () => telegramProfile());
+
+  // Login session 1
+  const login1 = await fetch(`${baseUrl}/auth/telegram`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ idToken: 'x'.repeat(40), deviceLabel: 'Pixel Phone' })
+  });
+  const data1 = await login1.json();
+  const token1 = data1.sessionToken;
+
+  // Login session 2 (same user)
+  const login2 = await fetch(`${baseUrl}/auth/telegram`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ idToken: 'x'.repeat(40), deviceLabel: 'Desktop Chrome' })
+  });
+  const data2 = await login2.json();
+  const token2 = data2.sessionToken;
+
+  // List sessions with token 1
+  const listRes = await fetch(`${baseUrl}/me/sessions`, {
+    headers: { Authorization: `Bearer ${token1}` }
+  });
+  assert.equal(listRes.status, 200);
+  const { sessions } = await listRes.json();
+  assert.equal(sessions.length, 2);
+  const currentS = sessions.find((s) => s.current);
+  const otherS = sessions.find((s) => !s.current);
+  assert.equal(currentS.deviceLabel, 'Pixel Phone');
+  assert.equal(otherS.deviceLabel, 'Desktop Chrome');
+
+  // Both tokens work
+  const check1 = await fetch(`${baseUrl}/auth/session`, { headers: { Authorization: `Bearer ${token1}` } });
+  const check2 = await fetch(`${baseUrl}/auth/session`, { headers: { Authorization: `Bearer ${token2}` } });
+  assert.equal(check1.status, 200);
+  assert.equal(check2.status, 200);
+
+  // Revoke session 2 by ID using token 1
+  const deleteOther = await fetch(`${baseUrl}/me/sessions/${otherS.id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token1}` }
+  });
+  assert.equal(deleteOther.status, 204);
+
+  // Token 2 is now revoked immediately
+  const check2After = await fetch(`${baseUrl}/auth/session`, { headers: { Authorization: `Bearer ${token2}` } });
+  assert.equal(check2After.status, 401);
+
+  // Login session 3
+  const login3 = await fetch(`${baseUrl}/auth/telegram`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ idToken: 'x'.repeat(40), deviceLabel: 'Tablet' })
+  });
+  const data3 = await login3.json();
+  const token3 = data3.sessionToken;
+
+  // Revoke others using token 1
+  const revokeOthersRes = await fetch(`${baseUrl}/me/sessions/revoke-others`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token1}` }
+  });
+  assert.equal(revokeOthersRes.status, 200);
+  const revokeData = await revokeOthersRes.json();
+  assert.equal(revokeData.revokedCount, 1);
+
+  // Token 3 is now revoked
+  const check3After = await fetch(`${baseUrl}/auth/session`, { headers: { Authorization: `Bearer ${token3}` } });
+  assert.equal(check3After.status, 401);
+
+  // Token 1 still works
+  const check1Final = await fetch(`${baseUrl}/auth/session`, { headers: { Authorization: `Bearer ${token1}` } });
+  assert.equal(check1Final.status, 200);
+
+  // Deleting unknown session returns 404
+  const notFoundRes = await fetch(`${baseUrl}/me/sessions/nonexistent-session-id`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token1}` }
+  });
+  assert.equal(notFoundRes.status, 404);
+});
+
+

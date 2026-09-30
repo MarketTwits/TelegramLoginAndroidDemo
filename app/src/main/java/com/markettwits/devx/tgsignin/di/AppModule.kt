@@ -36,11 +36,14 @@ import com.markettwits.devx.tgsignin.data.repository.BackendReadinessRepositoryI
 import com.markettwits.devx.tgsignin.data.repository.ProfileEmojiRepository
 import com.markettwits.devx.tgsignin.data.repository.ProfileEmojiRepositoryImpl
 import com.markettwits.devx.tgsignin.data.telegram.TelegramLoginConfig
+import com.markettwits.devx.tgsignin.data.repository.PasskeyRepository
+import com.markettwits.devx.tgsignin.data.repository.PasskeyRepositoryImpl
 import com.markettwits.devx.tgsignin.ui.viewmodel.AppLinkVerificationViewModel
 import com.markettwits.devx.tgsignin.ui.viewmodel.AppUpdateViewModel
 import com.markettwits.devx.tgsignin.ui.viewmodel.AppearanceViewModel
 import com.markettwits.devx.tgsignin.ui.viewmodel.BackendReadinessViewModel
 import com.markettwits.devx.tgsignin.ui.viewmodel.LoginViewModel
+import com.markettwits.devx.tgsignin.ui.viewmodel.PasskeyViewModel
 import com.markettwits.devx.tgsignin.ui.viewmodel.ProfileViewModel
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -133,12 +136,15 @@ val appModule = module {
     }
     single<AppearanceLocalDataSource> { AppearanceLocalDataSourceImpl(androidContext()) }
     single<AppearanceRepository> { AppearanceRepositoryImpl(get()) }
+    single<PasskeyRepository> { PasskeyRepositoryImpl(get(), get()) }
     viewModel { LoginViewModel(get()) }
     viewModel { ProfileViewModel(get()) }
     viewModel { AppearanceViewModel(get()) }
     viewModel { BackendReadinessViewModel(get()) }
     viewModel { AppLinkVerificationViewModel(get()) }
     viewModel { AppUpdateViewModel(get()) }
+    viewModel { PasskeyViewModel(get(), get(), get()) }
+    viewModel { com.markettwits.devx.tgsignin.ui.viewmodel.SessionViewModel(get()) }
 }
 
 private const val GITHUB_LATEST_RELEASE_API_URL =

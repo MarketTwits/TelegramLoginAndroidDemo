@@ -39,7 +39,7 @@ jobs:
               dependency="${dependency#"${dependency%%[![:space:]]*}"}"
               dependency="${dependency%"${dependency##*[![:space:]]}"}"
               case "$dependency" in
-                gradle-wrapper|com.android.application|org.jetbrains.kotlin.*|org.telegram:login-sdk)
+                gradle-wrapper|com.android.application|org.jetbrains.kotlin.*|org.telegram:login-sdk|@simplewebauthn/*|better-sqlite3|androidx.credentials*|androidx.dataStore*)
                   eligible=false
                   ;;
               esac

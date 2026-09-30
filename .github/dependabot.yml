@@ -20,6 +20,19 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: deps(android)
+    groups:
+      gradle-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+        exclude-patterns:
+          - "org.telegram:login-sdk"
+          - "com.android.*"
+          - "org.jetbrains.kotlin.*"
+          - "androidx.credentials*"
+          - "androidx.dataStore*"
 
   - package-ecosystem: npm
     directory: /backend
@@ -31,6 +44,16 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: deps(backend)
+    groups:
+      npm-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+        exclude-patterns:
+          - "@simplewebauthn/*"
+          - "better-sqlite3"
 
   - package-ecosystem: docker
     directory: /backend
@@ -47,3 +70,10 @@ updates:
     open-pull-requests-limit: 3
     commit-message:
       prefix: deps(actions)
+    groups:
+      actions-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"

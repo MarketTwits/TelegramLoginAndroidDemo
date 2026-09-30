@@ -33,11 +33,27 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Audit production dependencies
+        run: npm audit --omit=dev
+
       - name: Run backend tests
         run: npm test
 
       - name: Build production image
         run: docker build --build-arg "BUILD_REVISION=$GITHUB_SHA" --tag telegram-bloom-backend:ci .
+
+  infrastructure:
+    name: Infrastructure and scripts validation
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Validate Docker Compose
+        run: docker compose config --quiet
+
+      - name: Validate shell scripts syntax
+        run: find scripts -type f -name "*.sh" -print0 | xargs -0 -n 1 bash -n
 
   android:
     name: Android tests and lint
@@ -54,6 +70,9 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v7
 
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v4
+
       - name: Set up Java
         uses: actions/setup-java@v6
         with:
@@ -67,4 +86,22 @@ jobs:
           test -n "$GITHUB_TOKEN"
 
       - name: Run Android tests and lint
-        run: ./gradlew testDebugUnitTest lintDebug lintVitalRelease --no-daemon
+        run: ./gradlew testDebugUnitTest lintDebug lintVitalRelease --no-daemon --warning-mode all
+
+      - name: Archive Gradle problems report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-problems-report
+          path: build/reports/problems/
+          if-no-files-found: ignore
+
+  dependency-review:
+    name: Dependency Review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
