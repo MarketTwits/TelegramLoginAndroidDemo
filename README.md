@@ -67,15 +67,19 @@ CI summary, or to the full commit tag, for example:
 BACKEND_IMAGE=ghcr.io/markettwits/telegramlogindemo:sha-0123456789abcdef0123456789abcdef01234567
 ```
 
-GitHub Container Registry packages may initially be private. For a private package, create a
-GitHub personal access token (classic) with `read:packages` access and log in on each host
-before pulling. A public package can be pulled without authentication.
+The published package is public, so a server can pull it without GitHub credentials:
 
 ```bash
-printf '%s' "$GHCR_READ_TOKEN" | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
 docker compose -f compose.production.yaml pull backend
 docker compose -f compose.production.yaml up -d --no-build --wait backend
 docker compose -f compose.production.yaml ps
+```
+
+If package visibility is changed to private, log in before the pull using a GitHub personal
+access token (classic) with `read:packages`:
+
+```bash
+printf '%s' "$GHCR_READ_TOKEN" | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
 ```
 
 Keep the same SQLite volume or bind mount when replacing an existing deployment; changing the
