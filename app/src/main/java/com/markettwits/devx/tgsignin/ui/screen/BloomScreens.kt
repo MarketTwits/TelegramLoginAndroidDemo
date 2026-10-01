@@ -87,6 +87,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -841,78 +842,15 @@ private fun PasskeySection(
             uiState is PasskeyUiState.Loading -> CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
             passkeys.isEmpty() -> Text(stringResource(R.string.passkey_empty))
             else -> passkeys.forEach { passkey ->
-                Surface(
-                    shape = MaterialTheme.shapes.small,
-                    color = MaterialTheme.colorScheme.surfaceVariant
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        androidx.compose.material3.Icon(
-                            Icons.Outlined.Key,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(horizontal = 12.dp),
-                            verticalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Text(passkey.name, fontWeight = FontWeight.SemiBold)
-                                val syncBadgeText = if (passkey.backedUp) {
-                                    stringResource(R.string.passkey_synced)
-                                } else {
-                                    stringResource(R.string.passkey_this_device)
-                                }
-                                Surface(
-                                    shape = CircleShape,
-                                    color = if (passkey.backedUp) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
-                                ) {
-                                    Text(
-                                        text = syncBadgeText,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = if (passkey.backedUp) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
-                            }
-                            Text(
-                                stringResource(R.string.passkey_created, formatDate(passkey.createdAt)),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            if (passkey.lastUsedAt != null) {
-                                Text(
-                                    stringResource(R.string.passkey_last_used, formatDate(passkey.lastUsedAt)),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                        TelegramIconAction(
-                            icon = Icons.Outlined.Edit,
-                            contentDescription = stringResource(R.string.passkey_rename),
-                            enabled = !isBusy && !isOffline,
-                            onClick = {
-                                editingId = passkey.id
-                                editedName = passkey.name
-                            }
-                        )
-                        Spacer(Modifier.size(8.dp))
-                        TelegramIconAction(
-                            icon = Icons.Outlined.DeleteOutline,
-                            contentDescription = stringResource(R.string.passkey_delete),
-                            enabled = !isBusy && !isOffline,
-                            onClick = { deletingId = passkey.id }
-                        )
-                    }
-                }
+                PasskeyCard(
+                    passkey = passkey,
+                    enabled = !isBusy && !isOffline,
+                    onRename = {
+                        editingId = passkey.id
+                        editedName = passkey.name
+                    },
+                    onDelete = { deletingId = passkey.id }
+                )
                 if (editingId == passkey.id) {
                     TelegramTextField(
                         value = editedName,
@@ -974,6 +912,7 @@ private fun PasskeySection(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
                         .padding(22.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
@@ -1036,6 +975,168 @@ private fun PasskeySection(
 }
 
 @Composable
+internal fun PasskeyCard(
+    passkey: PasskeyInfo,
+    enabled: Boolean,
+    onRename: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().testTag("passkey-card"),
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.Top) {
+                androidx.compose.material3.Icon(
+                    Icons.Outlined.Key,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text(
+                        text = passkey.name,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Surface(
+                        shape = CircleShape,
+                        color = if (passkey.backedUp) MaterialTheme.colorScheme.primaryContainer
+                            else MaterialTheme.colorScheme.surface
+                    ) {
+                        Text(
+                            text = stringResource(
+                                if (passkey.backedUp) R.string.passkey_synced
+                                else R.string.passkey_this_device
+                            ),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (passkey.backedUp) MaterialTheme.colorScheme.onPrimaryContainer
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                    Text(
+                        stringResource(R.string.passkey_created, formatDate(passkey.createdAt)),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    passkey.lastUsedAt?.let { lastUsedAt ->
+                        Text(
+                            stringResource(R.string.passkey_last_used, formatDate(lastUsedAt)),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TelegramIconAction(
+                    icon = Icons.Outlined.Edit,
+                    contentDescription = stringResource(R.string.passkey_rename),
+                    enabled = enabled,
+                    onClick = onRename
+                )
+                Spacer(Modifier.size(8.dp))
+                TelegramIconAction(
+                    icon = Icons.Outlined.DeleteOutline,
+                    contentDescription = stringResource(R.string.passkey_delete),
+                    enabled = enabled,
+                    onClick = onDelete
+                )
+            }
+        }
+    }
+}
+
+@Composable
+internal fun SessionCard(
+    session: UserSessionInfo,
+    enabled: Boolean,
+    onRevoke: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().testTag("session-card"),
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            androidx.compose.material3.Icon(
+                Icons.Outlined.Devices,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Column(
+                modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    text = normalizedDeviceLabel(session.deviceLabel)
+                        ?: stringResource(R.string.sessions_unknown_device),
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (session.current) {
+                    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
+                        Text(
+                            text = stringResource(R.string.sessions_current_badge),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+                val authMethodLabel = when (session.authenticationMethod.uppercase()) {
+                    "PASSKEY" -> stringResource(R.string.sessions_method_passkey)
+                    "TELEGRAM" -> stringResource(R.string.sessions_method_telegram)
+                    else -> null
+                }
+                authMethodLabel?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Text(
+                    text = stringResource(R.string.sessions_created, formatDate(session.createdAt)),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = stringResource(R.string.sessions_last_active, formatDate(session.lastSeenAt)),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            TelegramIconAction(
+                icon = Icons.Outlined.DeleteOutline,
+                contentDescription = stringResource(R.string.sessions_revoke),
+                enabled = enabled,
+                onClick = onRevoke
+            )
+        }
+    }
+}
+
+@Composable
 private fun SessionSection(
     isOffline: Boolean,
     viewModel: SessionViewModel = koinViewModel()
@@ -1065,81 +1166,11 @@ private fun SessionSection(
             }
             else -> {
                 sessions.forEach { userSession ->
-                    Surface(
-                        shape = MaterialTheme.shapes.small,
-                        color = MaterialTheme.colorScheme.surfaceVariant
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            androidx.compose.material3.Icon(
-                                Icons.Outlined.Devices,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Column(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(horizontal = 12.dp),
-                                verticalArrangement = Arrangement.spacedBy(2.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Text(
-                                        text = normalizedDeviceLabel(userSession.deviceLabel)
-                                            ?: stringResource(R.string.sessions_unknown_device),
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                    if (userSession.current) {
-                                        Surface(
-                                            shape = CircleShape,
-                                            color = MaterialTheme.colorScheme.primaryContainer
-                                        ) {
-                                            Text(
-                                                text = stringResource(R.string.sessions_current_badge),
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                                val authMethodLabel = when (userSession.authenticationMethod.uppercase()) {
-                                    "PASSKEY" -> stringResource(R.string.sessions_method_passkey)
-                                    "TELEGRAM" -> stringResource(R.string.sessions_method_telegram)
-                                    else -> null
-                                }
-                                if (authMethodLabel != null) {
-                                    Text(
-                                        text = authMethodLabel,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                Text(
-                                    text = stringResource(R.string.sessions_created, formatDate(userSession.createdAt)),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    text = stringResource(R.string.sessions_last_active, formatDate(userSession.lastSeenAt)),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            TelegramIconAction(
-                                icon = Icons.Outlined.DeleteOutline,
-                                contentDescription = stringResource(R.string.sessions_revoke),
-                                enabled = canChangeSessions && !isOffline,
-                                onClick = { targetSessionToRevoke = userSession }
-                            )
-                        }
-                    }
+                    SessionCard(
+                        session = userSession,
+                        enabled = canChangeSessions && !isOffline,
+                        onRevoke = { targetSessionToRevoke = userSession }
+                    )
                 }
             }
         }
