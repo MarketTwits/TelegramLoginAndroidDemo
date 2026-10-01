@@ -1,5 +1,6 @@
 package com.markettwits.devx.tgsignin.data.datasource
 
+import android.os.Build
 import com.markettwits.devx.tgsignin.data.model.AuthenticationResult
 import com.markettwits.devx.tgsignin.data.model.AvatarSource
 import com.markettwits.devx.tgsignin.data.model.DEFAULT_PROFILE_EMOJI
@@ -15,6 +16,7 @@ import com.markettwits.devx.tgsignin.data.model.ServiceAccount
 import com.markettwits.devx.tgsignin.data.model.ServiceProfile
 import com.markettwits.devx.tgsignin.data.model.TelegramIdentity
 import com.markettwits.devx.tgsignin.data.model.UserSessionInfo
+import com.markettwits.devx.tgsignin.data.model.normalizedDeviceLabel
 import com.markettwits.devx.tgsignin.data.model.normalizedInternationalPhoneNumberOrNull
 import com.markettwits.devx.tgsignin.data.telegram.TelegramLoginConfig
 import kotlinx.coroutines.CoroutineDispatcher
@@ -26,6 +28,14 @@ import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
+
+private fun localDeviceLabel(): String = listOf(Build.MANUFACTURER.orEmpty(), Build.MODEL.orEmpty())
+    .map(String::trim)
+    .filter(String::isNotBlank)
+    .distinctBy(String::lowercase)
+    .joinToString(" ")
+    .take(50)
+    .ifBlank { "Android device" }
 
 interface TelegramAuthApiDataSource {
     suspend fun authenticate(idToken: String): AuthenticationResult
@@ -76,7 +86,7 @@ class TelegramAuthApiDataSourceImpl(
     override suspend fun authenticate(idToken: String): AuthenticationResult = request(
         path = "/auth/telegram",
         method = "POST",
-        body = JSONObject().put("idToken", idToken),
+        body = JSONObject().put("idToken", idToken).put("deviceLabel", localDeviceLabel()),
         accessToken = null
     ) { json -> parseAuthenticationResult(json, json.getString("sessionToken")) }
 
@@ -130,6 +140,7 @@ class TelegramAuthApiDataSourceImpl(
         body = JSONObject()
             .put("operationId", operationId)
             .put("credential", JSONObject(credentialJson))
+            .put("deviceLabel", localDeviceLabel())
     ) { json -> parseAuthenticationResult(json, json.getString("sessionToken")) }
 
     override suspend fun listPasskeys(accessToken: String): List<PasskeyInfo> = request(
@@ -218,7 +229,9 @@ class TelegramAuthApiDataSourceImpl(
                 lastSeenAt = item.getString("lastSeenAt"),
                 expiresAt = item.getString("expiresAt"),
                 authenticationMethod = item.getString("authenticationMethod"),
-                deviceLabel = item.optString("deviceLabel").ifBlank { null },
+                deviceLabel = normalizedDeviceLabel(
+                    item.optString("deviceLabel", "").takeUnless { item.isNull("deviceLabel") }
+                ),
                 current = item.optBoolean("current", false)
             )
         }

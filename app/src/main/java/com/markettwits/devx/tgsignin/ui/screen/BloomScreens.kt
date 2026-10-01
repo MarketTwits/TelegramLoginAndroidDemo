@@ -1,5 +1,7 @@
 package com.markettwits.devx.tgsignin.ui.screen
 
+import com.markettwits.devx.tgsignin.ui.component.rememberAppHaptics
+
 import android.os.Build
 
 import androidx.activity.compose.BackHandler
@@ -77,7 +79,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.ContentScale
@@ -85,7 +86,6 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -108,11 +108,13 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.markettwits.devx.tgsignin.R
 import com.markettwits.devx.tgsignin.data.model.AuthenticationResult
+import com.markettwits.devx.tgsignin.data.model.AuthenticationError
 import com.markettwits.devx.tgsignin.data.model.PasskeyInfo
 import com.markettwits.devx.tgsignin.data.datasource.PasskeyCredentialDataSource
 import com.markettwits.devx.tgsignin.data.datasource.TelegramAuthApiDataSource
 import com.markettwits.devx.tgsignin.data.datasource.BackendHttpException
 import com.markettwits.devx.tgsignin.data.model.ProfileDraft
+import com.markettwits.devx.tgsignin.data.model.normalizedDeviceLabel
 import com.markettwits.devx.tgsignin.data.model.ProfileEmojiCatalog
 import com.markettwits.devx.tgsignin.data.model.ProfileEmojiSelection
 import com.markettwits.devx.tgsignin.data.model.ProfileIntent
@@ -613,7 +615,7 @@ fun BloomProfileScreen(
     var initialCollapseApplied by rememberSaveable { mutableStateOf(false) }
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
-    val haptics = LocalHapticFeedback.current
+    val haptics = rememberAppHaptics()
 
     LaunchedEffect(confirmDelete, showEmojiPicker) {
         onModalVisibilityChanged(confirmDelete || showEmojiPicker)
@@ -634,7 +636,6 @@ fun BloomProfileScreen(
             }
         }
     }
-    var lastHeroBoundary by remember { mutableStateOf<Int?>(null) }
     val settleHeader: () -> Unit = {
         scope.launch {
             if (scrollState.value in 1 until collapsedScrollPosition) {
@@ -654,20 +655,6 @@ fun BloomProfileScreen(
                 .first { it >= collapsedScrollPosition }
             scrollState.scrollTo(collapsedScrollPosition)
             initialCollapseApplied = true
-        }
-    }
-    LaunchedEffect(collapseProgress, initialCollapseApplied) {
-        if (!initialCollapseApplied) return@LaunchedEffect
-        val boundary = when {
-            collapseProgress <= 0.05f -> 0
-            collapseProgress >= 0.95f -> 1
-            else -> null
-        }
-        if (boundary != null) {
-            if (lastHeroBoundary != null && boundary != lastHeroBoundary) {
-                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-            }
-            lastHeroBoundary = boundary
         }
     }
     LaunchedEffect(scrollState, collapsedScrollPosition) {
@@ -755,7 +742,7 @@ fun BloomProfileScreen(
                     }
                 },
                 onEmojiClick = {
-                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    haptics.selection()
                     if (emojiCatalog != null) showEmojiPicker = !showEmojiPicker
                 },
                 emojiMenuExpanded = showEmojiPicker,
@@ -810,7 +797,7 @@ private fun PasskeySection(
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Throwable) {
-                            viewModel.onCredentialError(e.toPasskeyError())
+                            viewModel.onCredentialError(e.toPasskeyError(), event.operationId)
                         }
                     }
                 }
@@ -822,13 +809,17 @@ private fun PasskeySection(
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Throwable) {
-                            viewModel.onCredentialError(e.toPasskeyError())
+                            viewModel.onCredentialError(e.toPasskeyError(), event.operationId)
                         }
                     }
                 }
                 is PasskeyUiEvent.LaunchTelegramReauthentication -> {
-                    authenticationRepository.startTelegramReauthentication(context)
-                    viewModel.onTelegramReauthenticationStarted(event.pendingAction)
+                    try {
+                        authenticationRepository.startTelegramReauthentication(context)
+                        viewModel.onTelegramReauthenticationStarted(event.pendingAction)
+                    } catch (error: Throwable) {
+                        viewModel.onCredentialError(error.toPasskeyError())
+                    }
                 }
                 is PasskeyUiEvent.ShowSnackbar -> {
                     // Handled via UI state
@@ -950,6 +941,19 @@ private fun PasskeySection(
             val message = error.toPasskeyErrorMessage(context)
             Text(message.message, color = MaterialTheme.colorScheme.error)
         }
+        if (uiState is PasskeyUiState.ExternalAuthenticationInProgress &&
+            (uiState as PasskeyUiState.ExternalAuthenticationInProgress).pendingAction != null
+        ) {
+            Text(
+                stringResource(R.string.passkey_waiting_for_verification),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            TelegramPrimaryButton(
+                text = stringResource(R.string.cancel),
+                secondary = true,
+                onClick = { viewModel.cancelPendingAction() }
+            )
+        }
         TelegramPrimaryButton(
             text = stringResource(R.string.passkey_add),
             enabled = viewModel.isPasskeySupported && !isBusy && !isOffline,
@@ -1036,12 +1040,16 @@ private fun SessionSection(
     isOffline: Boolean,
     viewModel: SessionViewModel = koinViewModel()
 ) {
+    val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var targetSessionToRevoke by remember { mutableStateOf<UserSessionInfo?>(null) }
     var confirmRevokeOthers by remember { mutableStateOf(false) }
 
     val sessions = uiState.sessions
     val isBusy = uiState.isBusy
+    val canChangeSessions = !isBusy && uiState !is SessionUiState.ReauthenticationRequired
+
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.onResume() }
 
     TelegramSection(title = stringResource(R.string.sessions_title)) {
         Text(
@@ -1083,7 +1091,8 @@ private fun SessionSection(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     Text(
-                                        text = userSession.deviceLabel ?: stringResource(R.string.sessions_unknown_device),
+                                        text = normalizedDeviceLabel(userSession.deviceLabel)
+                                            ?: stringResource(R.string.sessions_unknown_device),
                                         fontWeight = FontWeight.SemiBold
                                     )
                                     if (userSession.current) {
@@ -1100,9 +1109,9 @@ private fun SessionSection(
                                         }
                                     }
                                 }
-                                val authMethodLabel = when (userSession.authenticationMethod) {
-                                    "passkey" -> stringResource(R.string.sessions_method_passkey)
-                                    "telegram" -> stringResource(R.string.sessions_method_telegram)
+                                val authMethodLabel = when (userSession.authenticationMethod.uppercase()) {
+                                    "PASSKEY" -> stringResource(R.string.sessions_method_passkey)
+                                    "TELEGRAM" -> stringResource(R.string.sessions_method_telegram)
                                     else -> null
                                 }
                                 if (authMethodLabel != null) {
@@ -1126,7 +1135,7 @@ private fun SessionSection(
                             TelegramIconAction(
                                 icon = Icons.Outlined.DeleteOutline,
                                 contentDescription = stringResource(R.string.sessions_revoke),
-                                enabled = !isBusy && !isOffline,
+                                enabled = canChangeSessions && !isOffline,
                                 onClick = { targetSessionToRevoke = userSession }
                             )
                         }
@@ -1134,16 +1143,57 @@ private fun SessionSection(
                 }
             }
         }
+        if (uiState is SessionUiState.Reauthenticating) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                Text(stringResource(R.string.sessions_verifying))
+            }
+        }
+        if (uiState is SessionUiState.ReauthenticationRequired) {
+            val verificationFailed = (uiState as SessionUiState.ReauthenticationRequired).verificationFailed
+            Text(
+                stringResource(
+                    if (verificationFailed) R.string.sessions_verify_failed
+                    else R.string.sessions_verify_required
+                ),
+                color = if (verificationFailed) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            TelegramPrimaryButton(
+                text = stringResource(R.string.sessions_verify_passkey),
+                onClick = { viewModel.verifyWithPasskey(context) }
+            )
+            TelegramPrimaryButton(
+                text = stringResource(R.string.sessions_verify_telegram),
+                secondary = true,
+                onClick = { viewModel.verifyWithTelegram(context) }
+            )
+            TextButton(onClick = { viewModel.cancelPendingAction() }) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
         if (uiState is SessionUiState.Error) {
-            val errorMessage = (uiState as SessionUiState.Error).message
-            Text(errorMessage, color = MaterialTheme.colorScheme.error)
+            val error = (uiState as SessionUiState.Error).error
+            val message = when (error) {
+                is AuthenticationError.TooManyRequests -> R.string.sessions_error_rate_limit
+                is AuthenticationError.NetworkUnavailable,
+                is AuthenticationError.ConnectionFailed,
+                is AuthenticationError.Timeout -> R.string.sessions_error_network
+                else -> R.string.sessions_error_generic
+            }
+            Text(stringResource(message), color = MaterialTheme.colorScheme.error)
+            TelegramPrimaryButton(
+                text = stringResource(R.string.sessions_retry),
+                secondary = true,
+                onClick = { viewModel.loadSessions() }
+            )
         }
         val hasOtherSessions = sessions.any { !it.current }
         if (hasOtherSessions) {
             TelegramPrimaryButton(
                 text = stringResource(R.string.sessions_revoke_others),
                 secondary = true,
-                enabled = !isBusy && !isOffline,
+                enabled = canChangeSessions && !isOffline,
                 onClick = { confirmRevokeOthers = true }
             )
         }
@@ -1152,7 +1202,10 @@ private fun SessionSection(
     targetSessionToRevoke?.let { sessionToRevoke ->
         TelegramConfirmationDialog(
             title = stringResource(R.string.sessions_revoke_confirm_title),
-            message = stringResource(R.string.sessions_revoke_confirm_message),
+            message = stringResource(
+                if (sessionToRevoke.current) R.string.sessions_revoke_confirm_current
+                else R.string.sessions_revoke_confirm_message
+            ),
             confirmText = stringResource(R.string.sessions_revoke),
             dismissText = stringResource(R.string.cancel),
             destructive = true,

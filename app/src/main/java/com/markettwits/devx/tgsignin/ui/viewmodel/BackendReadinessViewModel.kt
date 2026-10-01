@@ -61,6 +61,7 @@ private fun Throwable.toBackendReadinessMessageRes(): Int = when (this) {
     is AuthenticationError.ServerUnavailable -> R.string.backend_server_unavailable
     is AuthenticationError.RequestRejected,
     is AuthenticationError.AuthorizationRejected,
+    is AuthenticationError.ReauthenticationRequired,
     is AuthenticationError.TooManyRequests -> R.string.backend_readiness_endpoint_unavailable
 
     is AuthenticationError.InvalidServerResponse -> R.string.backend_invalid_readiness_response

@@ -126,6 +126,9 @@ class PasskeyViewModelTest {
         AuthenticationRepository by notImplementedAuthRepo() {
         val stateFlow = MutableStateFlow(initialState)
         override val state: StateFlow<RootAuthenticationState> = stateFlow.asStateFlow()
+        val reauthVersionFlow = MutableStateFlow(0L)
+        override val reauthenticationVersion: StateFlow<Long> = reauthVersionFlow.asStateFlow()
+        override fun cancelTelegramReauthentication() = Unit
     }
 
     private fun testSession(): AuthenticationResult = AuthenticationResult(
@@ -178,6 +181,25 @@ class PasskeyViewModelTest {
         assertTrue(viewModel.uiState.value is PasskeyUiState.Ready)
         assertEquals(1, viewModel.uiState.value.passkeys.size)
         assertNull(savedState.get<String>("passkey_pending_action_type"))
+    }
+
+    @Test
+    fun `late credential callback cannot replace state after user cancels`() = runTest {
+        val repo = FakePasskeyRepository()
+        val authRepo = FakeAuthRepository(RootAuthenticationState.Authenticated(testSession()))
+        val savedState = SavedStateHandle()
+        val viewModel = PasskeyViewModel(repo, authRepo, savedState)
+        advanceUntilIdle()
+
+        viewModel.createPasskey("Pixel 8")
+        advanceUntilIdle()
+        viewModel.cancelPendingAction()
+        viewModel.onCredentialCreated("op-reg", "{}", "Pixel 8")
+        viewModel.onCredentialError(PasskeyError.Unknown(), "op-reg")
+        advanceUntilIdle()
+
+        assertEquals(0, repo.finishRegistrationCallCount)
+        assertTrue(viewModel.uiState.value is PasskeyUiState.Ready)
     }
 
     @Test
@@ -304,6 +326,50 @@ class PasskeyViewModelTest {
         assertEquals(1, repo.beginRegistrationCallCount)
         assertTrue(events.any { it is PasskeyUiEvent.LaunchCredentialCreation && it.name == "Work Phone" })
         job.cancel()
+    }
+
+    @Test
+    fun `process recreation does not replay destructive passkey action without verification`() = runTest {
+        val repo = FakePasskeyRepository()
+        val authRepo = FakeAuthRepository(RootAuthenticationState.Authenticated(testSession()))
+        val savedState = SavedStateHandle().apply {
+            set("passkey_pending_action_type", "DELETE")
+            set("passkey_pending_action_id", "id-1")
+        }
+
+        val viewModel = PasskeyViewModel(repo, authRepo, savedState)
+        advanceUntilIdle()
+        viewModel.resumeAfterExternalAuth()
+        advanceUntilIdle()
+
+        assertEquals(0, repo.deleteCallCount)
+        assertTrue(viewModel.uiState.value is PasskeyUiState.Ready)
+        assertNull(savedState.get<String>("passkey_pending_action_type"))
+    }
+
+    @Test
+    fun `returning from Telegram only retries after successful reauthentication`() = runTest {
+        val repo = FakePasskeyRepository().apply {
+            renameResult = Result.failure(PasskeyError.SessionExpired())
+            beginReauthResult = Result.failure(PasskeyError.CredentialNotFound())
+        }
+        val authRepo = FakeAuthRepository(RootAuthenticationState.Authenticated(testSession()))
+        val viewModel = PasskeyViewModel(repo, authRepo, SavedStateHandle())
+        advanceUntilIdle()
+
+        viewModel.renamePasskey("id-1", "New name")
+        advanceUntilIdle()
+        assertEquals(1, repo.renameCallCount)
+        viewModel.onTelegramReauthenticationStarted(PasskeyPendingAction.Rename("id-1", "New name"))
+        viewModel.resumeAfterExternalAuth()
+        advanceUntilIdle()
+        assertEquals(1, repo.renameCallCount)
+
+        repo.renameResult = Result.success(repo.passkeysList)
+        authRepo.reauthVersionFlow.value += 1
+        advanceUntilIdle()
+        assertEquals(2, repo.renameCallCount)
+        assertTrue(viewModel.uiState.value is PasskeyUiState.Ready)
     }
 
     @Test

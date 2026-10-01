@@ -46,6 +46,10 @@ class AuthenticationErrorMapperTest {
     @Test
     fun `http status codes map to actionable categories`() {
         assertTrue(BackendHttpException(401).toAuthenticationError() is AuthenticationError.AuthorizationRejected)
+        assertTrue(
+            BackendHttpException(403, "REAUTHENTICATION_REQUIRED").toAuthenticationError()
+                is AuthenticationError.ReauthenticationRequired
+        )
         assertTrue(BackendHttpException(429).toAuthenticationError() is AuthenticationError.TooManyRequests)
         assertTrue(BackendHttpException(503).toAuthenticationError() is AuthenticationError.ServerUnavailable)
         assertEquals(

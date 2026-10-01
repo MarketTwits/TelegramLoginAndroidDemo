@@ -208,6 +208,7 @@
     <string name="update_later">Позже</string>
     <string name="update_open_failed">Не удалось открыть страницу релиза.</string>
     <string name="sessions_title">Устройства и сессии</string>
+    <string name="passkey_waiting_for_verification">Ожидается подтверждение личности.</string>
     <string name="sessions_description">Активные входы на ваших устройствах.</string>
     <string name="sessions_current_badge">Текущее устройство</string>
     <string name="sessions_unknown_device">Неизвестное устройство</string>
@@ -216,7 +217,17 @@
     <string name="sessions_revoke">Завершить</string>
     <string name="sessions_revoke_others">Завершить все другие сессии</string>
     <string name="sessions_revoke_confirm_title">Завершить сессию?</string>
-    <string name="sessions_revoke_confirm_message">Вход на этом устройстве будет завершён немедленно.</string>
+    <string name="sessions_revoke_confirm_message">Вход на выбранном устройстве будет завершён сразу.</string>
+    <string name="sessions_revoke_confirm_current">Вы сразу выйдете из аккаунта на этом устройстве.</string>
+    <string name="sessions_verify_required">Подтвердите личность, чтобы завершить другие сессии. После подтверждения действие продолжится.</string>
+    <string name="sessions_verifying">Подтверждаем личность…</string>
+    <string name="sessions_verify_failed">Не удалось подтвердить личность. Попробуйте ещё раз.</string>
+    <string name="sessions_verify_passkey">Подтвердить ключом доступа</string>
+    <string name="sessions_verify_telegram">Подтвердить через Telegram</string>
+    <string name="sessions_error_rate_limit">Слишком много попыток. Подождите немного и повторите.</string>
+    <string name="sessions_error_network">Нет соединения. Проверьте сеть и повторите.</string>
+    <string name="sessions_error_generic">Не удалось обновить сессии. Попробуйте ещё раз.</string>
+    <string name="sessions_retry">Повторить</string>
     <string name="sessions_revoke_others_confirm_title">Завершить другие сессии?</string>
     <string name="sessions_revoke_others_confirm_message">Все устройства, кроме текущего, будут немедленно отключены.</string>
     <string name="sessions_empty">Нет других активных сессий.</string>

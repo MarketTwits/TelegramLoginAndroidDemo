@@ -50,6 +50,9 @@ internal fun Throwable.toAuthenticationError(): AuthenticationError {
     }?.let { return AuthenticationError.PasskeyUnavailable(it) }
 
     causes.filterIsInstance<BackendHttpException>().firstOrNull()?.let { error ->
+        if (error.errorCode == "REAUTHENTICATION_REQUIRED") {
+            return AuthenticationError.ReauthenticationRequired(error)
+        }
         return when (error.statusCode) {
             HTTP_UNAUTHORIZED, HTTP_FORBIDDEN -> AuthenticationError.AuthorizationRejected(error)
             HTTP_TOO_MANY_REQUESTS -> AuthenticationError.TooManyRequests(error)

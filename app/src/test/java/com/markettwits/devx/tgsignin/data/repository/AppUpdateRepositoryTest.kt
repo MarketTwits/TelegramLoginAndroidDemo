@@ -67,6 +67,28 @@ class AppUpdateRepositoryTest {
     }
 
     @Test
+    fun `cached notes from older app versions are cleaned before display`() = runBlocking {
+        val local = FakeAppUpdateLocalDataSource(
+            AppUpdateCache(
+                release = appRelease(3).copy(notes = listOf(
+                    "**Target Commit**: `abc`",
+                    "[fix(ui): **session list**](https://github.com/commit/abc)"
+                )),
+                checkedAtEpochMillis = NOW
+            )
+        )
+        val repository = AppUpdateRepositoryImpl(
+            FakeGitHubReleaseDataSource(error = IOException("must not run")),
+            local,
+            currentVersionCode = 2,
+            clock = { NOW }
+        )
+
+        val release = (repository.checkForUpdate() as AppUpdateAvailability.Available).release
+        assertEquals(listOf("fix(ui): session list"), release.notes)
+    }
+
+    @Test
     fun `forced check bypasses fresh cache and uses etag`() = runBlocking {
         val remote = FakeGitHubReleaseDataSource(GitHubReleaseResponse.NotModified)
         val local = FakeAppUpdateLocalDataSource(
@@ -171,6 +193,37 @@ class AppUpdateRepositoryTest {
         assertEquals(6, notes.size)
         assertEquals(160, notes[2].length)
         assertFalse(notes.any { "Full Changelog" in it })
+    }
+
+    @Test
+    fun `release verification is hidden and markdown is rendered as plain text`() {
+        val notes = parseReleaseNotes(
+            """
+            ### Release Verification
+            - **Target Commit**: `5fe07500`
+            - **APK SHA-256**: `abcd`
+            - **Minimum Backend API Version**: `8`
+
+            ### What's Changed
+            - [fix(ui): render **release notes**](https://github.com/MarketTwits/TelegramLoginAndroidDemo/commit/abc)
+            - fix(backend): handle <b>existing databases</b> &amp; sessions
+
+            **Full Changelog**: https://github.com/compare
+            """.trimIndent()
+        )
+
+        assertEquals(
+            listOf("fix(ui): render release notes", "fix(backend): handle existing databases & sessions"),
+            notes
+        )
+    }
+
+    @Test
+    fun `html list items become readable release notes`() {
+        assertEquals(
+            listOf("Fix sessions & passkeys", "Improve update sheet"),
+            parseReleaseNotes("<ul><li><b>Fix sessions &amp; passkeys</b></li><li>Improve update sheet</li></ul>")
+        )
     }
 
     @Test

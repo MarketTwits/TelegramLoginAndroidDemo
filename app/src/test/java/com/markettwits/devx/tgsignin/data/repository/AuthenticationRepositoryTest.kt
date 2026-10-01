@@ -331,6 +331,27 @@ class AuthenticationRepositoryTest {
         assertNull(local.sessionValue.value)
         scope.cancel()
     }
+
+    @Test
+    fun `current session is cleared only after server revocation succeeds`() = runBlocking {
+        val completed = session("Device")
+        val local = FakeAuthenticationLocalDataSource(completed)
+        val api = FakeTelegramAuthApiDataSource(completed)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val repository = AuthenticationRepositoryImpl(FakeTelegramLoginDataSource(), api, local, scope)
+        repository.state.first { it is RootAuthenticationState.Authenticated }
+
+        api.revokeByIdFailure = BackendHttpException(503)
+        assertTrue(repository.revokeSessionById("current-id", true).isFailure)
+        assertEquals(completed.accessToken, local.sessionValue.value?.accessToken)
+
+        api.revokeByIdFailure = null
+        assertTrue(repository.revokeSessionById("current-id", true).isSuccess)
+        assertEquals("current-id", api.revokedSessionId)
+        assertNull(local.sessionValue.value)
+        assertEquals(RootAuthenticationState.Unauthenticated(), repository.state.value)
+        scope.cancel()
+    }
 }
 
 private fun session(displayName: String) = AuthenticationResult(
@@ -382,6 +403,8 @@ private class FakeTelegramAuthApiDataSource(
     private val validationGate: CompletableDeferred<AuthenticationResult>? = null
 ) : TelegramAuthApiDataSource {
     var revokedToken: String? = null
+    var revokedSessionId: String? = null
+    var revokeByIdFailure: Throwable? = null
     var validatedToken: String? = null
     var lastSavedDraft: ProfileDraft? = null
     override suspend fun authenticate(idToken: String): AuthenticationResult = verified
@@ -403,6 +426,10 @@ private class FakeTelegramAuthApiDataSource(
     }
     override suspend fun deleteAccount(accessToken: String) = Unit
     override suspend fun revokeSession(accessToken: String) { revokedToken = accessToken }
+    override suspend fun revokeSessionById(accessToken: String, sessionId: String) {
+        revokeByIdFailure?.let { throw it }
+        revokedSessionId = sessionId
+    }
 }
 
 private class FakeTelegramLoginDataSource : TelegramLoginDataSource {

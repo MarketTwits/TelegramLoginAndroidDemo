@@ -9,3 +9,7 @@ data class UserSessionInfo(
     val deviceLabel: String?,
     val current: Boolean
 )
+
+fun normalizedDeviceLabel(value: String?): String? = value
+    ?.trim()
+    ?.takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
