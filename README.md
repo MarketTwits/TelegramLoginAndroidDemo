@@ -49,6 +49,41 @@ Sync Gradle and run the `app` configuration from Android Studio.
 
 ## Production notes
 
+### Backend image and deployment
+
+After the backend and infrastructure checks pass on `main`, CI publishes a multi-platform
+(`linux/amd64` and `linux/arm64`) image to
+`ghcr.io/markettwits/telegramloginandroiddemo-backend`. Each build gets a full-commit
+`sha-<40-character-commit-sha>` tag and the moving `latest` tag. The CI run summary also
+contains its immutable image digest. The workflow can be rerun manually from `main` if
+publication fails. Publishing an image does not deploy or restart a server.
+
+To deploy on any Docker Compose host, copy [`compose.production.yaml`](compose.production.yaml)
+and [`.env.example`](.env.example) to a directory on that host, rename the example to `.env`,
+and fill in the production settings. Set `BACKEND_IMAGE` in `.env` to the image digest from the
+CI summary, or to the full commit tag, for example:
+
+```dotenv
+BACKEND_IMAGE=ghcr.io/markettwits/telegramloginandroiddemo-backend:sha-0123456789abcdef0123456789abcdef01234567
+```
+
+GitHub Container Registry packages may initially be private. For a private package, create a
+GitHub personal access token (classic) with `read:packages` access and log in on each host
+before pulling. A public package can be pulled without authentication.
+
+```bash
+printf '%s' "$GHCR_READ_TOKEN" | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
+docker compose -f compose.production.yaml pull backend
+docker compose -f compose.production.yaml up -d --no-build --wait backend
+docker compose -f compose.production.yaml ps
+```
+
+Keep the same SQLite volume or bind mount when replacing an existing deployment; changing the
+Compose project name or volume name can make the old database appear missing. To roll back,
+restore the previous `BACKEND_IMAGE` digest or commit tag in `.env` and repeat the pull and up
+commands. `latest` is useful for testing, but pin production to a digest or commit tag so a
+restart uses the intended version.
+
 - `APP_TOKEN` / `APP_TOKENS`: Mandatory when `NODE_ENV=production`. Identifies an approved client
   and limits casual API abuse. To perform zero-downtime rotation, set `APP_TOKENS=new_token,old_token`
   during rollout, release the updated Android client, and safely retire `old_token` once adoption is complete.
@@ -94,4 +129,3 @@ Sync Gradle and run the `app` configuration from Android Studio.
   # Verify and restore a backup into a target database:
   ./scripts/restore-sqlite.sh /path/to/backups/sqlite-backup-YYYYMMDD-HHMMSS.db /path/to/restored.db
   ```
-

@@ -1,0 +1,38 @@
+name: telegram-signin
+
+services:
+  backend:
+    image: ${BACKEND_IMAGE:?Set BACKEND_IMAGE to a GHCR commit tag or digest}
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      SQLITE_DATABASE_PATH: /app/data/telegram-signin.sqlite
+      TELEGRAM_CLIENT_ID: ${TELEGRAM_CLIENT_ID:-}
+      APP_TOKEN: ${APP_TOKEN:?APP_TOKEN is required}
+      APP_TOKENS: ${APP_TOKENS:-}
+      PASSKEY_RP_ID: ${PASSKEY_RP_ID:-}
+      PASSKEY_RP_NAME: ${PASSKEY_RP_NAME:-Telegram Login Demo}
+      PASSKEY_ALLOWED_ORIGINS: ${PASSKEY_ALLOWED_ORIGINS:-}
+      PASSKEY_ANDROID_PACKAGE: ${PASSKEY_ANDROID_PACKAGE:-}
+      PASSKEY_ANDROID_CERT_SHA256: ${PASSKEY_ANDROID_CERT_SHA256:-}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - sqlite_data:/app/data
+    healthcheck:
+      test: [ "CMD", "node", "-e", "fetch('http://127.0.0.1:8080/api/health/ready',{headers:{'X-App-Token':process.env.APP_TOKENS?.split(',')[0]?.trim()||process.env.APP_TOKEN}}).then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))" ]
+      interval: 10s
+      timeout: 4s
+      retries: 5
+      start_period: 5s
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  sqlite_data:
+    labels:
+      com.example.description: "Telegram Sign-In SQLite data"
