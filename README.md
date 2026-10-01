@@ -53,7 +53,7 @@ Sync Gradle and run the `app` configuration from Android Studio.
 
 After the backend and infrastructure checks pass on `main`, CI publishes a multi-platform
 (`linux/amd64` and `linux/arm64`) image to
-`ghcr.io/markettwits/telegramloginandroiddemo-backend`. Each build gets a full-commit
+`ghcr.io/markettwits/telegramlogindemo`. Each build gets a full-commit
 `sha-<40-character-commit-sha>` tag and the moving `latest` tag. The CI run summary also
 contains its immutable image digest. The workflow can be rerun manually from `main` if
 publication fails. Publishing an image does not deploy or restart a server.
@@ -64,7 +64,7 @@ and fill in the production settings. Set `BACKEND_IMAGE` in `.env` to the image 
 CI summary, or to the full commit tag, for example:
 
 ```dotenv
-BACKEND_IMAGE=ghcr.io/markettwits/telegramloginandroiddemo-backend:sha-0123456789abcdef0123456789abcdef01234567
+BACKEND_IMAGE=ghcr.io/markettwits/telegramlogindemo:sha-0123456789abcdef0123456789abcdef01234567
 ```
 
 GitHub Container Registry packages may initially be private. For a private package, create a
