@@ -6,6 +6,7 @@ sealed class AuthenticationError(cause: Throwable? = null) : Exception(cause) {
     class Timeout(cause: Throwable) : AuthenticationError(cause)
     class SecureConnectionFailed(cause: Throwable) : AuthenticationError(cause)
     class AuthorizationRejected(cause: Throwable? = null) : AuthenticationError(cause)
+    class ReauthenticationRequired(cause: Throwable? = null) : AuthenticationError(cause)
     class TooManyRequests(cause: Throwable? = null) : AuthenticationError(cause)
     class ServerUnavailable(cause: Throwable? = null) : AuthenticationError(cause)
     class RequestRejected(val statusCode: Int, cause: Throwable? = null) : AuthenticationError(cause)

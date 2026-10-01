@@ -62,9 +62,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -97,10 +95,10 @@ fun TelegramIconAction(
     modifier: Modifier = Modifier,
     enabled: Boolean = true
 ) {
-    val haptics = LocalHapticFeedback.current
+    val haptics = rememberAppHaptics()
     IconButton(
         onClick = {
-            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            haptics.selection()
             onClick()
         },
         enabled = enabled,
@@ -153,10 +151,10 @@ fun TelegramChoice(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
-    val haptics = LocalHapticFeedback.current
+    val haptics = rememberAppHaptics()
     Surface(
         onClick = {
-            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            haptics.selection()
             onClick()
         },
         modifier = modifier.heightIn(min = 44.dp),
@@ -281,10 +279,10 @@ fun TelegramPrimaryButton(
     secondary: Boolean = false,
     content: (@Composable () -> Unit)? = null
 ) {
-    val haptics = LocalHapticFeedback.current
+    val haptics = rememberAppHaptics()
     Button(
         onClick = {
-            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            haptics.action()
             onClick()
         },
         enabled = enabled,
@@ -429,10 +427,10 @@ fun TelegramDestructiveButton(
     modifier: Modifier = Modifier,
     icon: ImageVector? = null
 ) {
-    val haptics = LocalHapticFeedback.current
+    val haptics = rememberAppHaptics()
     TextButton(
         onClick = {
-            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            haptics.action()
             onClick()
         },
         modifier = modifier
@@ -460,7 +458,7 @@ fun TelegramConfirmationDialog(
     onDismiss: () -> Unit,
     destructive: Boolean = false
 ) {
-    val haptics = LocalHapticFeedback.current
+    val haptics = rememberAppHaptics()
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(dismissOnBackPress = true, dismissOnClickOutside = true)
@@ -492,11 +490,11 @@ fun TelegramConfirmationDialog(
                     horizontalArrangement = Arrangement.End
                 ) {
                     TextButton(onClick = {
-                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        haptics.selection()
                         onDismiss()
                     }) { Text(dismissText) }
                     TextButton(onClick = {
-                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        haptics.confirmation()
                         onConfirm()
                     }) {
                         Text(
@@ -522,7 +520,7 @@ fun TelegramDialog(
     onDismiss: () -> Unit,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val haptics = LocalHapticFeedback.current
+    val haptics = rememberAppHaptics()
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = RoundedCornerShape(18.dp),
@@ -547,7 +545,7 @@ fun TelegramDialog(
                 )
                 TextButton(
                     onClick = {
-                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        haptics.selection()
                         onDismiss()
                     },
                     modifier = Modifier
@@ -597,7 +595,7 @@ fun TelegramEmojiSetDropdown(
         }
     }
     var visibleCount by remember { mutableIntStateOf(0) }
-    val haptics = LocalHapticFeedback.current
+    val haptics = rememberAppHaptics()
 
     LaunchedEffect(expanded) {
         if (expanded) {
@@ -742,9 +740,7 @@ fun TelegramEmojiSetDropdown(
                                         selected = ProfileEmojiSelection(emoji.setId, emoji.id) ==
                                                 selectedEmoji,
                                         onClick = {
-                                            haptics.performHapticFeedback(
-                                                HapticFeedbackType.TextHandleMove
-                                            )
+                                            haptics.selection()
                                             onEmojiSelected(
                                                 ProfileEmojiSelection(
                                                     emoji.setId,

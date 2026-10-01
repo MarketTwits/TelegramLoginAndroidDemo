@@ -1,5 +1,7 @@
 package com.markettwits.devx.tgsignin.ui.screen
 
+import com.markettwits.devx.tgsignin.ui.component.rememberAppHaptics
+
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
@@ -26,9 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -181,7 +181,7 @@ private fun ConfigurationStatusSection(
     status: ConfigurationStatus,
     onRetry: (() -> Unit)? = null
 ) {
-    val haptics = LocalHapticFeedback.current
+    val haptics = rememberAppHaptics()
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         ConfigurationTitle(stringResource(title))
         when (status) {
@@ -228,7 +228,7 @@ private fun ConfigurationStatusSection(
                     onRetry?.let { retry ->
                         TextButton(
                             onClick = {
-                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                haptics.selection()
                                 retry()
                             },
                             contentPadding = PaddingValues(0.dp),

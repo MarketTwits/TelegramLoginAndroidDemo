@@ -31,8 +31,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -48,7 +46,7 @@ fun TelegramSensitiveValue(
     modifier: Modifier = Modifier
 ) {
     var revealed by rememberSaveable(value) { mutableStateOf(false) }
-    val haptics = LocalHapticFeedback.current
+    val haptics = rememberAppHaptics()
 
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -86,7 +84,7 @@ fun TelegramSensitiveValue(
             }
             IconButton(
                 onClick = {
-                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    haptics.selection()
                     revealed = !revealed
                 },
                 modifier = Modifier.size(40.dp)

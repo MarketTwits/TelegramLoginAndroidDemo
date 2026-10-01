@@ -3,6 +3,7 @@ package com.markettwits.devx.tgsignin.data.repository
 import android.content.Context
 import android.net.Uri
 import com.markettwits.devx.tgsignin.data.datasource.AuthenticationLocalDataSource
+import com.markettwits.devx.tgsignin.data.datasource.BackendHttpException
 import com.markettwits.devx.tgsignin.data.datasource.PasskeyCredentialDataSource
 import com.markettwits.devx.tgsignin.data.datasource.TelegramAuthApiDataSource
 import com.markettwits.devx.tgsignin.data.datasource.TelegramLoginDataSource
@@ -28,9 +29,11 @@ import kotlinx.coroutines.sync.withLock
 
 interface AuthenticationRepository {
     val state: StateFlow<RootAuthenticationState>
+    val reauthenticationVersion: StateFlow<Long>
 
     fun startTelegramLogin(context: Context, scopes: Set<TelegramScope>)
     fun startTelegramReauthentication(context: Context)
+    fun cancelTelegramReauthentication()
     fun isTelegramCallback(uri: Uri): Boolean
     suspend fun completeTelegramLogin(callbackUri: Uri): Result<AuthenticationResult>
     suspend fun signInWithPasskey(context: Context): Result<AuthenticationResult>
@@ -44,6 +47,7 @@ interface AuthenticationRepository {
     suspend fun listSessions(): Result<List<UserSessionInfo>>
     suspend fun revokeSessionById(sessionId: String, isCurrentSession: Boolean): Result<Unit>
     suspend fun revokeOtherSessions(): Result<Int>
+    suspend fun reauthenticateWithPasskey(context: Context): Result<Unit>
 }
 
 class AuthenticationRepositoryImpl(
@@ -55,6 +59,8 @@ class AuthenticationRepositoryImpl(
 ) : AuthenticationRepository {
     private val _state = MutableStateFlow<RootAuthenticationState>(RootAuthenticationState.Loading)
     override val state = _state.asStateFlow()
+    private val _reauthenticationVersion = MutableStateFlow(0L)
+    override val reauthenticationVersion = _reauthenticationVersion.asStateFlow()
     private val localMutationMutex = Mutex()
     @Volatile private var telegramReauthenticationPending = false
 
@@ -117,6 +123,7 @@ class AuthenticationRepositoryImpl(
 
     override fun startTelegramReauthentication(context: Context) {
         checkNotNull(_state.value.sessionOrNull) { "No authenticated session" }
+        check(!telegramReauthenticationPending) { "Telegram verification is already in progress" }
         telegramReauthenticationPending = true
         try {
             telegramLoginDataSource.startLogin(context, setOf(TelegramScope.Profile))
@@ -126,14 +133,21 @@ class AuthenticationRepositoryImpl(
         }
     }
 
+    override fun cancelTelegramReauthentication() {
+        telegramReauthenticationPending = false
+    }
+
     override fun isTelegramCallback(uri: Uri): Boolean = telegramLoginDataSource.isTelegramCallback(uri)
 
     override suspend fun completeTelegramLogin(callbackUri: Uri): Result<AuthenticationResult> = try {
         val idToken = telegramLoginDataSource.consumeCallback(callbackUri)
-        if (telegramReauthenticationPending) {
-            val current = checkNotNull(_state.value.sessionOrNull) { "No authenticated session" }
+        val existingSession = _state.value.sessionOrNull
+            ?: authenticationLocalDataSource.session.first()
+        if (telegramReauthenticationPending || existingSession != null) {
+            val current = checkNotNull(existingSession) { "No authenticated session" }
             telegramAuthApiDataSource.reauthenticateWithTelegram(current.accessToken, idToken)
             telegramReauthenticationPending = false
+            _reauthenticationVersion.value += 1
             return Result.success(current)
         }
         val result = telegramAuthApiDataSource.authenticate(idToken)
@@ -297,10 +311,15 @@ class AuthenticationRepositoryImpl(
     override suspend fun revokeSessionById(sessionId: String, isCurrentSession: Boolean): Result<Unit> = runCatching {
         val current = _state.value.sessionOrNull
             ?: throw IllegalStateException("Not authenticated")
-        if (isCurrentSession) {
-            logout()
-        } else {
+        try {
             telegramAuthApiDataSource.revokeSessionById(current.accessToken, sessionId)
+        } catch (error: BackendHttpException) {
+            if (error.errorCode != "SESSION_NOT_FOUND") throw error
+        }
+        if (isCurrentSession) {
+            runCatching { passkeyCredentialDataSource?.clearState() }
+            localMutationMutex.withLock { authenticationLocalDataSource.clear() }
+            _state.value = RootAuthenticationState.Unauthenticated()
         }
     }.recoverCatching { error ->
         if (error is CancellationException) throw error
@@ -311,6 +330,18 @@ class AuthenticationRepositoryImpl(
         val current = _state.value.sessionOrNull
             ?: throw IllegalStateException("Not authenticated")
         telegramAuthApiDataSource.revokeOtherSessions(current.accessToken)
+    }.recoverCatching { error ->
+        if (error is CancellationException) throw error
+        throw error.toAuthenticationError()
+    }
+
+    override suspend fun reauthenticateWithPasskey(context: Context): Result<Unit> = runCatching {
+        val token = checkNotNull(_state.value.sessionOrNull) { "Not authenticated" }.accessToken
+        val credentials = checkNotNull(passkeyCredentialDataSource) { "Passkeys are unavailable" }
+        val options = telegramAuthApiDataSource.beginPasskeyReauthentication(token)
+        val assertion = credentials.get(context, options.requestJson)
+        telegramAuthApiDataSource.finishPasskeyReauthentication(token, options.operationId, assertion)
+        _reauthenticationVersion.value += 1
     }.recoverCatching { error ->
         if (error is CancellationException) throw error
         throw error.toAuthenticationError()
@@ -362,4 +393,3 @@ private fun ProfileDraft.withTelegramPhone(session: AuthenticationResult): Profi
 
 private val RootAuthenticationState.isProfileEditing: Boolean
     get() = this is RootAuthenticationState.OnboardingRequired && session.profile != null
-

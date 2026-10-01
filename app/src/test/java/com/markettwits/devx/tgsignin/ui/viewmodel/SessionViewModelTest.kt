@@ -2,6 +2,7 @@ package com.markettwits.devx.tgsignin.ui.viewmodel
 
 import android.content.Context
 import com.markettwits.devx.tgsignin.data.model.AuthenticationResult
+import com.markettwits.devx.tgsignin.data.model.AuthenticationError
 import com.markettwits.devx.tgsignin.data.model.ProfileDraft
 import com.markettwits.devx.tgsignin.data.model.RootAuthenticationState
 import com.markettwits.devx.tgsignin.data.model.UserSessionInfo
@@ -41,6 +42,12 @@ class SessionViewModelTest {
     private class FakeAuthenticationRepository : AuthenticationRepository {
         override val state: StateFlow<RootAuthenticationState> =
             MutableStateFlow(RootAuthenticationState.Unauthenticated())
+        private val reauthVersion = MutableStateFlow(0L)
+        override val reauthenticationVersion: StateFlow<Long> = reauthVersion.asStateFlow()
+
+        fun completeReauthentication() {
+            reauthVersion.value += 1
+        }
 
         var sessionsList: List<UserSessionInfo> = listOf(
             UserSessionInfo(
@@ -85,9 +92,14 @@ class SessionViewModelTest {
             revokedOthersCalled = true
             return revokeOthersResult
         }
+        override suspend fun reauthenticateWithPasskey(context: Context): Result<Unit> {
+            completeReauthentication()
+            return Result.success(Unit)
+        }
 
         override fun startTelegramLogin(context: Context, scopes: Set<com.markettwits.devx.tgsignin.data.model.TelegramScope>) {}
         override fun startTelegramReauthentication(context: Context) {}
+        override fun cancelTelegramReauthentication() {}
         override fun isTelegramCallback(uri: android.net.Uri): Boolean = false
         override suspend fun completeTelegramLogin(callbackUri: android.net.Uri): Result<AuthenticationResult> =
             Result.failure(NotImplementedError())
@@ -136,7 +148,7 @@ class SessionViewModelTest {
 
         val state = viewModel.uiState.value
         assertTrue(state is SessionUiState.Error)
-        assertEquals("Network timeout", (state as SessionUiState.Error).message)
+        assertEquals("Network timeout", (state as SessionUiState.Error).error.message)
         assertFalse(state.isBusy)
     }
 
@@ -164,6 +176,48 @@ class SessionViewModelTest {
     }
 
     @Test
+    fun `reauthentication retries the pending revocation`() = runTest {
+        val repo = FakeAuthenticationRepository().apply {
+            revokeSessionResult = Result.failure(AuthenticationError.ReauthenticationRequired())
+        }
+        val viewModel = SessionViewModel(repo)
+        advanceUntilIdle()
+
+        viewModel.revokeSession(repo.sessionsList[1])
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value is SessionUiState.ReauthenticationRequired)
+
+        repo.revokeSessionResult = Result.success(Unit)
+        repo.sessionsList = listOf(repo.sessionsList[0])
+        repo.completeReauthentication()
+        advanceUntilIdle()
+
+        assertEquals(listOf("sess-1"), viewModel.uiState.value.sessions.map { it.id })
+        assertTrue(viewModel.uiState.value is SessionUiState.Ready)
+    }
+
+    @Test
+    fun `cancelling verification does not replay a session revocation`() = runTest {
+        val repo = FakeAuthenticationRepository().apply {
+            revokeOthersResult = Result.failure(AuthenticationError.ReauthenticationRequired())
+        }
+        val viewModel = SessionViewModel(repo)
+        advanceUntilIdle()
+
+        viewModel.revokeOtherSessions()
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value is SessionUiState.ReauthenticationRequired)
+
+        repo.revokedOthersCalled = false
+        viewModel.cancelPendingAction()
+        repo.completeReauthentication()
+        advanceUntilIdle()
+
+        assertFalse(repo.revokedOthersCalled)
+        assertTrue(viewModel.uiState.value is SessionUiState.Ready)
+    }
+
+    @Test
     fun `revoke session failure transitions to Error`() = runTest {
         val repo = FakeAuthenticationRepository().apply {
             revokeSessionResult = Result.failure(RuntimeException("Forbidden: fresh auth required"))
@@ -176,7 +230,7 @@ class SessionViewModelTest {
 
         val state = viewModel.uiState.value
         assertTrue(state is SessionUiState.Error)
-        assertEquals("Forbidden: fresh auth required", (state as SessionUiState.Error).message)
+        assertEquals("Forbidden: fresh auth required", (state as SessionUiState.Error).error.message)
         assertEquals(2, state.sessions.size)
     }
 
@@ -211,6 +265,6 @@ class SessionViewModelTest {
 
         val state = viewModel.uiState.value
         assertTrue(state is SessionUiState.Error)
-        assertEquals("Server error", (state as SessionUiState.Error).message)
+        assertEquals("Server error", (state as SessionUiState.Error).error.message)
     }
 }

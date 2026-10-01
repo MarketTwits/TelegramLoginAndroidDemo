@@ -11,6 +11,7 @@ fun Throwable.toUserMessageRes(): Int = when (this) {
     is AuthenticationError.Timeout -> R.string.error_timeout
     is AuthenticationError.SecureConnectionFailed -> R.string.error_secure_connection_failed
     is AuthenticationError.AuthorizationRejected -> R.string.error_authorization_rejected
+    is AuthenticationError.ReauthenticationRequired -> R.string.sessions_verify_required
     is AuthenticationError.TooManyRequests -> R.string.error_too_many_requests
     is AuthenticationError.ServerUnavailable -> R.string.error_server_unavailable
     is AuthenticationError.RequestRejected -> R.string.error_request_rejected

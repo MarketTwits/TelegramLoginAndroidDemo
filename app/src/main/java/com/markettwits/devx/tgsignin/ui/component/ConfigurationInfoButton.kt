@@ -12,8 +12,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.markettwits.devx.tgsignin.R
@@ -24,7 +22,7 @@ fun ConfigurationInfoButton(
     modifier: Modifier = Modifier,
     hasError: Boolean = false
 ) {
-    val haptics = LocalHapticFeedback.current
+    val haptics = rememberAppHaptics()
     BadgedBox(
         badge = {
             if (hasError) {
@@ -37,7 +35,7 @@ fun ConfigurationInfoButton(
     ) {
         IconButton(
             onClick = {
-                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                haptics.selection()
                 onClick()
             },
             colors = IconButtonDefaults.iconButtonColors(

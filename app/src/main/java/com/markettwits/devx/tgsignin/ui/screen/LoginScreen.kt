@@ -1,5 +1,7 @@
 package com.markettwits.devx.tgsignin.ui.screen
 
+import com.markettwits.devx.tgsignin.ui.component.rememberAppHaptics
+
 import android.os.Build
 
 import androidx.compose.foundation.BorderStroke
@@ -42,8 +44,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -69,7 +69,7 @@ fun LoginScreen(
     onModalVisibilityChanged: (Boolean) -> Unit = {}
 ) {
     var pickerExpanded by remember { mutableStateOf(false) }
-    val haptics = LocalHapticFeedback.current
+    val haptics = rememberAppHaptics()
     val cancelledMessage = stringResource(R.string.login_cancelled)
     val sessionExpiredMessage = stringResource(R.string.session_expired)
     val errorMessage = when (val state = uiState.loginState) {
@@ -132,7 +132,7 @@ fun LoginScreen(
             RequestedDataSelector(
                 scopes = uiState.requestedScopes,
                 onClick = {
-                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    haptics.selection()
                     pickerExpanded = true
                 }
             )
@@ -173,10 +173,7 @@ fun LoginScreen(
         }
         TelegramPrimaryButton(
             text = stringResource(R.string.sign_in_with_telegram),
-            onClick = {
-                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                onLogin()
-            },
+            onClick = onLogin,
             enabled = !uiState.loginState.isInProgress
         ) {
             if (uiState.loginState is LoginState.AwaitingConfirmation || uiState.loginState is LoginState.Verifying) {
@@ -273,7 +270,7 @@ private fun RequestedDataBottomSheet(
     onScopesChanged: (Set<TelegramScope>) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val haptics = LocalHapticFeedback.current
+    val haptics = rememberAppHaptics()
     TelegramModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth()) {
             Text(
@@ -311,13 +308,13 @@ private fun RequestedDataBottomSheet(
                 subtitle = stringResource(R.string.phone_scope_description),
                 selected = TelegramScope.Phone in scopes,
                 onClick = {
-                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    haptics.selection()
                     onScopesChanged(scopes.toggle(TelegramScope.Phone))
                 }
             )
             TextButton(
                 onClick = {
-                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    haptics.selection()
                     onDismiss()
                 },
                 modifier = Modifier

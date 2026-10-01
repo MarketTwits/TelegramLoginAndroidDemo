@@ -208,6 +208,7 @@
     <string name="update_later">Later</string>
     <string name="update_open_failed">Could not open the release page.</string>
     <string name="sessions_title">Devices and sessions</string>
+    <string name="passkey_waiting_for_verification">Waiting for identity verification.</string>
     <string name="sessions_description">Active sign-ins on your devices.</string>
     <string name="sessions_current_badge">Current device</string>
     <string name="sessions_unknown_device">Unknown device</string>
@@ -216,7 +217,17 @@
     <string name="sessions_revoke">Terminate</string>
     <string name="sessions_revoke_others">Terminate all other sessions</string>
     <string name="sessions_revoke_confirm_title">Terminate session?</string>
-    <string name="sessions_revoke_confirm_message">This device will be signed out immediately.</string>
+    <string name="sessions_revoke_confirm_message">The selected device will be signed out immediately.</string>
+    <string name="sessions_revoke_confirm_current">You will be signed out of this device immediately.</string>
+    <string name="sessions_verify_required">Confirm your identity to terminate other sessions. The action will continue after verification.</string>
+    <string name="sessions_verifying">Confirming your identity…</string>
+    <string name="sessions_verify_failed">Could not confirm your identity. Try again.</string>
+    <string name="sessions_verify_passkey">Verify with passkey</string>
+    <string name="sessions_verify_telegram">Verify with Telegram</string>
+    <string name="sessions_error_rate_limit">Too many attempts. Wait a moment and try again.</string>
+    <string name="sessions_error_network">Could not connect. Check your connection and try again.</string>
+    <string name="sessions_error_generic">Could not update sessions. Try again.</string>
+    <string name="sessions_retry">Retry</string>
     <string name="sessions_revoke_others_confirm_title">Terminate all other sessions?</string>
     <string name="sessions_revoke_others_confirm_message">All devices except this one will be signed out immediately.</string>
     <string name="sessions_empty">No other active sessions.</string>

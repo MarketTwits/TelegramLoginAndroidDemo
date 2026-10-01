@@ -109,22 +109,37 @@ class PasskeyViewModel(
 
     private val mutex = Mutex()
     private var activeJob: Job? = null
+    private var restoredPendingNeedsRecovery = false
+    private var telegramReauthenticationPending = false
+    private var observedReauthenticationVersion = authenticationRepository.reauthenticationVersion.value
 
     val isPasskeySupported: Boolean
         get() = passkeyRepository.isSupported
 
     init {
         val restoredPending = restorePendingAction()
-        if (restoredPending != null) {
+        if (restoredPending is PasskeyPendingAction.Create) {
+            restoredPendingNeedsRecovery = true
             _uiState.value = PasskeyUiState.ExternalAuthenticationInProgress(
                 pendingAction = restoredPending
             )
+        } else if (restoredPending != null) {
+            // A saved rename or deletion has no proof that external verification succeeded.
+            clearSavedPendingAction()
         }
         viewModelScope.launch {
             authenticationRepository.state.collect { authState ->
                 val token = authState.sessionOrNull?.accessToken
                 if (token != null && _uiState.value is PasskeyUiState.Loading) {
                     loadPasskeysInternal(token)
+                }
+            }
+        }
+        viewModelScope.launch {
+            authenticationRepository.reauthenticationVersion.collect { version ->
+                if (version != observedReauthenticationVersion) {
+                    observedReauthenticationVersion = version
+                    if (restorePendingAction() != null) continueAfterReauthentication()
                 }
             }
         }
@@ -183,12 +198,15 @@ class PasskeyViewModel(
     }
 
     fun onCredentialCreated(operationId: String, credentialJson: String, name: String) {
+        if (savedStateHandle.get<String>(KEY_PENDING_OPERATION_ID) != operationId) return
         val token = currentAccessToken() ?: return
         val currentPasskeys = _uiState.value.passkeys
         viewModelScope.launch {
             mutex.withLock {
+                if (savedStateHandle.get<String>(KEY_PENDING_OPERATION_ID) != operationId) return@withLock
                 _uiState.value = PasskeyUiState.Creating(currentPasskeys)
                 val result = passkeyRepository.finishRegistration(token, operationId, credentialJson, name)
+                if (savedStateHandle.get<String>(KEY_PENDING_OPERATION_ID) != operationId) return@withLock
                 result.onSuccess { updatedPasskeys ->
                     clearSavedPendingAction()
                     _uiState.value = PasskeyUiState.Ready(updatedPasskeys)
@@ -205,7 +223,8 @@ class PasskeyViewModel(
         }
     }
 
-    fun onCredentialError(error: PasskeyError) {
+    fun onCredentialError(error: PasskeyError, operationId: String? = null) {
+        if (operationId != null && savedStateHandle.get<String>(KEY_PENDING_OPERATION_ID) != operationId) return
         clearSavedPendingAction()
         val currentPasskeys = _uiState.value.passkeys
         if (error is PasskeyError.Cancelled) {
@@ -226,11 +245,14 @@ class PasskeyViewModel(
         credentialJson: String,
         pendingAction: PasskeyPendingAction
     ) {
+        if (savedStateHandle.get<String>(KEY_PENDING_OPERATION_ID) != operationId) return
         val token = currentAccessToken() ?: return
         val currentPasskeys = _uiState.value.passkeys
         viewModelScope.launch {
             mutex.withLock {
+                if (savedStateHandle.get<String>(KEY_PENDING_OPERATION_ID) != operationId) return@withLock
                 val result = passkeyRepository.finishPasskeyReauthentication(token, operationId, credentialJson)
+                if (savedStateHandle.get<String>(KEY_PENDING_OPERATION_ID) != operationId) return@withLock
                 result.onSuccess {
                     clearSavedPendingAction()
                     executePendingAction(pendingAction)
@@ -248,6 +270,8 @@ class PasskeyViewModel(
     }
 
     fun onTelegramReauthenticationStarted(pendingAction: PasskeyPendingAction) {
+        restoredPendingNeedsRecovery = false
+        telegramReauthenticationPending = true
         savePendingAction(pendingAction)
         _uiState.value = PasskeyUiState.ExternalAuthenticationInProgress(
             pendingAction = pendingAction,
@@ -256,6 +280,20 @@ class PasskeyViewModel(
     }
 
     fun resumeAfterExternalAuth() {
+        if (!restoredPendingNeedsRecovery) {
+            if (telegramReauthenticationPending) {
+                telegramReauthenticationPending = false
+                authenticationRepository.cancelTelegramReauthentication()
+            }
+            return
+        }
+        restoredPendingNeedsRecovery = false
+        continueAfterReauthentication()
+    }
+
+    private fun continueAfterReauthentication() {
+        restoredPendingNeedsRecovery = false
+        telegramReauthenticationPending = false
         val token = currentAccessToken() ?: return
         val pendingAction = restorePendingAction()
         viewModelScope.launch {
@@ -418,6 +456,10 @@ class PasskeyViewModel(
     }
 
     fun cancelPendingAction() {
+        restoredPendingNeedsRecovery = false
+        if (telegramReauthenticationPending) authenticationRepository.cancelTelegramReauthentication()
+        telegramReauthenticationPending = false
+        activeJob?.cancel()
         clearSavedPendingAction()
         _uiState.value = PasskeyUiState.Ready(_uiState.value.passkeys)
     }
