@@ -495,7 +495,7 @@ fun TelegramConfirmationDialog(
                         onDismiss()
                     }) { Text(dismissText) }
                     TextButton(onClick = {
-                        haptics.confirmation()
+                        if (destructive) haptics.action() else haptics.confirmation()
                         onConfirm()
                     }) {
                         Text(
