@@ -470,6 +470,7 @@ fun TelegramConfirmationDialog(
         ) {
             Column(Modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .padding(top = 22.dp)) {
                 Text(
                     text = title,
