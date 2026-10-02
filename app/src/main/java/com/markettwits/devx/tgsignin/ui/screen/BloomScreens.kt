@@ -6,10 +6,19 @@ import android.os.Build
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -62,7 +71,9 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -839,38 +850,56 @@ private fun PasskeySection(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         when {
-            uiState is PasskeyUiState.Loading -> CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-            passkeys.isEmpty() -> Text(stringResource(R.string.passkey_empty))
-            else -> passkeys.forEach { passkey ->
-                PasskeyCard(
-                    passkey = passkey,
-                    enabled = !isBusy && !isOffline,
-                    onRename = {
-                        editingId = passkey.id
-                        editedName = passkey.name
-                    },
-                    onDelete = { deletingId = passkey.id }
-                )
-                if (editingId == passkey.id) {
-                    TelegramTextField(
-                        value = editedName,
-                        onValueChange = { editedName = it.take(80) },
-                        label = stringResource(R.string.passkey_name),
-                        singleLine = true
-                    )
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        TextButton(onClick = { editingId = null }) {
-                            Text(stringResource(R.string.cancel))
-                        }
-                        TextButton(
-                            enabled = editedName.isNotBlank() && !isBusy,
-                            onClick = {
-                                val newName = editedName.trim()
-                                editingId = null
-                                viewModel.renamePasskey(passkey.id, newName)
+            uiState is PasskeyUiState.Loading && passkeys.isEmpty() ->
+                CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+            else -> {
+                AnimatedCredentialCards(items = passkeys, idOf = PasskeyInfo::id) { passkey, exiting ->
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        PasskeyCard(
+                            passkey = passkey,
+                            enabled = !isBusy && !isOffline,
+                            deleting = exiting || (uiState as? PasskeyUiState.Deleting)?.passkeyId == passkey.id,
+                            onRename = {
+                                editingId = passkey.id
+                                editedName = passkey.name
+                            },
+                            onDelete = { deletingId = passkey.id }
+                        )
+                        AnimatedVisibility(
+                            visible = editingId == passkey.id,
+                            enter = fadeIn(tween(140)) + expandVertically(tween(200)),
+                            exit = fadeOut(tween(100)) + shrinkVertically(tween(180))
+                        ) {
+                            Column {
+                                TelegramTextField(
+                                    value = editedName,
+                                    onValueChange = { editedName = it.take(80) },
+                                    label = stringResource(R.string.passkey_name),
+                                    singleLine = true
+                                )
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                    TextButton(onClick = { editingId = null }) {
+                                        Text(stringResource(R.string.cancel))
+                                    }
+                                    TextButton(
+                                        enabled = editedName.isNotBlank() && !isBusy,
+                                        onClick = {
+                                            val newName = editedName.trim()
+                                            editingId = null
+                                            viewModel.renamePasskey(passkey.id, newName)
+                                        }
+                                    ) { Text(stringResource(R.string.done)) }
+                                }
                             }
-                        ) { Text(stringResource(R.string.done)) }
+                        }
                     }
+                }
+                AnimatedVisibility(
+                    visible = passkeys.isEmpty(),
+                    enter = fadeIn(tween(160, delayMillis = 220)),
+                    exit = fadeOut(tween(100))
+                ) {
+                    Text(stringResource(R.string.passkey_empty))
                 }
             }
         }
@@ -974,10 +1003,63 @@ private fun PasskeySection(
     }
 }
 
+private class AnimatedCredentialEntry<T>(val id: String, initialItem: T) {
+    var item by mutableStateOf(initialItem)
+    val visible = MutableTransitionState(false)
+}
+
+@Composable
+internal fun <T> AnimatedCredentialCards(
+    items: List<T>,
+    idOf: (T) -> String,
+    content: @Composable (T, Boolean) -> Unit
+) {
+    val entries = remember { mutableStateListOf<AnimatedCredentialEntry<T>>() }
+    LaunchedEffect(items) {
+        val incoming = items.associateBy(idOf)
+        entries.forEach { entry ->
+            val current = incoming[entry.id]
+            if (current == null) {
+                entry.visible.targetState = false
+            } else {
+                entry.item = current
+                entry.visible.targetState = true
+            }
+        }
+        val displayedIds = entries.mapTo(mutableSetOf()) { it.id }
+        items.forEach { item ->
+            val id = idOf(item)
+            if (displayedIds.add(id)) {
+                entries.add(AnimatedCredentialEntry(id, item).apply { visible.targetState = true })
+            }
+        }
+    }
+
+    entries.toList().forEach { entry ->
+        key(entry.id) {
+            AnimatedVisibility(
+                visibleState = entry.visible,
+                enter = fadeIn(tween(180)) + expandVertically(tween(220)) +
+                    slideInVertically(tween(220)) { -it / 10 },
+                exit = fadeOut(tween(140)) + shrinkVertically(tween(220)) +
+                    slideOutHorizontally(tween(220)) { it / 10 }
+            ) {
+                content(entry.item, !entry.visible.targetState)
+            }
+            LaunchedEffect(entry.visible.isIdle, entry.visible.currentState, entry.visible.targetState) {
+                if (entry.visible.isIdle && !entry.visible.currentState && !entry.visible.targetState) {
+                    entries.remove(entry)
+                }
+            }
+        }
+    }
+}
+
 @Composable
 internal fun PasskeyCard(
     passkey: PasskeyInfo,
     enabled: Boolean,
+    deleting: Boolean = false,
     onRename: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -986,75 +1068,80 @@ internal fun PasskeyCard(
         shape = MaterialTheme.shapes.small,
         color = MaterialTheme.colorScheme.surfaceVariant
     ) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.Top) {
-                androidx.compose.material3.Icon(
-                    Icons.Outlined.Key,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            androidx.compose.material3.Icon(
+                Icons.Outlined.Key,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Column(
+                modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    text = passkey.name,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(start = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                Surface(
+                    shape = CircleShape,
+                    color = if (passkey.backedUp) MaterialTheme.colorScheme.primaryContainer
+                        else MaterialTheme.colorScheme.surface
                 ) {
                     Text(
-                        text = passkey.name,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
+                        text = stringResource(
+                            if (passkey.backedUp) R.string.passkey_synced
+                            else R.string.passkey_this_device
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (passkey.backedUp) MaterialTheme.colorScheme.onPrimaryContainer
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                     )
-                    Surface(
-                        shape = CircleShape,
-                        color = if (passkey.backedUp) MaterialTheme.colorScheme.primaryContainer
-                            else MaterialTheme.colorScheme.surface
-                    ) {
-                        Text(
-                            text = stringResource(
-                                if (passkey.backedUp) R.string.passkey_synced
-                                else R.string.passkey_this_device
-                            ),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (passkey.backedUp) MaterialTheme.colorScheme.onPrimaryContainer
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
+                }
+                Text(
+                    stringResource(R.string.passkey_created, formatDate(passkey.createdAt)),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                passkey.lastUsedAt?.let { lastUsedAt ->
                     Text(
-                        stringResource(R.string.passkey_created, formatDate(passkey.createdAt)),
+                        stringResource(R.string.passkey_last_used, formatDate(lastUsedAt)),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    passkey.lastUsedAt?.let { lastUsedAt ->
-                        Text(
-                            stringResource(R.string.passkey_last_used, formatDate(lastUsedAt)),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
                 }
             }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 TelegramIconAction(
                     icon = Icons.Outlined.Edit,
                     contentDescription = stringResource(R.string.passkey_rename),
                     enabled = enabled,
                     onClick = onRename
                 )
-                Spacer(Modifier.size(8.dp))
-                TelegramIconAction(
-                    icon = Icons.Outlined.DeleteOutline,
-                    contentDescription = stringResource(R.string.passkey_delete),
-                    enabled = enabled,
-                    onClick = onDelete
-                )
+                Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                    Crossfade(targetState = deleting, animationSpec = tween(160), label = "passkeyDelete") { busy ->
+                        if (busy) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(22.dp).testTag("passkey-delete-progress"),
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            TelegramIconAction(
+                                icon = Icons.Outlined.DeleteOutline,
+                                contentDescription = stringResource(R.string.passkey_delete),
+                                enabled = enabled,
+                                onClick = onDelete
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -1064,6 +1151,7 @@ internal fun PasskeyCard(
 internal fun SessionCard(
     session: UserSessionInfo,
     enabled: Boolean,
+    revoking: Boolean = false,
     onRevoke: () -> Unit
 ) {
     Surface(
@@ -1126,12 +1214,23 @@ internal fun SessionCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            TelegramIconAction(
-                icon = Icons.Outlined.DeleteOutline,
-                contentDescription = stringResource(R.string.sessions_revoke),
-                enabled = enabled,
-                onClick = onRevoke
-            )
+            Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                Crossfade(targetState = revoking, animationSpec = tween(160), label = "sessionRevoke") { busy ->
+                    if (busy) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(22.dp).testTag("session-revoke-progress"),
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        TelegramIconAction(
+                            icon = Icons.Outlined.DeleteOutline,
+                            contentDescription = stringResource(R.string.sessions_revoke),
+                            enabled = enabled,
+                            onClick = onRevoke
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -1161,16 +1260,26 @@ private fun SessionSection(
             uiState is SessionUiState.Loading && sessions.isEmpty() -> {
                 CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
             }
-            sessions.isEmpty() -> {
-                Text(stringResource(R.string.sessions_empty))
-            }
             else -> {
-                sessions.forEach { userSession ->
+                AnimatedCredentialCards(items = sessions, idOf = UserSessionInfo::id) { userSession, exiting ->
+                    val revoking = when (val state = uiState) {
+                        is SessionUiState.Revoking -> state.sessionId == userSession.id
+                        is SessionUiState.RevokingOthers -> !userSession.current
+                        else -> exiting
+                    }
                     SessionCard(
                         session = userSession,
                         enabled = canChangeSessions && !isOffline,
+                        revoking = revoking,
                         onRevoke = { targetSessionToRevoke = userSession }
                     )
+                }
+                AnimatedVisibility(
+                    visible = sessions.isEmpty(),
+                    enter = fadeIn(tween(160, delayMillis = 220)),
+                    exit = fadeOut(tween(100))
+                ) {
+                    Text(stringResource(R.string.sessions_empty))
                 }
             }
         }
