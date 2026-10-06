@@ -87,8 +87,8 @@ printf '%s' "$GHCR_READ_TOKEN" | docker login ghcr.io -u YOUR_GITHUB_USERNAME --
 Keep the same SQLite volume or bind mount when replacing an existing deployment; changing the
 Compose project name or volume name can make the old database appear missing. To roll back,
 restore the previous `BACKEND_IMAGE` digest or commit tag in `.env` and repeat the pull and up
-commands. To always pull the newest published image, use
-`BACKEND_IMAGE=ghcr.io/markettwits/telegramlogindemo:latest` and run the same pull and up commands.
+commands. `latest` is useful for testing, but pin production to a digest or commit tag so a
+restart uses the intended version.
 
 - `APP_TOKEN` / `APP_TOKENS`: Mandatory when `NODE_ENV=production`. Identifies an approved client
   and limits casual API abuse. To perform zero-downtime rotation, set `APP_TOKENS=new_token,old_token`
