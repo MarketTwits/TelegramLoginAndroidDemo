@@ -37,10 +37,9 @@ const isApiClientPath = (requestPath) =>
 
 const tokensMatch = (actual, expected) => {
   if (typeof actual !== 'string' || typeof expected !== 'string') return false;
-  const actualBytes = Buffer.from(actual, 'utf8');
-  const expectedBytes = Buffer.from(expected, 'utf8');
-  return actualBytes.length === expectedBytes.length &&
-    crypto.timingSafeEqual(actualBytes, expectedBytes);
+  const actualHash = crypto.createHash('sha256').update(actual, 'utf8').digest();
+  const expectedHash = crypto.createHash('sha256').update(expected, 'utf8').digest();
+  return crypto.timingSafeEqual(actualHash, expectedHash);
 };
 
 const accountResponse = (account) => ({

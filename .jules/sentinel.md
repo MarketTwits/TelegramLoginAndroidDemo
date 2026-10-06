@@ -1,0 +1,4 @@
+## 2023-10-06 - Fixing Timing Attack on Variable Length Tokens
+**Vulnerability:** The `tokensMatch` function used for comparing API tokens exited early if the token lengths did not match (`actualBytes.length === expectedBytes.length`). This leaked the length of the expected token.
+**Learning:** `crypto.timingSafeEqual` throws an error if lengths mismatch, so developers often add a short-circuit length check. While necessary to prevent crashes, this short-circuit reintroduces a timing vulnerability by revealing the secret's length.
+**Prevention:** To safely use `crypto.timingSafeEqual` with potentially variable-length secrets (like API tokens), hash both the provided and expected strings (e.g., using SHA-256) before comparison. This ensures both inputs are constant length, avoiding both crashes and timing leaks.
