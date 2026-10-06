@@ -58,6 +58,14 @@ jobs:
           test -n "$TELEGRAM_CLIENT_ID"
           test -n "$TELEGRAM_REDIRECT_HOST"
           test -n "$TELEGRAM_BACKEND_URL"
+          python3 - <<'PY'
+          import os
+          from urllib.parse import urlsplit
+
+          url = urlsplit(os.environ['TELEGRAM_BACKEND_URL'])
+          if url.scheme != 'https' or not url.hostname or url.username or url.password or url.query or url.fragment:
+              raise SystemExit('Release backend URL must be an HTTPS URL without credentials, query, or fragment.')
+          PY
           test -n "$APP_TOKEN"
           test -n "$ANDROID_KEYSTORE_BASE64"
           test -n "$ANDROID_KEYSTORE_PASSWORD"
@@ -107,6 +115,7 @@ jobs:
         shell: bash
         env:
           ANDROID_SIGNING_SHA256: ${{ secrets.ANDROID_SIGNING_SHA256 }}
+          TELEGRAM_BACKEND_URL: ${{ secrets.TELEGRAM_BACKEND_URL }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -142,6 +151,20 @@ jobs:
             app_id="$("$apkanalyzer" manifest application-id "${apks[0]}")"
             [[ "$app_id" == "com.markettwits.devx.tgsignin" ]]
           fi
+
+          # Check the packaged DEX rather than only the Gradle build configuration.
+          python3 - "${apks[0]}" <<'PY'
+          import os
+          import sys
+          import zipfile
+
+          expected = os.environ['TELEGRAM_BACKEND_URL'].encode('utf-8') + b'\x00'
+          with zipfile.ZipFile(sys.argv[1]) as apk:
+              dex_files = [name for name in apk.namelist() if name.endswith('.dex')]
+              if not any(expected in apk.read(name) for name in dex_files):
+                  raise SystemExit('Signed APK does not contain the configured backend URL.')
+          print('Verified backend URL in signed APK.')
+          PY
 
           metadata="app/build/outputs/apk/release/output-metadata.json"
           test -f "$metadata"

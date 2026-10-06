@@ -57,6 +57,8 @@ After the backend and infrastructure checks pass on `main`, CI publishes a multi
 `sha-<40-character-commit-sha>` tag and the moving `latest` tag. The CI run summary also
 contains its immutable image digest. The workflow can be rerun manually from `main` if
 publication fails. Publishing an image does not deploy or restart a server.
+CI does not use SSH deployment credentials or the old `production` environment;
+server updates are performed manually with Docker Compose.
 
 To deploy on any Docker Compose host, copy [`compose.production.yaml`](compose.production.yaml)
 and [`.env.example`](.env.example) to a directory on that host, rename the example to `.env`,
@@ -103,6 +105,14 @@ restart uses the intended version.
   certificate fingerprints from `.env.example`. The backend publishes the matching Digital
   Asset Links document at `/.well-known/assetlinks.json`; the RP ID must resolve to that same
   HTTPS backend host.
+
+### Android release backend
+
+Signed GitHub builds read `TELEGRAM_BACKEND_URL` from the `android-release` environment.
+The current production endpoint is `https://tgsignin-devx.marketwits.pro`.
+After a backend move, update that environment secret and publish a new Android version;
+the URL is embedded in the APK. The release workflow requires HTTPS and verifies that the
+signed APK contains the configured URL.
 
 ## Observability & Logging
 
