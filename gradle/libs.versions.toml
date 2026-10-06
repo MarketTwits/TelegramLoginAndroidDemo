@@ -18,7 +18,7 @@ lottie = "6.7.1"
 libphonenumber = "9.0.40"
 credentials = "1.6.0"
 kotlinxCoroutinesTest = "1.10.1"
-json = "20240303"
+json = "20260814"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
