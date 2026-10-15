@@ -37,10 +37,9 @@ const isApiClientPath = (requestPath) =>
 
 const tokensMatch = (actual, expected) => {
   if (typeof actual !== 'string' || typeof expected !== 'string') return false;
-  const actualBytes = Buffer.from(actual, 'utf8');
-  const expectedBytes = Buffer.from(expected, 'utf8');
-  return actualBytes.length === expectedBytes.length &&
-    crypto.timingSafeEqual(actualBytes, expectedBytes);
+  const actualHash = crypto.createHash('sha256').update(actual, 'utf8').digest();
+  const expectedHash = crypto.createHash('sha256').update(expected, 'utf8').digest();
+  return crypto.timingSafeEqual(actualHash, expectedHash);
 };
 
 const accountResponse = (account) => ({
@@ -743,6 +742,9 @@ export const createApp = ({ config, database, verifyTelegramToken, logger, metri
       return response.status(401).json({ code: 'SESSION_INVALID', message: 'Session is missing or expired' });
     }
     if (rejectDisabledAccount(session, response)) return;
+    if (Date.now() - session.reauthenticatedAt.getTime() > FRESH_AUTHENTICATION_MS) {
+      return response.status(403).json({ code: 'REAUTHENTICATION_REQUIRED', message: 'Sign in again before deleting your account' });
+    }
     await database.deleteAccount(session.account.id);
     response.set('Cache-Control', 'no-store').status(204).end();
   }));
