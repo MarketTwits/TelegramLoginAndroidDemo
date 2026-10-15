@@ -167,13 +167,15 @@ test('new login creates an account, profile PUT is idempotent, and account delet
   assert.equal(sessionBody.profile.displayName, 'Bloom Demo');
   assert.equal(sessionBody.profile.phoneNumber, null);
 
+  const freshAuthForDeletion = await login(baseUrl);
+
   const deleted = await fetch(`${baseUrl}/me/account`, {
     method: 'DELETE',
-    headers: { Authorization: `Bearer ${returning.body.sessionToken}` }
+    headers: { Authorization: `Bearer ${freshAuthForDeletion.body.sessionToken}` }
   });
   assert.equal(deleted.status, 204);
   assert.equal((await fetch(`${baseUrl}/auth/session`, {
-    headers: { Authorization: `Bearer ${returning.body.sessionToken}` }
+    headers: { Authorization: `Bearer ${freshAuthForDeletion.body.sessionToken}` }
   })).status, 401);
 
   const registeredAgain = await login(baseUrl);

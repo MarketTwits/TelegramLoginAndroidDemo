@@ -1,0 +1,4 @@
+## 2023-10-10 - Missing Reauthentication on Account Deletion
+**Vulnerability:** The `DELETE /me/account` route allowed account deletion without verifying recent user presence, while other less destructive actions (like editing passkeys or revoking sessions) correctly checked `FRESH_AUTHENTICATION_MS`.
+**Learning:** This reveals a gap in the architecture where sensitive/destructive actions are not consistently safeguarded. A developer applying checks for one action might completely overlook the same requirement for another route if there is no unified middleware for requiring fresh authentication.
+**Prevention:** We should consider moving the `Date.now() - session.reauthenticatedAt.getTime() > FRESH_AUTHENTICATION_MS` check to an Express middleware that can be attached to any sensitive route, rather than relying on developers to manually insert it inside each handler.
