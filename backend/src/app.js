@@ -198,7 +198,7 @@ export const createApp = ({ config, database, verifyTelegramToken, logger, metri
     }
     response.once('finish', () => {
       const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
-      metricsCollector.recordRequest(request.method, request.route?.path || request.path, response.statusCode, durationMs);
+      metricsCollector.recordRequest(request.method, request.route?.path || 'unknown_route', response.statusCode, durationMs);
       if (!logRequest && response.statusCode < 400) return;
       log.httpRequestEnd({
         requestId,
