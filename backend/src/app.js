@@ -409,7 +409,8 @@ export const createApp = ({ config, database, verifyTelegramToken, logger, metri
         ACCOUNT_DISABLED: 403,
         INVALID_PASSKEY: 401
       };
-      return response.status(statusMap[code] || 401).json({ code, message: error.message });
+      const message = error.code ? error.message : "An unexpected error occurred during passkey authentication";
+      return response.status(statusMap[code] || 401).json({ code, message });
     }
     const state = await database.getAccount(verified.userId);
     const session = await createSession(database, verified.userId, config.sessionTtlDays, 'PASSKEY', extractDeviceLabel(request));
@@ -588,7 +589,8 @@ export const createApp = ({ config, database, verifyTelegramToken, logger, metri
         SESSION_INVALID: 401,
         INVALID_PASSKEY: 401
       };
-      return response.status(statusMap[code] || 401).json({ code, message: error.message });
+      const message = error.code ? error.message : "An unexpected error occurred during passkey reauthentication";
+      return response.status(statusMap[code] || 401).json({ code, message });
     }
     if (!database.reauthenticateSession(tokenHash, verified.userId)) {
       return response.status(401).json({ code: 'SESSION_INVALID', message: 'Session is missing or expired' });
@@ -662,7 +664,8 @@ export const createApp = ({ config, database, verifyTelegramToken, logger, metri
         SESSION_INVALID: 401,
         INVALID_PASSKEY: 401
       };
-      return response.status(statusMap[code] || 401).json({ code, message: error.message });
+      const message = error.code ? error.message : "An unexpected error occurred during passkey registration";
+      return response.status(statusMap[code] || 401).json({ code, message });
     }
     response.status(201).json({ passkeys: registered.map(passkeyResponse) });
   }));
