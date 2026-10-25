@@ -1,9 +1,4 @@
-## 2023-10-10 - Missing Reauthentication on Account Deletion
-**Vulnerability:** The `DELETE /me/account` route allowed account deletion without verifying recent user presence, while other less destructive actions (like editing passkeys or revoking sessions) correctly checked `FRESH_AUTHENTICATION_MS`.
-**Learning:** This reveals a gap in the architecture where sensitive/destructive actions are not consistently safeguarded. A developer applying checks for one action might completely overlook the same requirement for another route if there is no unified middleware for requiring fresh authentication.
-**Prevention:** We should consider moving the `Date.now() - session.reauthenticatedAt.getTime() > FRESH_AUTHENTICATION_MS` check to an Express middleware that can be attached to any sensitive route, rather than relying on developers to manually insert it inside each handler.
-
-## 2023-10-24 - Unbounded Metrics Cardinality (DoS)
-**Vulnerability:** The logger collected metrics for HTTP requests in an in-memory Map, keyed by method, status code, and `request.path` (as a fallback when `request.route` was missing). Since `request.path` contains the raw user input, an attacker could generate requests to random, unique paths (e.g., `/unknown-1`, `/unknown-2`), causing the map to grow infinitely and eventually exhaust application memory.
-**Learning:** Using untrusted or raw user input (like URL paths) directly as metric labels or tags exposes the application to unbounded cardinality attacks. When the set of possible tag values is unbound, memory usage for metrics becomes unbound as well.
-**Prevention:** Always use predefined, bounded routes or a static fallback (e.g., `'unknown_route'`) for metrics logging. Never use `request.path` or any other raw user input as a metric key or tag value.
+## 2025-02-12 - Prevent Leaking Internal Server Errors in Passkey Endpoints
+**Vulnerability:** The passkey verification endpoints returned `error.message` directly in 401 HTTP responses. While known errors (like `CHALLENGE_EXPIRED`) have safe strings, unexpected system errors (like SQLite failures) lacked a specific code and exposed sensitive internal error messages to the client.
+**Learning:** Returning `error.message` in a catch-all block without validating the error type creates an information leakage vulnerability, allowing database internals or memory errors to bypass the global, secure `500 INTERNAL_ERROR` handler.
+**Prevention:** Mask unexpected errors locally by sending a generic message (e.g., 'An unexpected error occurred') while keeping the safe HTTP status code, ensuring no internal server context is exposed.
