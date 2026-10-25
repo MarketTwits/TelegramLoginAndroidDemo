@@ -1,4 +1,4 @@
-## 2025-02-12 - Prevent Leaking Internal Server Errors in Passkey Endpoints
-**Vulnerability:** The passkey verification endpoints returned `error.message` directly in 401 HTTP responses. While known errors (like `CHALLENGE_EXPIRED`) have safe strings, unexpected system errors (like SQLite failures) lacked a specific code and exposed sensitive internal error messages to the client.
-**Learning:** Returning `error.message` in a catch-all block without validating the error type creates an information leakage vulnerability, allowing database internals or memory errors to bypass the global, secure `500 INTERNAL_ERROR` handler.
-**Prevention:** Mask unexpected errors locally by sending a generic message (e.g., 'An unexpected error occurred') while keeping the safe HTTP status code, ensuring no internal server context is exposed.
+## 2025-02-14 - Prevent API Responses from Leaking Database Errors
+**Vulnerability:** The application was directly embedding the original `error.message` of potentially unknown errors (e.g., `SQLITE_BUSY`) into API responses inside the catch block for `auth/passkeys/verify`, `me/reauth/passkeys/verify`, and `me/passkeys/registration/verify`.
+**Learning:** The existing codebase tried to fall back to a default status code (401) using a `statusMap`, but accidentally passed the unmasked raw error message into the response payload when a code was not defined in the `statusMap`.
+**Prevention:** Never directly pass an unmodified `error.message` property back to clients. Use `Object.hasOwn` on a known list of valid external error codes, and aggressively overwrite both the code and message with generic fallback equivalents (e.g. `INVALID_PASSKEY`) when a match is not found.
