@@ -409,8 +409,11 @@ export const createApp = ({ config, database, verifyTelegramToken, logger, metri
         ACCOUNT_DISABLED: 403,
         INVALID_PASSKEY: 401
       };
-      const message = error.code ? error.message : "An unexpected error occurred during passkey authentication";
-      return response.status(statusMap[code] || 401).json({ code, message });
+      // Security: Validate error code to prevent leaking internal database/system errors
+      const isKnownError = Object.hasOwn(statusMap, code);
+      const safeCode = isKnownError ? code : 'INVALID_PASSKEY';
+      const message = isKnownError ? error.message : "An unexpected error occurred during passkey authentication";
+      return response.status(statusMap[safeCode] || 401).json({ code: safeCode, message });
     }
     const state = await database.getAccount(verified.userId);
     const session = await createSession(database, verified.userId, config.sessionTtlDays, 'PASSKEY', extractDeviceLabel(request));
@@ -589,8 +592,11 @@ export const createApp = ({ config, database, verifyTelegramToken, logger, metri
         SESSION_INVALID: 401,
         INVALID_PASSKEY: 401
       };
-      const message = error.code ? error.message : "An unexpected error occurred during passkey reauthentication";
-      return response.status(statusMap[code] || 401).json({ code, message });
+      // Security: Validate error code to prevent leaking internal database/system errors
+      const isKnownError = Object.hasOwn(statusMap, code);
+      const safeCode = isKnownError ? code : 'INVALID_PASSKEY';
+      const message = isKnownError ? error.message : "An unexpected error occurred during passkey reauthentication";
+      return response.status(statusMap[safeCode] || 401).json({ code: safeCode, message });
     }
     if (!database.reauthenticateSession(tokenHash, verified.userId)) {
       return response.status(401).json({ code: 'SESSION_INVALID', message: 'Session is missing or expired' });
@@ -664,8 +670,11 @@ export const createApp = ({ config, database, verifyTelegramToken, logger, metri
         SESSION_INVALID: 401,
         INVALID_PASSKEY: 401
       };
-      const message = error.code ? error.message : "An unexpected error occurred during passkey registration";
-      return response.status(statusMap[code] || 401).json({ code, message });
+      // Security: Validate error code to prevent leaking internal database/system errors
+      const isKnownError = Object.hasOwn(statusMap, code);
+      const safeCode = isKnownError ? code : 'INVALID_PASSKEY';
+      const message = isKnownError ? error.message : "An unexpected error occurred during passkey registration";
+      return response.status(statusMap[safeCode] || 401).json({ code: safeCode, message });
     }
     response.status(201).json({ passkeys: registered.map(passkeyResponse) });
   }));
