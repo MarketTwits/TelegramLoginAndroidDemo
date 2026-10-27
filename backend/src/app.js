@@ -410,7 +410,7 @@ export const createApp = ({ config, database, verifyTelegramToken, logger, metri
         INVALID_PASSKEY: 401
       };
       // Security: Validate error code to prevent leaking internal database/system errors
-      const isKnownError = Object.hasOwn(statusMap, code);
+      const isKnownError = Object.hasOwn(statusMap, error.code);
       const safeCode = isKnownError ? code : 'INVALID_PASSKEY';
       const message = isKnownError ? error.message : "An unexpected error occurred during passkey authentication";
       return response.status(statusMap[safeCode] || 401).json({ code: safeCode, message });
@@ -593,7 +593,7 @@ export const createApp = ({ config, database, verifyTelegramToken, logger, metri
         INVALID_PASSKEY: 401
       };
       // Security: Validate error code to prevent leaking internal database/system errors
-      const isKnownError = Object.hasOwn(statusMap, code);
+      const isKnownError = Object.hasOwn(statusMap, error.code);
       const safeCode = isKnownError ? code : 'INVALID_PASSKEY';
       const message = isKnownError ? error.message : "An unexpected error occurred during passkey reauthentication";
       return response.status(statusMap[safeCode] || 401).json({ code: safeCode, message });
@@ -671,7 +671,7 @@ export const createApp = ({ config, database, verifyTelegramToken, logger, metri
         INVALID_PASSKEY: 401
       };
       // Security: Validate error code to prevent leaking internal database/system errors
-      const isKnownError = Object.hasOwn(statusMap, code);
+      const isKnownError = Object.hasOwn(statusMap, error.code);
       const safeCode = isKnownError ? code : 'INVALID_PASSKEY';
       const message = isKnownError ? error.message : "An unexpected error occurred during passkey registration";
       return response.status(statusMap[safeCode] || 401).json({ code: safeCode, message });
