@@ -189,6 +189,46 @@ const startPasskeyServer = async (context, customConfig = createPasskeyConfig())
   };
 };
 
+for (const [route, operation] of [
+  ['/auth/passkeys/verify', 'authentication'],
+  ['/me/reauth/passkeys/verify', 'reauthentication'],
+  ['/me/passkeys/registration/verify', 'registration']
+]) {
+  test(`Passkey ${operation} masks internal errors and preserves public errors`, async (context) => {
+    const { baseUrl, authHeaders, database } = await startPasskeyServer(context);
+    const headers = await authHeaders();
+    let failure;
+    context.mock.method(database, 'consumeWebAuthnOperation', () => { throw failure; });
+
+    for (const code of [undefined, 'SQLITE_BUSY', 'constructor']) {
+      failure = new Error('Internal database failure at /srv/private/accounts.sqlite');
+      if (code !== undefined) failure.code = code;
+      const response = await fetch(`${baseUrl}${route}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ operationId: 'test-operation', credential: { id: 'test-credential' } })
+      });
+      assert.equal(response.status, 401);
+      assert.deepEqual(await response.json(), {
+        code: 'INVALID_PASSKEY',
+        message: `An unexpected error occurred during passkey ${operation}`
+      }, `Internal error code ${String(code)} must not expose its message`);
+    }
+
+    failure = Object.assign(new Error('Challenge expired or already used'), { code: 'CHALLENGE_EXPIRED' });
+    const response = await fetch(`${baseUrl}${route}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ operationId: 'expired-operation', credential: { id: 'test-credential' } })
+    });
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), {
+      code: 'CHALLENGE_EXPIRED',
+      message: 'Challenge expired or already used'
+    });
+  });
+}
+
 test('WebAuthn registration stores credentials and allows passkey authentication with counter increment', async (context) => {
   const { baseUrl, authHeaders, database } = await startPasskeyServer(context);
   const headers = await authHeaders();
