@@ -78,7 +78,8 @@ interface TelegramAuthApiDataSource {
 /** Real backend client. Telegram credentials are never interpreted on-device. */
 class TelegramAuthApiDataSourceImpl(
     config: TelegramLoginConfig,
-    private val ioDispatcher: CoroutineDispatcher
+    private val ioDispatcher: CoroutineDispatcher,
+    private val deviceIdProvider: DeviceIdProvider? = null
 ) : TelegramAuthApiDataSource {
     private val baseUrl = config.backendUrl.trimEnd('/')
     private val appToken = config.appToken
@@ -86,7 +87,12 @@ class TelegramAuthApiDataSourceImpl(
     override suspend fun authenticate(idToken: String): AuthenticationResult = request(
         path = "/auth/telegram",
         method = "POST",
-        body = JSONObject().put("idToken", idToken).put("deviceLabel", localDeviceLabel()),
+        body = JSONObject()
+            .put("idToken", idToken)
+            .put("deviceLabel", localDeviceLabel())
+            .apply {
+                deviceIdProvider?.getDeviceId()?.takeIf { it.isNotBlank() }?.let { put("deviceId", it) }
+            },
         accessToken = null
     ) { json -> parseAuthenticationResult(json, json.getString("sessionToken")) }
 
@@ -141,6 +147,9 @@ class TelegramAuthApiDataSourceImpl(
             .put("operationId", operationId)
             .put("credential", JSONObject(credentialJson))
             .put("deviceLabel", localDeviceLabel())
+            .apply {
+                deviceIdProvider?.getDeviceId()?.takeIf { it.isNotBlank() }?.let { put("deviceId", it) }
+            }
     ) { json -> parseAuthenticationResult(json, json.getString("sessionToken")) }
 
     override suspend fun listPasskeys(accessToken: String): List<PasskeyInfo> = request(

@@ -139,13 +139,30 @@ const profileDraft = (body) => {
   };
 };
 
-const extractDeviceLabel = (request) => {
+const extractExplicitDeviceLabel = (request) => {
   if (typeof request.body?.deviceLabel === 'string' && request.body.deviceLabel.trim().length > 0) {
     return request.body.deviceLabel.trim().slice(0, 50);
   }
+  return null;
+};
+
+const extractDisplayDeviceLabel = (request) => {
+  const explicit = extractExplicitDeviceLabel(request);
+  if (explicit) return explicit;
   const userAgent = request.get('User-Agent');
   if (userAgent && typeof userAgent === 'string') {
     return userAgent.slice(0, 50);
+  }
+  return null;
+};
+
+const extractDeviceId = (request) => {
+  if (typeof request.body?.deviceId === 'string' && request.body.deviceId.trim().length > 0) {
+    return request.body.deviceId.trim().slice(0, 100);
+  }
+  const headerDeviceId = request.get('X-Device-Id');
+  if (headerDeviceId && typeof headerDeviceId === 'string' && headerDeviceId.trim().length > 0) {
+    return headerDeviceId.trim().slice(0, 100);
   }
   return null;
 };
@@ -355,7 +372,18 @@ export const createApp = ({ config, database, verifyTelegramToken, logger, metri
       metricsCollector.recordTelegramAuth('disabled');
       return response.status(403).json({ code: 'ACCOUNT_DISABLED', message: 'Account is disabled' });
     }
-    const session = await createSession(database, state.account.id, config.sessionTtlDays, 'TELEGRAM', extractDeviceLabel(request));
+    const explicitLabel = extractExplicitDeviceLabel(request);
+    const displayLabel = extractDisplayDeviceLabel(request);
+    const deviceId = extractDeviceId(request);
+    const session = await createSession(
+      database,
+      state.account.id,
+      config.sessionTtlDays,
+      'TELEGRAM',
+      displayLabel,
+      deviceId,
+      explicitLabel
+    );
     log.telegramAuthEvent({ requestId: request.requestId, outcome: 'success' });
     metricsCollector.recordTelegramAuth('success');
     response.set('Cache-Control', 'no-store').json({
@@ -419,7 +447,18 @@ export const createApp = ({ config, database, verifyTelegramToken, logger, metri
       return response.status(statusMap[safeCode] || 401).json({ code: safeCode, message });
     }
     const state = await database.getAccount(verified.userId);
-    const session = await createSession(database, verified.userId, config.sessionTtlDays, 'PASSKEY', extractDeviceLabel(request));
+    const explicitLabel = extractExplicitDeviceLabel(request);
+    const displayLabel = extractDisplayDeviceLabel(request);
+    const deviceId = extractDeviceId(request);
+    const session = await createSession(
+      database,
+      verified.userId,
+      config.sessionTtlDays,
+      'PASSKEY',
+      displayLabel,
+      deviceId,
+      explicitLabel
+    );
     response.json({
       sessionToken: session.token,
       passkey: {

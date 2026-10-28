@@ -199,7 +199,7 @@ test('SQLite legacy badge profile migrates to the canonical default and drops ol
   assert.equal(columnNames.includes('emoji'), false);
   assert.equal(columns.find(({ name }) => name === 'emoji_set_id').notnull, 1);
   assert.equal(columns.find(({ name }) => name === 'emoji_id').notnull, 1);
-  assert.equal(migrated.prepare('PRAGMA user_version').get().user_version, 10);
+  assert.equal(migrated.prepare('PRAGMA user_version').get().user_version, 11);
   migrated.close();
 });
 
@@ -406,6 +406,129 @@ test('SQLite v1 database with unmigrated sessions upgrades without error', (cont
   assert.equal(userSessions.length, 1);
   assert.ok(userSessions[0].id); // id backfilled with UUID
   assert.equal(userSessions[0].authenticationMethod, 'TELEGRAM');
+
+  database.close();
+});
+
+test('session deduplication: logging in from the same device reuses the session and prevents duplicates', () => {
+  const database = createDatabase({ databasePath: ':memory:' });
+  const userId = database.upsertTelegramUser(profile('dedup-user-1'));
+  const now = Date.now();
+  const expiresAt1 = new Date(now + 86400000);
+  const tokenHash1 = '1'.repeat(64);
+  const tokenHash2 = '2'.repeat(64);
+
+  // First login from device A
+  const sessionId1 = database.createSession({
+    tokenHash: tokenHash1,
+    userId,
+    expiresAt: expiresAt1,
+    authenticationMethod: 'TELEGRAM',
+    deviceLabel: 'Pixel 8',
+    deviceId: 'device-uuid-1'
+  });
+
+  const session1 = database.findSession(tokenHash1);
+  assert.ok(session1);
+  assert.equal(session1.sessionId, sessionId1);
+  assert.equal(session1.deviceLabel, 'Pixel 8');
+  assert.equal(session1.deviceId, 'device-uuid-1');
+
+  // Second login from the SAME device A (same deviceId)
+  const expiresAt2 = new Date(now + 172800000);
+  const sessionId2 = database.createSession({
+    tokenHash: tokenHash2,
+    userId,
+    expiresAt: expiresAt2,
+    authenticationMethod: 'PASSKEY',
+    deviceLabel: 'Pixel 8 Pro', // label updated
+    deviceId: 'device-uuid-1'
+  });
+
+  // Session ID should be identical (same session reused)
+  assert.equal(sessionId2, sessionId1);
+
+  // Old token hash should no longer be active/found
+  assert.equal(database.findSession(tokenHash1), null);
+
+  // New token hash should be active with updated metadata
+  const session2 = database.findSession(tokenHash2);
+  assert.ok(session2);
+  assert.equal(session2.sessionId, sessionId1);
+  assert.equal(session2.authenticationMethod, 'PASSKEY');
+  assert.equal(session2.deviceLabel, 'Pixel 8 Pro');
+  assert.equal(session2.deviceId, 'device-uuid-1');
+  assert.equal(session2.createdAt.getTime(), session1.createdAt.getTime()); // createdAt preserved!
+
+  // Active sessions list must contain only 1 session for this device
+  const sessions = database.listUserSessions(userId, tokenHash2);
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0].id, sessionId1);
+  assert.equal(sessions[0].current, true);
+
+  // Login from a DIFFERENT device B (different deviceId)
+  const tokenHash3 = '3'.repeat(64);
+  const sessionId3 = database.createSession({
+    tokenHash: tokenHash3,
+    userId,
+    expiresAt: expiresAt2,
+    authenticationMethod: 'TELEGRAM',
+    deviceLabel: 'MacBook Pro',
+    deviceId: 'device-uuid-2'
+  });
+
+  assert.notEqual(sessionId3, sessionId1);
+  const sessionsAfterDeviceB = database.listUserSessions(userId, tokenHash2);
+  assert.equal(sessionsAfterDeviceB.length, 2);
+
+  // Logging in after explicit revocation creates a new session
+  database.revokeUserSessionById(userId, sessionId1);
+  const tokenHash4 = '4'.repeat(64);
+  const sessionId4 = database.createSession({
+    tokenHash: tokenHash4,
+    userId,
+    expiresAt: expiresAt2,
+    authenticationMethod: 'TELEGRAM',
+    deviceLabel: 'Pixel 8 Pro',
+    deviceId: 'device-uuid-1'
+  });
+  assert.notEqual(sessionId4, sessionId1);
+
+  database.close();
+});
+
+test('session deduplication: claims legacy session without deviceId when deviceId is introduced', () => {
+  const database = createDatabase({ databasePath: ':memory:' });
+  const userId = database.upsertTelegramUser(profile('dedup-legacy-user'));
+  const now = Date.now();
+  const tokenHash1 = 'a'.repeat(64);
+  const tokenHash2 = 'b'.repeat(64);
+
+  // Initial legacy session without deviceId
+  const legacySessionId = database.createSession({
+    tokenHash: tokenHash1,
+    userId,
+    expiresAt: new Date(now + 86400000),
+    authenticationMethod: 'TELEGRAM',
+    deviceLabel: 'Samsung S24',
+    deviceId: null
+  });
+
+  // Re-login from same phone providing deviceId and matching deviceLabel
+  const newSessionId = database.createSession({
+    tokenHash: tokenHash2,
+    userId,
+    expiresAt: new Date(now + 86400000),
+    authenticationMethod: 'TELEGRAM',
+    deviceLabel: 'Samsung S24',
+    deviceId: 'samsung-uuid-1',
+    matchDeviceLabel: 'Samsung S24'
+  });
+
+  assert.equal(newSessionId, legacySessionId);
+  const activeSessions = database.listUserSessions(userId, tokenHash2);
+  assert.equal(activeSessions.length, 1);
+  assert.equal(activeSessions[0].deviceId, 'samsung-uuid-1');
 
   database.close();
 });
