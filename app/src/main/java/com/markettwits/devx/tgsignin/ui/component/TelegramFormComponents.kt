@@ -83,6 +83,7 @@ import com.markettwits.devx.tgsignin.data.model.ProfileEmojiCatalog
 import com.markettwits.devx.tgsignin.data.model.ProfileEmojiSelection
 import com.markettwits.devx.tgsignin.data.model.formattedPhoneNumberAsYouType
 import com.markettwits.devx.tgsignin.data.repository.ProfileEmojiRepository
+import com.markettwits.devx.tgsignin.ui.component.tgs.TgsFrameBaker
 import kotlinx.coroutines.delay
 import org.koin.compose.koinInject
 import kotlin.time.Duration.Companion.milliseconds
@@ -615,7 +616,11 @@ fun TelegramEmojiSetDropdown(
         }
     }
     LaunchedEffect(expanded, activeCategoryId, searchQuery, displayedEmojis) {
-        if (expanded) emojiRepository.prefetch(displayedEmojis.take(PICKER_PREFETCH_COUNT))
+        if (expanded) {
+            val targets = displayedEmojis.take(PICKER_PREFETCH_COUNT)
+            emojiRepository.prefetch(targets)
+            TgsFrameBaker.prebake(targets, emojiRepository)
+        }
     }
 
     DropdownMenu(

@@ -10,18 +10,21 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import com.airbnb.lottie.compose.LottieAnimation
-import com.airbnb.lottie.compose.LottieCompositionSpec
-import com.airbnb.lottie.compose.LottieConstants
-import com.airbnb.lottie.compose.rememberLottieComposition
 import com.markettwits.devx.tgsignin.data.model.ProfileEmoji
 import com.markettwits.devx.tgsignin.data.repository.ProfileEmojiRepository
+import com.markettwits.devx.tgsignin.ui.component.tgs.BakedTgsAnimation
+import com.markettwits.devx.tgsignin.ui.component.tgs.TgsDecoder
+import com.markettwits.devx.tgsignin.ui.component.tgs.TgsFrameBaker
+import com.markettwits.devx.tgsignin.ui.component.tgs.TgsStickerPlayer
 import org.koin.compose.koinInject
 
 @Composable
@@ -38,27 +41,39 @@ fun ProfileEmojiImage(
         BadgePlaceholder(accessibleModifier)
         return
     }
-    val animationFile by produceState<String?>(null, emoji.sha256) {
-        value = runCatching { repository.loadAnimationFile(emoji).absolutePath }.getOrNull()
+
+    val cacheKey = remember(emoji.sha256) {
+        "emoji:${emoji.sha256}:${TgsFrameBaker.DEFAULT_FRAME_WIDTH_PX}x${TgsFrameBaker.DEFAULT_FRAME_HEIGHT_PX}:${TgsFrameBaker.DEFAULT_TARGET_FPS}fps"
     }
-    val filePath = animationFile
-    if (filePath == null) {
-        BadgePlaceholder(accessibleModifier)
-    } else {
-        val composition by rememberLottieComposition(
-            spec = LottieCompositionSpec.File(filePath),
-            cacheKey = emoji.sha256
-        )
-        if (composition == null) {
-            BadgePlaceholder(accessibleModifier)
-        } else {
-            LottieAnimation(
-                composition = composition,
-                iterations = LottieConstants.IterateForever,
-                modifier = accessibleModifier
-            )
+
+    var bakedAnimation by remember(emoji.sha256) {
+        mutableStateOf(TgsFrameBaker.getCachedFrames(cacheKey))
+    }
+
+    LaunchedEffect(emoji.sha256) {
+        if (bakedAnimation == null) {
+            val file = runCatching { repository.loadAnimationFile(emoji) }.getOrNull()
+            if (file != null) {
+                val json = TgsDecoder.decodeTgsToJson(file, cacheKey = emoji.sha256)
+                if (json != null) {
+                    bakedAnimation = TgsFrameBaker.bake(
+                        tgsJson = json,
+                        cacheKey = cacheKey,
+                        widthPx = TgsFrameBaker.DEFAULT_FRAME_WIDTH_PX,
+                        heightPx = TgsFrameBaker.DEFAULT_FRAME_HEIGHT_PX,
+                        targetFps = TgsFrameBaker.DEFAULT_TARGET_FPS
+                    )
+                }
+            }
         }
     }
+
+    TgsStickerPlayer(
+        bakedAnimation = bakedAnimation,
+        modifier = modifier,
+        contentDescription = contentDescription,
+        placeholder = { BadgePlaceholder(accessibleModifier) }
+    )
 }
 
 @Composable
