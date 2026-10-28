@@ -44,10 +44,20 @@ fun PasskeyUserAction.getActionTextRes(): Int? = when (this) {
 }
 
 fun PasskeyError.toUserErrorMessage(context: Context): PasskeyErrorMessage {
-    val message = if (this is PasskeyError.Unknown && requestId != null) {
+    val baseMessage = if (this is PasskeyError.Unknown && requestId != null) {
         context.getString(R.string.passkey_error_unknown_with_request_id, requestId)
     } else {
         context.getString(getUserMessageRes())
+    }
+
+    val detail = if (this is PasskeyError.Unknown) {
+        cause?.message?.takeIf { it.isNotBlank() }
+    } else null
+
+    val message = if (detail != null) {
+        "$baseMessage ($detail)"
+    } else {
+        baseMessage
     }
 
     val actionTextRes = userAction.getActionTextRes()

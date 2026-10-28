@@ -1,11 +1,16 @@
 package com.markettwits.devx.tgsignin.data.repository
 
 import androidx.credentials.exceptions.CreateCredentialCancellationException
+import androidx.credentials.exceptions.CreateCredentialCustomException
 import androidx.credentials.exceptions.CreateCredentialInterruptedException
+import androidx.credentials.exceptions.CreateCredentialNoCreateOptionException
 import androidx.credentials.exceptions.CreateCredentialProviderConfigurationException
+import androidx.credentials.exceptions.CreateCredentialUnknownException
 import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.GetCredentialCustomException
 import androidx.credentials.exceptions.GetCredentialInterruptedException
 import androidx.credentials.exceptions.GetCredentialProviderConfigurationException
+import androidx.credentials.exceptions.GetCredentialUnknownException
 import androidx.credentials.exceptions.NoCredentialException
 import androidx.credentials.exceptions.publickeycredential.CreatePublicKeyCredentialDomException
 import androidx.credentials.exceptions.publickeycredential.GetPublicKeyCredentialDomException
@@ -25,7 +30,7 @@ fun Throwable.toPasskeyError(): PasskeyError {
 
     val causes = generateSequence(this as Throwable?) { it.cause }.toList()
 
-    // 1. Cancellations
+    // 1. Explicit Cancellations
     causes.firstOrNull {
         it is CreateCredentialCancellationException ||
             it is GetCredentialCancellationException ||
@@ -33,7 +38,82 @@ fun Throwable.toPasskeyError(): PasskeyError {
             it is GetCredentialInterruptedException
     }?.let { return PasskeyError.Cancelled(it) }
 
-    // 2. DOM Exceptions from Public Key Credential operations
+    // 2. Custom exceptions from Credential Manager (often thrown by Google Play Services / Google Password Manager)
+    causes.filterIsInstance<CreateCredentialCustomException>().firstOrNull()?.let { customEx ->
+        val type = customEx.type.lowercase()
+        val message = customEx.message.orEmpty().lowercase()
+        val combined = "$type $message"
+        return when {
+            combined.contains("cancel") || combined.contains("abort") ->
+                PasskeyError.Cancelled(customEx)
+            combined.contains("security") || combined.contains("assetlink") || combined.contains("28436") ->
+                PasskeyError.DigitalAssetLinksInvalid(customEx)
+            combined.contains("screen lock") || combined.contains("keyguard") || combined.contains("user verification") || combined.contains("lock screen") ->
+                PasskeyError.ScreenLockRequired(customEx)
+            combined.contains("already registered") || combined.contains("constraint") || combined.contains("invalid_state") ->
+                PasskeyError.AlreadyRegistered(customEx)
+            combined.contains("not supported") || combined.contains("notsupported") || combined.contains("provider") || combined.contains("34000") ->
+                PasskeyError.ProviderUnavailable(customEx)
+            combined.contains("timeout") || combined.contains("timed out") ->
+                PasskeyError.ChallengeExpired(customEx)
+            else -> PasskeyError.Unknown(originalCause = customEx)
+        }
+    }
+
+    causes.filterIsInstance<GetCredentialCustomException>().firstOrNull()?.let { customEx ->
+        val type = customEx.type.lowercase()
+        val message = customEx.message.orEmpty().lowercase()
+        val combined = "$type $message"
+        return when {
+            combined.contains("cancel") || combined.contains("abort") ->
+                PasskeyError.Cancelled(customEx)
+            combined.contains("security") || combined.contains("assetlink") || combined.contains("28436") ->
+                PasskeyError.DigitalAssetLinksInvalid(customEx)
+            combined.contains("screen lock") || combined.contains("keyguard") || combined.contains("user verification") || combined.contains("lock screen") ->
+                PasskeyError.ScreenLockRequired(customEx)
+            combined.contains("credential not found") || combined.contains("no credential") ->
+                PasskeyError.CredentialNotFound(customEx)
+            combined.contains("not supported") || combined.contains("notsupported") || combined.contains("provider") ->
+                PasskeyError.ProviderUnavailable(customEx)
+            combined.contains("timeout") || combined.contains("timed out") ->
+                PasskeyError.ChallengeExpired(customEx)
+            else -> PasskeyError.Unknown(originalCause = customEx)
+        }
+    }
+
+    // 3. No option available on device
+    causes.filterIsInstance<CreateCredentialNoCreateOptionException>().firstOrNull()?.let {
+        return PasskeyError.ProviderUnavailable(it)
+    }
+
+    // 4. Unknown Credential Manager exceptions
+    causes.filterIsInstance<CreateCredentialUnknownException>().firstOrNull()?.let { unkEx ->
+        val msg = unkEx.message.orEmpty().lowercase()
+        return when {
+            msg.contains("security") || msg.contains("assetlink") || msg.contains("28436") ->
+                PasskeyError.DigitalAssetLinksInvalid(unkEx)
+            msg.contains("screen lock") || msg.contains("keyguard") || msg.contains("user verification") ->
+                PasskeyError.ScreenLockRequired(unkEx)
+            msg.contains("cancel") || msg.contains("abort") ->
+                PasskeyError.Cancelled(unkEx)
+            else -> PasskeyError.Unknown(originalCause = unkEx)
+        }
+    }
+
+    causes.filterIsInstance<GetCredentialUnknownException>().firstOrNull()?.let { unkEx ->
+        val msg = unkEx.message.orEmpty().lowercase()
+        return when {
+            msg.contains("security") || msg.contains("assetlink") || msg.contains("28436") ->
+                PasskeyError.DigitalAssetLinksInvalid(unkEx)
+            msg.contains("screen lock") || msg.contains("keyguard") || msg.contains("user verification") ->
+                PasskeyError.ScreenLockRequired(unkEx)
+            msg.contains("cancel") || msg.contains("abort") ->
+                PasskeyError.Cancelled(unkEx)
+            else -> PasskeyError.Unknown(originalCause = unkEx)
+        }
+    }
+
+    // 5. DOM Exceptions from Public Key Credential operations
     causes.filterIsInstance<CreatePublicKeyCredentialDomException>().firstOrNull()?.let { domEx ->
         val dom = domEx.domError
         val domType = dom.type
@@ -46,7 +126,9 @@ fun Throwable.toPasskeyError(): PasskeyError {
                     PasskeyError.ScreenLockRequired(domEx)
                 message.contains("timeout") || message.contains("timed out") ->
                     PasskeyError.ChallengeExpired(domEx)
-                else -> PasskeyError.Cancelled(domEx)
+                message.contains("cancel") || message.contains("abort") || message.contains("dismiss") ->
+                    PasskeyError.Cancelled(domEx)
+                else -> PasskeyError.ScreenLockRequired(domEx)
             }
             dom is androidx.credentials.exceptions.domerrors.SecurityError || domType.contains("security", ignoreCase = true) ->
                 PasskeyError.DigitalAssetLinksInvalid(domEx)
@@ -76,7 +158,9 @@ fun Throwable.toPasskeyError(): PasskeyError {
                     PasskeyError.ScreenLockRequired(domEx)
                 message.contains("timeout") || message.contains("timed out") ->
                     PasskeyError.ChallengeExpired(domEx)
-                else -> PasskeyError.Cancelled(domEx)
+                message.contains("cancel") || message.contains("abort") || message.contains("dismiss") ->
+                    PasskeyError.Cancelled(domEx)
+                else -> PasskeyError.ScreenLockRequired(domEx)
             }
             dom is androidx.credentials.exceptions.domerrors.SecurityError || domType.contains("security", ignoreCase = true) ->
                 PasskeyError.DigitalAssetLinksInvalid(domEx)
@@ -94,7 +178,7 @@ fun Throwable.toPasskeyError(): PasskeyError {
         }
     }
 
-    // 3. Missing credentials or provider config issues
+    // 6. Missing credentials or provider config issues
     causes.filterIsInstance<NoCredentialException>().firstOrNull()?.let {
         return PasskeyError.CredentialNotFound(it)
     }
@@ -111,7 +195,7 @@ fun Throwable.toPasskeyError(): PasskeyError {
         }
     }
 
-    // 4. Server HTTP status / error codes
+    // 7. Server HTTP status / error codes
     causes.filterIsInstance<BackendHttpException>().firstOrNull()?.let { httpError ->
         return when (httpError.errorCode) {
             "CHALLENGE_EXPIRED" -> PasskeyError.ChallengeExpired(httpError)
@@ -131,7 +215,7 @@ fun Throwable.toPasskeyError(): PasskeyError {
         }
     }
 
-    // 5. Network failures
+    // 8. Network failures
     causes.firstOrNull {
         it is UnknownHostException ||
             it is NoRouteToHostException ||
@@ -142,7 +226,7 @@ fun Throwable.toPasskeyError(): PasskeyError {
             it is IOException
     }?.let { return PasskeyError.NetworkUnavailable(it) }
 
-    // 6. Device compatibility / configuration
+    // 9. Device compatibility / configuration
     causes.firstOrNull {
         it is IllegalStateException && it.message?.contains("Android 9") == true
     }?.let { return PasskeyError.ProviderUnavailable(it) }

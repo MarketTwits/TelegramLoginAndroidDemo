@@ -7,8 +7,13 @@ import androidx.credentials.exceptions.domerrors.NotSupportedError
 import androidx.credentials.exceptions.domerrors.SecurityError
 import androidx.credentials.exceptions.domerrors.TimeoutError
 import androidx.credentials.exceptions.CreateCredentialCancellationException
+import androidx.credentials.exceptions.CreateCredentialCustomException
+import androidx.credentials.exceptions.CreateCredentialNoCreateOptionException
 import androidx.credentials.exceptions.CreateCredentialProviderConfigurationException
+import androidx.credentials.exceptions.CreateCredentialUnknownException
 import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.GetCredentialCustomException
+import androidx.credentials.exceptions.GetCredentialInterruptedException
 import androidx.credentials.exceptions.GetCredentialProviderConfigurationException
 import androidx.credentials.exceptions.NoCredentialException
 import androidx.credentials.exceptions.publickeycredential.CreatePublicKeyCredentialDomException
@@ -170,5 +175,43 @@ class PasskeyErrorMapperTest {
         val unknownGeneric = RuntimeException("Something unexpected").toPasskeyError()
         assertTrue(unknownGeneric is PasskeyError.Unknown)
         assertEquals(null, (unknownGeneric as PasskeyError.Unknown).requestId)
+    }
+
+    @Test
+    fun `custom exceptions from Google Password Manager map correctly`() {
+        // Digital asset links validation failure (28436 or security error from Play Services)
+        val dalError = CreateCredentialCustomException("android.credentials.TYPE_SECURITY", "28436: Digital Asset Links verification failed")
+            .toPasskeyError()
+        assertTrue(dalError is PasskeyError.DigitalAssetLinksInvalid)
+
+        // Missing screen lock / user verification
+        val lockError = CreateCredentialCustomException("android.credentials.TYPE_UNKNOWN", "Screen lock is required to save credentials")
+            .toPasskeyError()
+        assertTrue(lockError is PasskeyError.ScreenLockRequired)
+
+        // Provider unavailable (e.g. 34000 FIDO error)
+        val fido34000 = CreateCredentialCustomException("android.credentials.TYPE_UNKNOWN", "34000: provider unavailable")
+            .toPasskeyError()
+        assertTrue(fido34000 is PasskeyError.ProviderUnavailable)
+
+        // User cancellation inside custom exception
+        val customCancel = CreateCredentialCustomException("android.credentials.TYPE_UNKNOWN", "User cancelled")
+            .toPasskeyError()
+        assertTrue(customCancel is PasskeyError.Cancelled)
+
+        // No create option available on device
+        val noOption = CreateCredentialNoCreateOptionException("No passkey provider on device")
+            .toPasskeyError()
+        assertTrue(noOption is PasskeyError.ProviderUnavailable)
+
+        // NotAllowedError without explicit cancellation maps to ScreenLockRequired
+        val notAllowedGpm = CreatePublicKeyCredentialDomException(NotAllowedError(), "The operation is not allowed")
+            .toPasskeyError()
+        assertTrue(notAllowedGpm is PasskeyError.ScreenLockRequired)
+
+        // NotAllowedError with explicit cancel keyword maps to Cancelled
+        val notAllowedCancelled = CreatePublicKeyCredentialDomException(NotAllowedError(), "User dismissed the dialog")
+            .toPasskeyError()
+        assertTrue(notAllowedCancelled is PasskeyError.Cancelled)
     }
 }
