@@ -90,7 +90,18 @@ android {
         buildConfigField("String", "APP_TOKEN", appToken.asBuildConfigString())
 
         val backendUrlClean = telegramBackendUrl.trimEnd('/')
-        resValue("string", "asset_statements", """[{\"include\": \"$backendUrlClean/.well-known/assetlinks.json\"}]""")
+        val backendHost = backendUrlClean
+            .removePrefix("https://")
+            .removePrefix("http://")
+            .substringBefore(':')
+            .substringBefore('/')
+        manifestPlaceholders["telegramBackendHost"] = backendHost
+
+        resValue(
+            "string",
+            "asset_statements",
+            """[{\"include\": \"$backendUrlClean/.well-known/assetlinks.json\"},{\"relation\": [\"delegate_permission/common.handle_all_urls\", \"delegate_permission/common.get_login_creds\"],\"target\": {\"namespace\": \"web\", \"site\": \"$backendUrlClean\"}}]"""
+        )
     }
 
     signingConfigs {

@@ -379,7 +379,10 @@ test('Digital Asset Links exposes only configured Android signing identities', a
   assert.equal(response.status, 200);
   assert.match(response.headers.get('content-type'), /^application\/json/);
   assert.deepEqual(await response.json(), [{
-    relation: ['delegate_permission/common.get_login_creds'],
+    relation: [
+      'delegate_permission/common.handle_all_urls',
+      'delegate_permission/common.get_login_creds'
+    ],
     target: {
       namespace: 'android_app',
       package_name: 'com.example.app',
