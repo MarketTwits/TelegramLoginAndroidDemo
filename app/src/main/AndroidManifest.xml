@@ -16,6 +16,11 @@
         android:supportsRtl="true"
         tools:targetApi="33"
         android:theme="@style/Theme.TelegramLoginDemo">
+
+        <meta-data
+            android:name="asset_statements"
+            android:resource="@string/asset_statements" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
