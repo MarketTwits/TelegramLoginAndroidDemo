@@ -316,4 +316,60 @@ class TelegramAuthApiDataSourceTest {
             assertEquals(7, ex.actualVersion)
         }
     }
+
+    @Test
+    fun `authenticate sends deviceId when deviceIdProvider is provided`() = runBlocking {
+        val customDataSource = TelegramAuthApiDataSourceImpl(
+            config = TelegramLoginConfig(
+                clientId = "test_client",
+                redirectUri = "https://example.com/tglogin",
+                redirectHost = "example.com",
+                backendUrl = "http://127.0.0.1:$serverPort",
+                appToken = "test_app_token"
+            ),
+            ioDispatcher = Dispatchers.IO,
+            deviceIdProvider = { "mock-device-uuid-123" }
+        )
+
+        responseBody = JSONObject()
+            .put("sessionToken", "new_session_token_123")
+            .put("account", JSONObject().put("id", "acc_1").put("memberNumber", 1L).put("onboardingState", "PROFILE_COMPLETED").put("registeredAt", "2026-01-01T00:00:00Z").put("lastLoginAt", "2026-01-02T00:00:00Z").put("loginCount", 1))
+            .put("telegram", JSONObject().put("userId", "tg_1").put("name", "User").put("username", "user"))
+            .toString()
+
+        customDataSource.authenticate("mock_id_token")
+
+        val bodyJson = JSONObject(lastRecordedBody!!)
+        assertEquals("mock_id_token", bodyJson.getString("idToken"))
+        assertEquals("mock-device-uuid-123", bodyJson.getString("deviceId"))
+    }
+
+    @Test
+    fun `finishPasskeyAuthentication sends deviceId when deviceIdProvider is provided`() = runBlocking {
+        val customDataSource = TelegramAuthApiDataSourceImpl(
+            config = TelegramLoginConfig(
+                clientId = "test_client",
+                redirectUri = "https://example.com/tglogin",
+                redirectHost = "example.com",
+                backendUrl = "http://127.0.0.1:$serverPort",
+                appToken = "test_app_token"
+            ),
+            ioDispatcher = Dispatchers.IO,
+            deviceIdProvider = { "mock-device-uuid-456" }
+        )
+
+        responseBody = JSONObject()
+            .put("sessionToken", "new_session_token_456")
+            .put("account", JSONObject().put("id", "acc_1").put("memberNumber", 1L).put("onboardingState", "PROFILE_COMPLETED").put("registeredAt", "2026-01-01T00:00:00Z").put("lastLoginAt", "2026-01-02T00:00:00Z").put("loginCount", 1))
+            .put("telegram", JSONObject().put("userId", "tg_1").put("name", "User").put("username", "user"))
+            .toString()
+
+        customDataSource.finishPasskeyAuthentication(
+            operationId = "op_123",
+            credentialJson = """{"id":"c_1","rawId":"r_1"}"""
+        )
+
+        val bodyJson = JSONObject(lastRecordedBody!!)
+        assertEquals("mock-device-uuid-456", bodyJson.getString("deviceId"))
+    }
 }

@@ -12,7 +12,15 @@ const BEARER_PREFIX = 'Bearer ';
 export const hashSessionToken = (token) =>
   crypto.createHash('sha256').update(token, 'utf8').digest('hex');
 
-export const createSession = async (database, userId, ttlDays, authenticationMethod = 'TELEGRAM', deviceLabel = null) => {
+export const createSession = async (
+  database,
+  userId,
+  ttlDays,
+  authenticationMethod = 'TELEGRAM',
+  deviceLabel = null,
+  deviceId = null,
+  matchDeviceLabel = null
+) => {
   const token = crypto.randomBytes(SESSION_TOKEN_BYTES).toString('base64url');
   const sessionId = crypto.randomUUID();
   const ttlMilliseconds = ttlDays
@@ -21,15 +29,17 @@ export const createSession = async (database, userId, ttlDays, authenticationMet
     * SECONDS_PER_MINUTE
     * MILLISECONDS_PER_SECOND;
   const expiresAt = new Date(Date.now() + ttlMilliseconds);
-  await database.createSession({
+  const resolvedSessionId = await database.createSession({
     tokenHash: hashSessionToken(token),
     id: sessionId,
     userId,
     expiresAt,
     authenticationMethod,
-    deviceLabel
+    deviceLabel,
+    deviceId,
+    matchDeviceLabel: matchDeviceLabel || null
   });
-  return { token, sessionId, expiresAt };
+  return { token, sessionId: resolvedSessionId || sessionId, expiresAt };
 };
 
 export const bearerToken = (request) => {

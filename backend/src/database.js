@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 
 const SQLITE_BUSY_TIMEOUT_MS = 5_000;
-const DATABASE_SCHEMA_VERSION = 10;
+const DATABASE_SCHEMA_VERSION = 11;
 const DEFAULT_PROFILE_EMOJI_SET_ID = 'spotty-persik';
 const DEFAULT_PROFILE_EMOJI_ID = 'e-0007fab99d521710';
 const REVOKED_SESSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -81,7 +81,8 @@ const schema = `
     revoked_at INTEGER,
     authentication_method TEXT NOT NULL DEFAULT 'TELEGRAM',
     reauthenticated_at INTEGER NOT NULL DEFAULT 0,
-    device_label TEXT
+    device_label TEXT,
+    device_id TEXT
   ) STRICT;
 
   CREATE TABLE IF NOT EXISTS passkey_credentials (
@@ -122,6 +123,7 @@ const schema = `
 
   CREATE INDEX IF NOT EXISTS app_sessions_user_id_idx ON app_sessions(user_id);
   CREATE INDEX IF NOT EXISTS app_sessions_expires_at_idx ON app_sessions(expires_at);
+  CREATE INDEX IF NOT EXISTS app_sessions_user_device_idx ON app_sessions(user_id, device_id);
   CREATE UNIQUE INDEX IF NOT EXISTS app_users_member_number_idx ON app_users(member_number);
   CREATE UNIQUE INDEX IF NOT EXISTS app_users_telegram_user_id_idx ON app_users(telegram_user_id);
   CREATE UNIQUE INDEX IF NOT EXISTS app_users_webauthn_user_handle_idx ON app_users(webauthn_user_handle);
@@ -176,6 +178,9 @@ const migrateLegacySessions = (database) => {
   if (columns.size > 0 && !columns.has('device_label')) {
     database.exec('ALTER TABLE app_sessions ADD COLUMN device_label TEXT');
   }
+  if (columns.size > 0 && !columns.has('device_id')) {
+    database.exec('ALTER TABLE app_sessions ADD COLUMN device_id TEXT');
+  }
   if (columns.size > 0) {
     const missingIds = database.prepare('SELECT token_hash FROM app_sessions WHERE id IS NULL').all();
     if (missingIds.length > 0) {
@@ -185,6 +190,7 @@ const migrateLegacySessions = (database) => {
       }
     }
     database.exec('CREATE UNIQUE INDEX IF NOT EXISTS app_sessions_id_idx ON app_sessions(id)');
+    database.exec('CREATE INDEX IF NOT EXISTS app_sessions_user_device_idx ON app_sessions(user_id, device_id)');
   }
 };
 
@@ -310,8 +316,8 @@ export const createDatabase = (config) => {
   const insertSession = database.prepare(`
     INSERT INTO app_sessions (
       token_hash, id, user_id, created_at, expires_at, last_seen_at,
-      authentication_method, reauthenticated_at, device_label
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      authentication_method, reauthenticated_at, device_label, device_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const revokeSession = database.prepare(`
     UPDATE app_sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL
@@ -325,15 +331,38 @@ export const createDatabase = (config) => {
     WHERE user_id = ? AND token_hash != ? AND revoked_at IS NULL
   `);
   const selectUserSessions = database.prepare(`
-    SELECT id, created_at, expires_at, last_seen_at, authentication_method, device_label, token_hash
+    SELECT id, created_at, expires_at, last_seen_at, authentication_method, device_label, device_id, token_hash
     FROM app_sessions
     WHERE user_id = ? AND revoked_at IS NULL AND expires_at > ?
     ORDER BY last_seen_at DESC, created_at DESC
   `);
   const selectUserSessionById = database.prepare(`
-    SELECT id, created_at, expires_at, last_seen_at, authentication_method, device_label, token_hash
+    SELECT id, created_at, expires_at, last_seen_at, authentication_method, device_label, device_id, token_hash
     FROM app_sessions
     WHERE id = ? AND user_id = ? AND revoked_at IS NULL AND expires_at > ?
+  `);
+  const selectActiveSessionsByDeviceId = database.prepare(`
+    SELECT id, token_hash, created_at, device_label, device_id
+    FROM app_sessions
+    WHERE user_id = ? AND device_id = ? AND revoked_at IS NULL AND expires_at > ?
+    ORDER BY last_seen_at DESC, created_at DESC
+  `);
+  const selectActiveSessionsByDeviceLabelNoDeviceId = database.prepare(`
+    SELECT id, token_hash, created_at, device_label, device_id
+    FROM app_sessions
+    WHERE user_id = ? AND device_id IS NULL AND device_label = ? AND revoked_at IS NULL AND expires_at > ?
+    ORDER BY last_seen_at DESC, created_at DESC
+  `);
+  const updateSessionDeduplicated = database.prepare(`
+    UPDATE app_sessions SET
+      token_hash = ?,
+      expires_at = ?,
+      last_seen_at = ?,
+      authentication_method = ?,
+      reauthenticated_at = ?,
+      device_label = COALESCE(?, device_label),
+      device_id = COALESCE(?, device_id)
+    WHERE id = ?
   `);
   const touchSession = database.prepare(`
     UPDATE app_sessions SET last_seen_at = ?
@@ -347,6 +376,7 @@ export const createDatabase = (config) => {
     SELECT account.*, session.id AS session_id, session.created_at AS session_created_at,
            session.last_seen_at AS session_last_seen_at, session.expires_at,
            session.authentication_method, session.reauthenticated_at, session.device_label,
+           session.device_id,
            profile.id AS profile_id, profile.display_name, profile.headline,
            profile.intent, profile.topics_json, profile.avatar_source,
            profile.emoji_set_id, profile.emoji_id, profile.visual_seed,
@@ -523,6 +553,82 @@ export const createDatabase = (config) => {
     return reauthenticateSession.run(now, tokenHash, userId, now).changes === 1;
   });
 
+  const createSession = transaction((tokenHashOrOptions, userId, expiresAt, authenticationMethod = 'TELEGRAM', id = null, deviceLabel = null, deviceId = null, matchDeviceLabel = null) => {
+    const now = Date.now();
+    let tokenHash;
+    let uId;
+    let expAt;
+    let authMethod;
+    let sId;
+    let devLabel;
+    let devId;
+    let matchLabel;
+
+    if (typeof tokenHashOrOptions === 'object' && tokenHashOrOptions !== null) {
+      tokenHash = tokenHashOrOptions.tokenHash;
+      uId = tokenHashOrOptions.userId;
+      expAt = tokenHashOrOptions.expiresAt;
+      authMethod = tokenHashOrOptions.authenticationMethod || 'TELEGRAM';
+      sId = tokenHashOrOptions.id || crypto.randomUUID();
+      devLabel = tokenHashOrOptions.deviceLabel || null;
+      devId = tokenHashOrOptions.deviceId || null;
+      matchLabel = Object.hasOwn(tokenHashOrOptions, 'matchDeviceLabel')
+        ? (tokenHashOrOptions.matchDeviceLabel || null)
+        : devLabel;
+    } else {
+      tokenHash = tokenHashOrOptions;
+      uId = userId;
+      expAt = expiresAt;
+      authMethod = authenticationMethod;
+      sId = id || crypto.randomUUID();
+      devLabel = deviceLabel || null;
+      devId = deviceId || null;
+      matchLabel = matchDeviceLabel ?? devLabel;
+    }
+    const expiresAtMillis = typeof expAt === 'number' ? expAt : expAt.getTime();
+
+    let existingSession = null;
+    let duplicateSessions = [];
+
+    if (devId) {
+      const byDeviceId = selectActiveSessionsByDeviceId.all(uId, devId, now);
+      if (byDeviceId.length > 0) {
+        [existingSession, ...duplicateSessions] = byDeviceId;
+      } else if (matchLabel) {
+        const byLabel = selectActiveSessionsByDeviceLabelNoDeviceId.all(uId, matchLabel, now);
+        if (byLabel.length > 0) {
+          [existingSession, ...duplicateSessions] = byLabel;
+        }
+      }
+    } else if (matchLabel) {
+      const byLabel = selectActiveSessionsByDeviceLabelNoDeviceId.all(uId, matchLabel, now);
+      if (byLabel.length > 0) {
+        [existingSession, ...duplicateSessions] = byLabel;
+      }
+    }
+
+    if (existingSession) {
+      for (const dup of duplicateSessions) {
+        revokeSession.run(now, dup.token_hash);
+      }
+      updateSessionDeduplicated.run(
+        tokenHash,
+        expiresAtMillis,
+        now,
+        authMethod,
+        now,
+        devLabel,
+        devId,
+        existingSession.id
+      );
+      return existingSession.id;
+    }
+
+    pruneUserSessions.run(uId, uId, now, MAX_ACTIVE_SESSIONS_PER_USER - 1);
+    insertSession.run(tokenHash, sId, uId, now, expiresAtMillis, now, authMethod, now, devLabel, devId);
+    return sId;
+  });
+
   return {
     path: databasePath,
     migrate() {
@@ -550,35 +656,7 @@ export const createDatabase = (config) => {
       disableUser.run(Date.now(), userId);
     },
 
-    createSession(tokenHashOrOptions, userId, expiresAt, authenticationMethod = 'TELEGRAM', id = null, deviceLabel = null) {
-      const now = Date.now();
-      let tokenHash;
-      let uId;
-      let expAt;
-      let authMethod;
-      let sId;
-      let devLabel;
-
-      if (typeof tokenHashOrOptions === 'object' && tokenHashOrOptions !== null) {
-        tokenHash = tokenHashOrOptions.tokenHash;
-        uId = tokenHashOrOptions.userId;
-        expAt = tokenHashOrOptions.expiresAt;
-        authMethod = tokenHashOrOptions.authenticationMethod || 'TELEGRAM';
-        sId = tokenHashOrOptions.id || crypto.randomUUID();
-        devLabel = tokenHashOrOptions.deviceLabel || null;
-      } else {
-        tokenHash = tokenHashOrOptions;
-        uId = userId;
-        expAt = expiresAt;
-        authMethod = authenticationMethod;
-        sId = id || crypto.randomUUID();
-        devLabel = deviceLabel || null;
-      }
-      pruneUserSessions.run(uId, uId, now, MAX_ACTIVE_SESSIONS_PER_USER - 1);
-      const expiresAtMillis = typeof expAt === 'number' ? expAt : expAt.getTime();
-      insertSession.run(tokenHash, sId, uId, now, expiresAtMillis, now, authMethod, now, devLabel);
-      return sId;
-    },
+    createSession,
     listUserSessions(userId, currentTokenHash) {
       const now = Date.now();
       return selectUserSessions.all(userId, now).map((row) => ({
@@ -588,6 +666,7 @@ export const createDatabase = (config) => {
         expiresAt: new Date(row.expires_at),
         authenticationMethod: row.authentication_method,
         deviceLabel: row.device_label,
+        deviceId: row.device_id,
         current: row.token_hash === currentTokenHash
       }));
     },
@@ -601,6 +680,7 @@ export const createDatabase = (config) => {
         expiresAt: new Date(row.expires_at),
         authenticationMethod: row.authentication_method,
         deviceLabel: row.device_label,
+        deviceId: row.device_id,
         tokenHash: row.token_hash
       } : null;
     },
@@ -630,7 +710,8 @@ export const createDatabase = (config) => {
         expiresAt: new Date(row.expires_at),
         authenticationMethod: row.authentication_method,
         reauthenticatedAt: new Date(row.reauthenticated_at),
-        deviceLabel: row.device_label
+        deviceLabel: row.device_label,
+        deviceId: row.device_id
       } : null;
     },
     deleteExpiredSessions() {

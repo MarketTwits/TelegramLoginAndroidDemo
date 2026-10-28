@@ -596,4 +596,82 @@ test('session management: list sessions, revoke others, and delete single sessio
   assert.equal(notFoundRes.status, 404);
 });
 
+test('session deduplication: multiple logins from the same device do not create duplicate sessions', async (context) => {
+  const { baseUrl } = await startServer(context, async () => telegramProfile());
+
+  // 1. Initial login from Pixel 8 with deviceId
+  const login1 = await fetch(`${baseUrl}/auth/telegram`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      idToken: 'x'.repeat(40),
+      deviceLabel: 'Pixel 8',
+      deviceId: 'install-uuid-pixel'
+    })
+  });
+  assert.equal(login1.status, 200);
+  const { sessionToken: token1 } = await login1.json();
+
+  // Verify 1 active session in /me/sessions
+  const list1 = await (await fetch(`${baseUrl}/me/sessions`, {
+    headers: { Authorization: `Bearer ${token1}` }
+  })).json();
+  assert.equal(list1.sessions.length, 1);
+  const initialSessionId = list1.sessions[0].id;
+  const initialCreatedAt = list1.sessions[0].createdAt;
+
+  // 2. Second login from the SAME device (same deviceId)
+  const login2 = await fetch(`${baseUrl}/auth/telegram`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      idToken: 'x'.repeat(40),
+      deviceLabel: 'Pixel 8',
+      deviceId: 'install-uuid-pixel'
+    })
+  });
+  assert.equal(login2.status, 200);
+  const { sessionToken: token2 } = await login2.json();
+
+  // Old token1 should be invalidated
+  const checkToken1 = await fetch(`${baseUrl}/auth/session`, {
+    headers: { Authorization: `Bearer ${token1}` }
+  });
+  assert.equal(checkToken1.status, 401);
+
+  // New token2 works
+  const checkToken2 = await fetch(`${baseUrl}/auth/session`, {
+    headers: { Authorization: `Bearer ${token2}` }
+  });
+  assert.equal(checkToken2.status, 200);
+
+  // List sessions via token2: MUST still have exactly 1 session!
+  const list2 = await (await fetch(`${baseUrl}/me/sessions`, {
+    headers: { Authorization: `Bearer ${token2}` }
+  })).json();
+  assert.equal(list2.sessions.length, 1);
+  assert.equal(list2.sessions[0].id, initialSessionId);
+  assert.equal(list2.sessions[0].createdAt, initialCreatedAt);
+  assert.equal(list2.sessions[0].current, true);
+
+  // 3. Login from a DIFFERENT device
+  const login3 = await fetch(`${baseUrl}/auth/telegram`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      idToken: 'x'.repeat(40),
+      deviceLabel: 'Tablet',
+      deviceId: 'install-uuid-tablet'
+    })
+  });
+  assert.equal(login3.status, 200);
+  const { sessionToken: token3 } = await login3.json();
+
+  // List sessions: now 2 separate active sessions
+  const list3 = await (await fetch(`${baseUrl}/me/sessions`, {
+    headers: { Authorization: `Bearer ${token2}` }
+  })).json();
+  assert.equal(list3.sessions.length, 2);
+});
+
 

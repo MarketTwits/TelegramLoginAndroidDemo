@@ -13,12 +13,14 @@ import com.markettwits.devx.tgsignin.data.datasource.BackendReadinessDataSource
 import com.markettwits.devx.tgsignin.data.datasource.BackendReadinessDataSourceImpl
 import com.markettwits.devx.tgsignin.data.datasource.CryptoManager
 import com.markettwits.devx.tgsignin.data.datasource.CryptoManagerImpl
+import com.markettwits.devx.tgsignin.data.datasource.DeviceIdProvider
 import com.markettwits.devx.tgsignin.data.datasource.GitHubReleaseDataSource
 import com.markettwits.devx.tgsignin.data.datasource.GitHubReleaseDataSourceImpl
 import com.markettwits.devx.tgsignin.data.datasource.ProfileEmojiRemoteDataSource
 import com.markettwits.devx.tgsignin.data.datasource.ProfileEmojiRemoteDataSourceImpl
 import com.markettwits.devx.tgsignin.data.datasource.PasskeyCredentialDataSource
 import com.markettwits.devx.tgsignin.data.datasource.PasskeyCredentialDataSourceImpl
+import com.markettwits.devx.tgsignin.data.datasource.SharedPreferencesDeviceIdProvider
 import com.markettwits.devx.tgsignin.data.datasource.TelegramAuthApiDataSource
 import com.markettwits.devx.tgsignin.data.datasource.TelegramAuthApiDataSourceImpl
 import com.markettwits.devx.tgsignin.data.datasource.TelegramLoginDataSource
@@ -89,10 +91,12 @@ val appModule = module {
     }
     single<TelegramLoginDataSource> { TelegramLoginDataSourceImpl(get()) }
     single<PasskeyCredentialDataSource> { PasskeyCredentialDataSourceImpl(androidContext()) }
+    single<DeviceIdProvider> { SharedPreferencesDeviceIdProvider(androidContext()) }
     single<TelegramAuthApiDataSource> {
         TelegramAuthApiDataSourceImpl(
             config = get(),
-            ioDispatcher = get(ioDispatcherQualifier)
+            ioDispatcher = get(ioDispatcherQualifier),
+            deviceIdProvider = get()
         )
     }
     single<BackendReadinessDataSource> {
