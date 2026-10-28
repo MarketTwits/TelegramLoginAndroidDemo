@@ -286,7 +286,10 @@ export const createApp = ({ config, database, verifyTelegramToken, logger, metri
       return response.status(404).json({ code: 'NOT_FOUND', message: 'Resource not found' });
     }
     response.type('application/json').json([{
-      relation: ['delegate_permission/common.get_login_creds'],
+      relation: [
+        'delegate_permission/common.handle_all_urls',
+        'delegate_permission/common.get_login_creds'
+      ],
       target: {
         namespace: 'android_app',
         package_name: config.passkeyAndroidPackage,
