@@ -2,6 +2,7 @@ package com.markettwits.devx.tgsignin.data.datasource
 
 import android.content.Context
 import android.os.Build
+import android.util.Log
 import androidx.credentials.CreatePublicKeyCredentialRequest
 import androidx.credentials.CreatePublicKeyCredentialResponse
 import androidx.credentials.CredentialManager
@@ -42,6 +43,7 @@ class PasskeyCredentialDataSourceImpl(
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Throwable) {
+            Log.e("PasskeyDataSource", "createCredential failed: ${e.javaClass.simpleName} - ${e.message}", e)
             throw e.toPasskeyError()
         }
     }
@@ -59,6 +61,7 @@ class PasskeyCredentialDataSourceImpl(
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Throwable) {
+            Log.e("PasskeyDataSource", "getCredential failed: ${e.javaClass.simpleName} - ${e.message}", e)
             throw e.toPasskeyError()
         }
     }
