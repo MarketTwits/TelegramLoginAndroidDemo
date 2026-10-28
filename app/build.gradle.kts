@@ -88,6 +88,9 @@ android {
         buildConfigField("String", "TELEGRAM_CLIENT_ID", telegramClientId.asBuildConfigString())
         buildConfigField("String", "TELEGRAM_BACKEND_URL", telegramBackendUrl.asBuildConfigString())
         buildConfigField("String", "APP_TOKEN", appToken.asBuildConfigString())
+
+        val backendUrlClean = telegramBackendUrl.trimEnd('/')
+        resValue("string", "asset_statements", """[{\"include\": \"$backendUrlClean/.well-known/assetlinks.json\"}]""")
     }
 
     signingConfigs {
@@ -103,6 +106,7 @@ android {
 
     buildTypes {
         debug {
+            signingConfigs.findByName("release")?.let { signingConfig = it }
             buildConfigField(
                 "String",
                 "TELEGRAM_REDIRECT_URI",
@@ -139,6 +143,7 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        resValues = true
     }
     testOptions {
         unitTests {
