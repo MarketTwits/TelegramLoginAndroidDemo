@@ -81,12 +81,12 @@ export const createPasskeyService = ({ config, database }) => ({
       });
     } catch (error) {
       console.warn('Rejected passkey registration:', error.message);
-      if (error.name === 'UnexpectedRPIDHash') {
+      if (error.name === 'UnexpectedRPIDHash' || error.code === 'UNEXPECTED_RP_ID' || error.message?.includes('Unexpected RP ID hash')) {
         const err = new Error('RP ID rejected');
         err.code = 'RP_ID_REJECTED';
         throw err;
       }
-      if (error.message?.includes('response origin')) {
+      if (error.code === 'UNEXPECTED_ORIGIN' || error.message?.includes('response origin')) {
         const err = new Error('Origin rejected');
         err.code = 'ORIGIN_REJECTED';
         throw err;
@@ -195,12 +195,12 @@ export const createPasskeyService = ({ config, database }) => ({
       });
     } catch (error) {
       console.warn('Rejected passkey assertion:', error.message);
-      if (error.name === 'UnexpectedRPIDHash') {
+      if (error.name === 'UnexpectedRPIDHash' || error.code === 'UNEXPECTED_RP_ID' || error.message?.includes('Unexpected RP ID hash')) {
         const err = new Error('RP ID rejected');
         err.code = 'RP_ID_REJECTED';
         throw err;
       }
-      if (error.message?.includes('response origin')) {
+      if (error.code === 'UNEXPECTED_ORIGIN' || error.message?.includes('response origin')) {
         const err = new Error('Origin rejected');
         err.code = 'ORIGIN_REJECTED';
         throw err;
@@ -281,12 +281,12 @@ export const createPasskeyService = ({ config, database }) => ({
       });
     } catch (error) {
       console.warn('Rejected passkey reauthentication:', error.message);
-      if (error.name === 'UnexpectedRPIDHash') {
+      if (error.name === 'UnexpectedRPIDHash' || error.code === 'UNEXPECTED_RP_ID' || error.message?.includes('Unexpected RP ID hash')) {
         const err = new Error('RP ID rejected');
         err.code = 'RP_ID_REJECTED';
         throw err;
       }
-      if (error.message?.includes('response origin')) {
+      if (error.code === 'UNEXPECTED_ORIGIN' || error.message?.includes('response origin')) {
         const err = new Error('Origin rejected');
         err.code = 'ORIGIN_REJECTED';
         throw err;
