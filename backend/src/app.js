@@ -661,7 +661,7 @@ export const createApp = ({ config, database, verifyTelegramToken, logger, metri
       metricsCollector.recordWebauthnCreated();
     } catch (error) {
       if (error.code === 'PASSKEY_LIMIT_REACHED') {
-        return response.status(409).json({ code: error.code, message: error.message });
+        return response.status(409).json({ code: 'PASSKEY_LIMIT_REACHED', message: 'Passkey limit reached' });
       }
       throw error;
     }
