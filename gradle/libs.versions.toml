@@ -1,6 +1,6 @@
 [versions]
-versionName = "1.1.9"
-versionCode = "15"
+versionName = "1.1.10"
+versionCode = "16"
 agp = "9.5.2"
 coreKtx = "1.19.1"
 junit = "4.13.2"
