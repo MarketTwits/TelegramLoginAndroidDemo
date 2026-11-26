@@ -69,3 +69,6 @@ docs/
 
 # Local source exports; normalized deployable emoji live under backend/public
 /emoji/
+
+# Local AI agent rules and customizations
+.agents/
