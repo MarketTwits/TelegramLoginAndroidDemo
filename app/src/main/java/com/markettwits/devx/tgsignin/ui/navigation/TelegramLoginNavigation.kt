@@ -1,5 +1,6 @@
 package com.markettwits.devx.tgsignin.ui.navigation
 
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -34,6 +35,10 @@ fun TelegramLoginNavigation(
     onCancelProfileEditing: () -> Unit,
     onEmojiChanged: (ProfileEmojiSelection) -> Unit,
     onDeleteAccount: () -> Unit,
+    onVerifyDeleteWithPasskey: (Context) -> Unit = {},
+    onVerifyDeleteWithTelegram: (Context) -> Unit = {},
+    onCancelDeleteAccountReauth: () -> Unit = {},
+    onResumeProfileScreen: () -> Unit = {},
     onModalVisibilityChanged: (Boolean) -> Unit
 ) {
     when (val state = profileUiState.authenticationState) {
@@ -41,8 +46,15 @@ fun TelegramLoginNavigation(
             session = state.session,
             isOffline = state.isOffline,
             passkeysConfigured = passkeysConfigured,
+            deleteAccountReauthRequired = profileUiState.deleteAccountReauthRequired,
+            isReauthenticatingAccountDeletion = profileUiState.isReauthenticatingAccountDeletion,
+            accountDeletionVerificationFailed = profileUiState.accountDeletionVerificationFailed,
             onEmojiChanged = onEmojiChanged,
             onDelete = onDeleteAccount,
+            onVerifyDeleteWithPasskey = onVerifyDeleteWithPasskey,
+            onVerifyDeleteWithTelegram = onVerifyDeleteWithTelegram,
+            onCancelDeleteAccountReauth = onCancelDeleteAccountReauth,
+            onResumeProfileScreen = onResumeProfileScreen,
             onModalVisibilityChanged = onModalVisibilityChanged
         )
 

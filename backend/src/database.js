@@ -428,7 +428,7 @@ export const createDatabase = (config) => {
     WHERE user_id = ? AND token_hash NOT IN (
       SELECT token_hash FROM app_sessions
       WHERE user_id = ? AND revoked_at IS NULL AND expires_at > ?
-      ORDER BY created_at DESC, rowid DESC LIMIT ?
+      ORDER BY last_seen_at DESC, created_at DESC, rowid DESC LIMIT ?
     )
   `);
   const insertPasskey = database.prepare(`

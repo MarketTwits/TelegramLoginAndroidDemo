@@ -29,8 +29,10 @@ sealed class PasskeyError(
     data class DigitalAssetLinksInvalid(val originalCause: Throwable? = null) :
         PasskeyError(PasskeyUserAction.OpenSettings, originalCause)
 
-    data class SessionExpired(val originalCause: Throwable? = null) :
-        PasskeyError(PasskeyUserAction.SignInAgain, originalCause)
+    data class SessionExpired(
+        val originalCause: Throwable? = null,
+        val requiresFullSignIn: Boolean = false
+    ) : PasskeyError(PasskeyUserAction.SignInAgain, originalCause)
 
     data class ChallengeExpired(val originalCause: Throwable? = null) :
         PasskeyError(PasskeyUserAction.Retry, originalCause)
@@ -39,6 +41,9 @@ sealed class PasskeyError(
         PasskeyError(PasskeyUserAction.Retry, originalCause)
 
     data class LimitReached(val originalCause: Throwable? = null) :
+        PasskeyError(PasskeyUserAction.None, originalCause)
+
+    data class RecoveryRequired(val originalCause: Throwable? = null) :
         PasskeyError(PasskeyUserAction.None, originalCause)
 
     data class BackendNotConfigured(val originalCause: Throwable? = null) :

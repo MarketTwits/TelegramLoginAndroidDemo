@@ -202,8 +202,10 @@ fun Throwable.toPasskeyError(): PasskeyError {
             "CREDENTIAL_ALREADY_REGISTERED" -> PasskeyError.AlreadyRegistered(httpError)
             "ORIGIN_REJECTED", "RP_ID_REJECTED" -> PasskeyError.DigitalAssetLinksInvalid(httpError)
             "PASSKEY_LIMIT_REACHED" -> PasskeyError.LimitReached(httpError)
+            "LAST_PASSKEY_RECOVERY_REQUIRED" -> PasskeyError.RecoveryRequired(httpError)
             "PASSKEYS_NOT_CONFIGURED" -> PasskeyError.BackendNotConfigured(httpError)
-            "SESSION_INVALID", "REAUTHENTICATION_REQUIRED" -> PasskeyError.SessionExpired(httpError)
+            "SESSION_INVALID" -> PasskeyError.SessionExpired(httpError, requiresFullSignIn = true)
+            "REAUTHENTICATION_REQUIRED" -> PasskeyError.SessionExpired(httpError)
             "CREDENTIAL_NOT_FOUND", "PASSKEY_NOT_FOUND" -> PasskeyError.CredentialNotFound(httpError)
             else -> when (httpError.statusCode) {
                 401, 403 -> PasskeyError.SessionExpired(httpError)

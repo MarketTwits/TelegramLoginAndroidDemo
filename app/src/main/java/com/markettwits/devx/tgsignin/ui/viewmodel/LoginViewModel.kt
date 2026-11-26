@@ -73,6 +73,7 @@ class LoginViewModel(
     fun consumeCallback(uri: Uri) {
         if (!authenticationRepository.isTelegramCallback(uri)) return
         if (uiState.value.loginState is LoginState.Verifying) return
+        authenticationRepository.notifyTelegramCallbackStarted()
         viewModelScope.launch {
             _uiState.update { it.copy(loginState = LoginState.Verifying) }
             authenticationRepository.completeTelegramLogin(uri)

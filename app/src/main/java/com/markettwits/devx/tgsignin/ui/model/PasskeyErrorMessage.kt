@@ -23,6 +23,7 @@ fun PasskeyError.getUserMessageRes(): Int = when (this) {
     is PasskeyError.ChallengeExpired -> R.string.passkey_error_challenge_expired
     is PasskeyError.AlreadyRegistered -> R.string.passkey_error_already_registered
     is PasskeyError.LimitReached -> R.string.passkey_error_limit_reached
+    is PasskeyError.RecoveryRequired -> R.string.passkey_error_last_recovery_required
     is PasskeyError.BackendNotConfigured -> R.string.passkey_error_backend_not_configured
     is PasskeyError.NetworkUnavailable -> R.string.passkey_error_network_unavailable
     is PasskeyError.Unknown -> if (requestId != null) {

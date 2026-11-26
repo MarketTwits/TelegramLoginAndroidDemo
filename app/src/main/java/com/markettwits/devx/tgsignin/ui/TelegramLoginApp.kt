@@ -94,6 +94,10 @@ fun TelegramLoginApp(
                     onCancelProfileEditing = profileViewModel::cancelProfileEditing,
                     onEmojiChanged = profileViewModel::updateEmoji,
                     onDeleteAccount = profileViewModel::deleteAccount,
+                    onVerifyDeleteWithPasskey = profileViewModel::verifyDeleteAccountWithPasskey,
+                    onVerifyDeleteWithTelegram = profileViewModel::verifyDeleteAccountWithTelegram,
+                    onCancelDeleteAccountReauth = profileViewModel::cancelDeleteAccountReauth,
+                    onResumeProfileScreen = profileViewModel::onResume,
                     onModalVisibilityChanged = { screenModalVisible = it }
                 )
             }
