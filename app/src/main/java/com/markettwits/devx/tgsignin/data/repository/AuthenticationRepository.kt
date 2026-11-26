@@ -27,13 +27,29 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+enum class ReauthenticationScope {
+    PASSKEY,
+    SESSIONS,
+    ACCOUNT
+}
+
 interface AuthenticationRepository {
     val state: StateFlow<RootAuthenticationState>
     val reauthenticationVersion: StateFlow<Long>
+    val reauthenticationFailureVersion: StateFlow<Long>
+        get() = DEFAULT_ZERO_FLOW
+    val isTelegramCallbackInFlight: StateFlow<Boolean>
+        get() = DEFAULT_FALSE_FLOW
+    val lastReauthenticationScope: ReauthenticationScope?
+        get() = null
 
     fun startTelegramLogin(context: Context, scopes: Set<TelegramScope>)
     fun startTelegramReauthentication(context: Context)
+    fun startTelegramReauthentication(context: Context, scope: ReauthenticationScope) {
+        startTelegramReauthentication(context)
+    }
     fun cancelTelegramReauthentication()
+    fun notifyTelegramCallbackStarted() {}
     fun isTelegramCallback(uri: Uri): Boolean
     suspend fun completeTelegramLogin(callbackUri: Uri): Result<AuthenticationResult>
     suspend fun signInWithPasskey(context: Context): Result<AuthenticationResult>
@@ -48,6 +64,13 @@ interface AuthenticationRepository {
     suspend fun revokeSessionById(sessionId: String, isCurrentSession: Boolean): Result<Unit>
     suspend fun revokeOtherSessions(): Result<Int>
     suspend fun reauthenticateWithPasskey(context: Context): Result<Unit>
+    suspend fun reauthenticateWithPasskey(context: Context, scope: ReauthenticationScope): Result<Unit> =
+        reauthenticateWithPasskey(context)
+
+    companion object {
+        private val DEFAULT_ZERO_FLOW: StateFlow<Long> = MutableStateFlow(0L).asStateFlow()
+        private val DEFAULT_FALSE_FLOW: StateFlow<Boolean> = MutableStateFlow(false).asStateFlow()
+    }
 }
 
 class AuthenticationRepositoryImpl(
@@ -61,8 +84,15 @@ class AuthenticationRepositoryImpl(
     override val state = _state.asStateFlow()
     private val _reauthenticationVersion = MutableStateFlow(0L)
     override val reauthenticationVersion = _reauthenticationVersion.asStateFlow()
+    private val _reauthenticationFailureVersion = MutableStateFlow(0L)
+    override val reauthenticationFailureVersion = _reauthenticationFailureVersion.asStateFlow()
+    private val _isTelegramCallbackInFlight = MutableStateFlow(false)
+    override val isTelegramCallbackInFlight = _isTelegramCallbackInFlight.asStateFlow()
+    @Volatile override var lastReauthenticationScope: ReauthenticationScope? = null
+        private set
     private val localMutationMutex = Mutex()
     @Volatile private var telegramReauthenticationPending = false
+    @Volatile private var pendingReauthenticationScope: ReauthenticationScope? = null
 
     init {
         applicationScope.launch { bootstrap() }
@@ -112,6 +142,7 @@ class AuthenticationRepositoryImpl(
 
     override fun startTelegramLogin(context: Context, scopes: Set<TelegramScope>) {
         telegramReauthenticationPending = false
+        pendingReauthenticationScope = null
         try {
             telegramLoginDataSource.startLogin(context, scopes)
         } catch (error: CancellationException) {
@@ -122,49 +153,79 @@ class AuthenticationRepositoryImpl(
     }
 
     override fun startTelegramReauthentication(context: Context) {
+        startTelegramReauthenticationInternal(context, null)
+    }
+
+    override fun startTelegramReauthentication(context: Context, scope: ReauthenticationScope) {
+        startTelegramReauthenticationInternal(context, scope)
+    }
+
+    private fun startTelegramReauthenticationInternal(context: Context, scope: ReauthenticationScope?) {
         checkNotNull(_state.value.sessionOrNull) { "No authenticated session" }
         check(!telegramReauthenticationPending) { "Telegram verification is already in progress" }
         telegramReauthenticationPending = true
+        pendingReauthenticationScope = scope
         try {
             telegramLoginDataSource.startLogin(context, setOf(TelegramScope.Profile))
         } catch (error: Throwable) {
             telegramReauthenticationPending = false
+            pendingReauthenticationScope = null
             throw error.toAuthenticationError()
         }
     }
 
     override fun cancelTelegramReauthentication() {
         telegramReauthenticationPending = false
+        pendingReauthenticationScope = null
+    }
+
+    override fun notifyTelegramCallbackStarted() {
+        _isTelegramCallbackInFlight.value = true
     }
 
     override fun isTelegramCallback(uri: Uri): Boolean = telegramLoginDataSource.isTelegramCallback(uri)
 
-    override suspend fun completeTelegramLogin(callbackUri: Uri): Result<AuthenticationResult> = try {
-        val idToken = telegramLoginDataSource.consumeCallback(callbackUri)
-        val existingSession = _state.value.sessionOrNull
-            ?: authenticationLocalDataSource.session.first()
-        if (telegramReauthenticationPending || existingSession != null) {
-            val current = checkNotNull(existingSession) { "No authenticated session" }
-            telegramAuthApiDataSource.reauthenticateWithTelegram(current.accessToken, idToken)
+    override suspend fun completeTelegramLogin(callbackUri: Uri): Result<AuthenticationResult> {
+        _isTelegramCallbackInFlight.value = true
+        var wasReauthentication = telegramReauthenticationPending
+        return try {
+            val idToken = telegramLoginDataSource.consumeCallback(callbackUri)
+            val existingSession = _state.value.sessionOrNull
+                ?: authenticationLocalDataSource.session.first()
+            if (telegramReauthenticationPending || existingSession != null) {
+                wasReauthentication = true
+                val current = checkNotNull(existingSession) { "No authenticated session" }
+                telegramAuthApiDataSource.reauthenticateWithTelegram(current.accessToken, idToken)
+                lastReauthenticationScope = pendingReauthenticationScope
+                telegramReauthenticationPending = false
+                pendingReauthenticationScope = null
+                _reauthenticationVersion.value += 1
+                return Result.success(current)
+            }
+            val result = telegramAuthApiDataSource.authenticate(idToken)
+            localMutationMutex.withLock { authenticationLocalDataSource.save(result) }
+            val draft = authenticationLocalDataSource.profileDraft.first()
+                ?.withTelegramPhone(result)
+                ?: initialDraft(result)
+            if (result.account.onboardingState == OnboardingState.PROFILE_REQUIRED) {
+                localMutationMutex.withLock { authenticationLocalDataSource.saveDraft(draft) }
+            }
+            _state.value = route(result, draft)
+            Result.success(result)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            val failedScope = pendingReauthenticationScope
             telegramReauthenticationPending = false
-            _reauthenticationVersion.value += 1
-            return Result.success(current)
+            pendingReauthenticationScope = null
+            if (wasReauthentication) {
+                lastReauthenticationScope = failedScope
+                _reauthenticationFailureVersion.value += 1
+            }
+            Result.failure(error.toAuthenticationError())
+        } finally {
+            _isTelegramCallbackInFlight.value = false
         }
-        val result = telegramAuthApiDataSource.authenticate(idToken)
-        localMutationMutex.withLock { authenticationLocalDataSource.save(result) }
-        val draft = authenticationLocalDataSource.profileDraft.first()
-            ?.withTelegramPhone(result)
-            ?: initialDraft(result)
-        if (result.account.onboardingState == OnboardingState.PROFILE_REQUIRED) {
-            localMutationMutex.withLock { authenticationLocalDataSource.saveDraft(draft) }
-        }
-        _state.value = route(result, draft)
-        Result.success(result)
-    } catch (error: CancellationException) {
-        throw error
-    } catch (error: Throwable) {
-        telegramReauthenticationPending = false
-        Result.failure(error.toAuthenticationError())
     }
 
     override suspend fun signInWithPasskey(context: Context): Result<AuthenticationResult> = try {
@@ -260,10 +321,12 @@ class AuthenticationRepositoryImpl(
     }
 
     override suspend fun deleteAccount(): Result<Unit> {
-        val current = (_state.value as? RootAuthenticationState.Authenticated)?.session
+        val current = _state.value.sessionOrNull
             ?: return Result.failure(IllegalStateException("No account to delete"))
         return try {
             telegramAuthApiDataSource.deleteAccount(current.accessToken)
+            cancelTelegramReauthentication()
+            runCatching { passkeyCredentialDataSource?.clearState() }
             localMutationMutex.withLock { authenticationLocalDataSource.clear() }
             _state.value = RootAuthenticationState.Unauthenticated()
             Result.success(Unit)
@@ -272,6 +335,7 @@ class AuthenticationRepositoryImpl(
         } catch (error: Throwable) {
             val mapped = error.toAuthenticationError()
             if (mapped is AuthenticationError.AuthorizationRejected) {
+                cancelTelegramReauthentication()
                 localMutationMutex.withLock { authenticationLocalDataSource.clear() }
                 _state.value = RootAuthenticationState.Unauthenticated(sessionExpired = true)
             }
@@ -281,6 +345,7 @@ class AuthenticationRepositoryImpl(
 
     override suspend fun logout() {
         try {
+            cancelTelegramReauthentication()
             val session = when (val current = _state.value) {
                 is RootAuthenticationState.Authenticated -> current.session
                 is RootAuthenticationState.OnboardingRequired -> current.session
@@ -335,12 +400,24 @@ class AuthenticationRepositoryImpl(
         throw error.toAuthenticationError()
     }
 
-    override suspend fun reauthenticateWithPasskey(context: Context): Result<Unit> = runCatching {
+    override suspend fun reauthenticateWithPasskey(context: Context): Result<Unit> =
+        reauthenticateWithPasskeyInternal(context, null)
+
+    override suspend fun reauthenticateWithPasskey(
+        context: Context,
+        scope: ReauthenticationScope
+    ): Result<Unit> = reauthenticateWithPasskeyInternal(context, scope)
+
+    private suspend fun reauthenticateWithPasskeyInternal(
+        context: Context,
+        scope: ReauthenticationScope?
+    ): Result<Unit> = runCatching {
         val token = checkNotNull(_state.value.sessionOrNull) { "Not authenticated" }.accessToken
         val credentials = checkNotNull(passkeyCredentialDataSource) { "Passkeys are unavailable" }
         val options = telegramAuthApiDataSource.beginPasskeyReauthentication(token)
         val assertion = credentials.get(context, options.requestJson)
         telegramAuthApiDataSource.finishPasskeyReauthentication(token, options.operationId, assertion)
+        lastReauthenticationScope = scope
         _reauthenticationVersion.value += 1
     }.recoverCatching { error ->
         if (error is CancellationException) throw error

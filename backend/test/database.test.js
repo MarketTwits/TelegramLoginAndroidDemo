@@ -99,6 +99,41 @@ test('SQLite limits active sessions for one user', (context) => {
   database.close();
 });
 
+test('SQLite session pruning keeps the most recently seen sessions rather than evicting older active ones', (context) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'telegram-signin-prune-order-'));
+  const databasePath = path.join(directory, 'auth.sqlite');
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  const database = createDatabase({ databasePath });
+  const userId = database.upsertTelegramUser(profile('user-id-1'));
+  const tokens = Array.from({ length: 5 }, (_, index) =>
+    (index + 1).toString(16).repeat(64)
+  );
+  for (const token of tokens) {
+    database.createSession(token, userId, new Date(Date.now() + 60_000));
+  }
+
+  // Simulate an older active session (tokens[0]) being used more recently than an idle one (tokens[1]).
+  const rawDb = new DatabaseSync(databasePath);
+  rawDb.prepare('UPDATE app_sessions SET last_seen_at = ? WHERE token_hash = ?').run(
+    Date.now() + 10_000,
+    tokens[0]
+  );
+  rawDb.prepare('UPDATE app_sessions SET last_seen_at = ? WHERE token_hash = ?').run(
+    Date.now() - 10_000,
+    tokens[1]
+  );
+  rawDb.close();
+
+  const newestToken = 'f'.repeat(64);
+  database.createSession(newestToken, userId, new Date(Date.now() + 60_000));
+
+  assert.notEqual(database.findSession(tokens[0]), null, 'actively used older session should be retained');
+  assert.equal(database.findSession(tokens[1]), null, 'least recently seen session should be evicted');
+  assert.notEqual(database.findSession(newestToken), null);
+  database.close();
+});
+
 test('SQLite throttles session activity writes while keeping validation current', (context) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'telegram-session-touch-'));
   const databasePath = path.join(directory, 'auth.sqlite');

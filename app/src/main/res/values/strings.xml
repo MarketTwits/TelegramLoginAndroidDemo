@@ -183,6 +183,7 @@
     <string name="passkey_error_challenge_expired">The passkey operation timed out or was already used. Please try again.</string>
     <string name="passkey_error_already_registered">This passkey is already registered for your account.</string>
     <string name="passkey_error_limit_reached">You have reached the maximum number of passkeys allowed for this account.</string>
+    <string name="passkey_error_last_recovery_required">Cannot delete your only passkey without a connected Telegram recovery method.</string>
     <string name="passkey_error_backend_not_configured">Passkey authentication is not enabled on this server.</string>
     <string name="passkey_error_network_unavailable">No internet connection. Check your network and try again.</string>
     <string name="passkey_error_unknown">Could not complete the passkey operation. Try again.</string>
@@ -209,6 +210,11 @@
     <string name="update_open_failed">Could not open the release page.</string>
     <string name="sessions_title">Devices and sessions</string>
     <string name="passkey_waiting_for_verification">Waiting for identity verification.</string>
+    <string name="passkey_verify_required">Confirm your identity to finish managing passkeys.</string>
+    <string name="passkey_verify_telegram_fallback">No matching passkey was found on this device. Confirm your identity with Telegram to continue.</string>
+    <string name="passkey_dismiss">Dismiss</string>
+    <string name="bloom_delete_verify_title">Confirm account deletion</string>
+    <string name="bloom_delete_verify_required">Confirm your identity to permanently delete your account.</string>
     <string name="sessions_description">Active sign-ins on your devices.</string>
     <string name="sessions_current_badge">Current device</string>
     <string name="sessions_unknown_device">Unknown device</string>

@@ -13,6 +13,7 @@ import com.markettwits.devx.tgsignin.data.model.ServiceAccount
 import com.markettwits.devx.tgsignin.data.model.TelegramIdentity
 import com.markettwits.devx.tgsignin.data.repository.AuthenticationRepository
 import com.markettwits.devx.tgsignin.data.repository.PasskeyRepository
+import com.markettwits.devx.tgsignin.data.repository.ReauthenticationScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -128,7 +129,15 @@ class PasskeyViewModelTest {
         override val state: StateFlow<RootAuthenticationState> = stateFlow.asStateFlow()
         val reauthVersionFlow = MutableStateFlow(0L)
         override val reauthenticationVersion: StateFlow<Long> = reauthVersionFlow.asStateFlow()
-        override fun cancelTelegramReauthentication() = Unit
+        val reauthFailureVersionFlow = MutableStateFlow(0L)
+        override val reauthenticationFailureVersion: StateFlow<Long> = reauthFailureVersionFlow.asStateFlow()
+        val callbackInFlightFlow = MutableStateFlow(false)
+        override val isTelegramCallbackInFlight: StateFlow<Boolean> = callbackInFlightFlow.asStateFlow()
+        override var lastReauthenticationScope: ReauthenticationScope? = null
+        var cancelTelegramReauthCalled = false
+        override fun cancelTelegramReauthentication() {
+            cancelTelegramReauthCalled = true
+        }
     }
 
     private fun testSession(): AuthenticationResult = AuthenticationResult(
@@ -392,6 +401,128 @@ class PasskeyViewModelTest {
         }
         assertEquals("CREATE", savedState.get<String>("passkey_pending_action_type"))
         assertEquals("My Device", savedState.get<String>("passkey_pending_action_name"))
+    }
+
+    @Test
+    fun `missing local passkey during delete reauth falls back cleanly to Telegram choice instead of deadlocking`() = runTest {
+        val repo = FakePasskeyRepository().apply {
+            deleteResult = Result.failure(PasskeyError.SessionExpired(BackendHttpException(403, "REAUTHENTICATION_REQUIRED")))
+        }
+        val authRepo = FakeAuthRepository(RootAuthenticationState.Authenticated(testSession()))
+        val viewModel = PasskeyViewModel(repo, authRepo, SavedStateHandle())
+        advanceUntilIdle()
+
+        viewModel.deletePasskey("id-1")
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value is PasskeyUiState.ExternalAuthenticationInProgress)
+
+        // Device CredentialManager throws NoCredentialException -> CredentialNotFound
+        viewModel.onCredentialError(PasskeyError.CredentialNotFound(), "op-reauth")
+        advanceUntilIdle()
+
+        val reauthState = viewModel.uiState.value as PasskeyUiState.ReauthenticationRequired
+        assertEquals(PasskeyPendingAction.Delete("id-1"), reauthState.pendingAction)
+        assertFalse(reauthState.passkeyAvailable)
+        assertTrue(reauthState.verificationFailed)
+
+        val events = mutableListOf<PasskeyUiEvent>()
+        val job = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            viewModel.events.collect { events.add(it) }
+        }
+        viewModel.verifyWithTelegram()
+        advanceUntilIdle()
+        assertTrue(events.any { it is PasskeyUiEvent.LaunchTelegramReauthentication })
+
+        // Complete Telegram reauth -> retries delete cleanly
+        repo.deleteResult = Result.success(DeletedPasskey("cred-1", "rp.example.com"))
+        viewModel.onTelegramReauthenticationStarted(PasskeyPendingAction.Delete("id-1"))
+        authRepo.lastReauthenticationScope = ReauthenticationScope.PASSKEY
+        authRepo.reauthVersionFlow.value += 1
+        advanceUntilIdle()
+
+        assertEquals(2, repo.deleteCallCount)
+        assertTrue(viewModel.uiState.value is PasskeyUiState.Ready)
+        assertEquals(0, viewModel.uiState.value.passkeys.size)
+        job.cancel()
+    }
+
+    @Test
+    fun `cancelling Telegram reauth exits busy state while in-flight callback is not cancelled on resume`() = runTest {
+        val repo = FakePasskeyRepository().apply {
+            deleteResult = Result.failure(PasskeyError.SessionExpired())
+            beginReauthResult = Result.failure(PasskeyError.CredentialNotFound())
+        }
+        val authRepo = FakeAuthRepository(RootAuthenticationState.Authenticated(testSession()))
+        val viewModel = PasskeyViewModel(repo, authRepo, SavedStateHandle())
+        advanceUntilIdle()
+
+        viewModel.deletePasskey("id-1")
+        advanceUntilIdle()
+        viewModel.onTelegramReauthenticationStarted(PasskeyPendingAction.Delete("id-1"))
+        assertTrue(viewModel.uiState.value.isBusy)
+
+        // While callback verification is actively in flight, onResume must NOT cancel it
+        authRepo.callbackInFlightFlow.value = true
+        viewModel.resumeAfterExternalAuth()
+        assertFalse(authRepo.cancelTelegramReauthCalled)
+        assertTrue(viewModel.uiState.value is PasskeyUiState.ExternalAuthenticationInProgress)
+
+        // When user returns without callback, busy state clears to ReauthenticationRequired
+        authRepo.callbackInFlightFlow.value = false
+        viewModel.resumeAfterExternalAuth()
+        assertTrue(authRepo.cancelTelegramReauthCalled)
+        assertTrue(viewModel.uiState.value is PasskeyUiState.ReauthenticationRequired)
+        assertFalse(viewModel.uiState.value.isBusy)
+    }
+
+    @Test
+    fun `logout and account switch reset and reload passkeys`() = runTest {
+        val repo = FakePasskeyRepository()
+        val authRepo = FakeAuthRepository(RootAuthenticationState.Authenticated(testSession()))
+        val viewModel = PasskeyViewModel(repo, authRepo, SavedStateHandle())
+        advanceUntilIdle()
+        assertEquals(1, repo.listCallCount)
+
+        // Log out -> state resets
+        authRepo.stateFlow.value = RootAuthenticationState.Unauthenticated()
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value is PasskeyUiState.Loading)
+
+        // Sign in as second account with different passkeys
+        val secondPasskeys = listOf(
+            PasskeyInfo("id-2", "cred-2", "Pixel 9", "2026-02-01T00:00:00Z", null, "platform", true)
+        )
+        repo.passkeysList = secondPasskeys
+        val secondSession = testSession().let {
+            it.copy(accessToken = "token-2", account = it.account.copy(id = "acc-2"))
+        }
+        authRepo.stateFlow.value = RootAuthenticationState.Authenticated(secondSession)
+        advanceUntilIdle()
+
+        assertEquals(2, repo.listCallCount)
+        assertEquals(secondPasskeys, (viewModel.uiState.value as PasskeyUiState.Ready).passkeys)
+    }
+
+    @Test
+    fun `reauthentication scoped to SESSIONS does not trigger passkey pending action`() = runTest {
+        val repo = FakePasskeyRepository().apply {
+            renameResult = Result.failure(PasskeyError.SessionExpired())
+            beginReauthResult = Result.failure(PasskeyError.CredentialNotFound())
+        }
+        val authRepo = FakeAuthRepository(RootAuthenticationState.Authenticated(testSession()))
+        val viewModel = PasskeyViewModel(repo, authRepo, SavedStateHandle())
+        advanceUntilIdle()
+
+        viewModel.renamePasskey("id-1", "Renamed")
+        advanceUntilIdle()
+        assertEquals(1, repo.renameCallCount)
+
+        // SESSIONS reauth completes -> must not execute passkey rename
+        authRepo.lastReauthenticationScope = ReauthenticationScope.SESSIONS
+        authRepo.reauthVersionFlow.value += 1
+        advanceUntilIdle()
+        assertEquals(1, repo.renameCallCount)
     }
 }
 

@@ -2,6 +2,7 @@ package com.markettwits.devx.tgsignin.ui.screen
 
 import com.markettwits.devx.tgsignin.ui.component.rememberAppHaptics
 
+import android.content.Context
 import android.os.Build
 
 import androidx.activity.compose.BackHandler
@@ -122,6 +123,7 @@ import com.markettwits.devx.tgsignin.R
 import com.markettwits.devx.tgsignin.data.model.AuthenticationResult
 import com.markettwits.devx.tgsignin.data.model.AuthenticationError
 import com.markettwits.devx.tgsignin.data.model.PasskeyInfo
+import com.markettwits.devx.tgsignin.data.model.PasskeyUserAction
 import com.markettwits.devx.tgsignin.data.datasource.PasskeyCredentialDataSource
 import com.markettwits.devx.tgsignin.data.datasource.TelegramAuthApiDataSource
 import com.markettwits.devx.tgsignin.data.datasource.BackendHttpException
@@ -139,6 +141,7 @@ import com.markettwits.devx.tgsignin.data.model.normalizedInternationalPhoneNumb
 import com.markettwits.devx.tgsignin.data.model.normalizedTelegramPhoneNumberOrNull
 import com.markettwits.devx.tgsignin.data.repository.ProfileEmojiRepository
 import com.markettwits.devx.tgsignin.data.repository.AuthenticationRepository
+import com.markettwits.devx.tgsignin.data.repository.ReauthenticationScope
 import com.markettwits.devx.tgsignin.data.repository.toPasskeyError
 import com.markettwits.devx.tgsignin.ui.model.toPasskeyErrorMessage
 import com.markettwits.devx.tgsignin.ui.viewmodel.PasskeyPendingAction
@@ -614,23 +617,44 @@ fun BloomProfileScreen(
     session: AuthenticationResult,
     isOffline: Boolean,
     passkeysConfigured: Boolean,
+    deleteAccountReauthRequired: Boolean = false,
+    isReauthenticatingAccountDeletion: Boolean = false,
+    accountDeletionVerificationFailed: Boolean = false,
     onEmojiChanged: (ProfileEmojiSelection) -> Unit,
     onDelete: () -> Unit,
+    onVerifyDeleteWithPasskey: (Context) -> Unit = {},
+    onVerifyDeleteWithTelegram: (Context) -> Unit = {},
+    onCancelDeleteAccountReauth: () -> Unit = {},
+    onResumeProfileScreen: () -> Unit = {},
     onModalVisibilityChanged: (Boolean) -> Unit = {}
 ) {
+    val context = LocalContext.current
     val emojiRepository: ProfileEmojiRepository = koinInject()
     val emojiCatalog by emojiRepository.catalog.collectAsStateWithLifecycle()
     val recentEmojiSelections by emojiRepository.recentSelections.collectAsStateWithLifecycle()
     val profile = requireNotNull(session.profile)
     var confirmDelete by rememberSaveable { mutableStateOf(false) }
     var showEmojiPicker by rememberSaveable { mutableStateOf(false) }
+    var passkeyModalVisible by remember { mutableStateOf(false) }
+    var sessionModalVisible by remember { mutableStateOf(false) }
     var initialCollapseApplied by rememberSaveable { mutableStateOf(false) }
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
     val haptics = rememberAppHaptics()
 
-    LaunchedEffect(confirmDelete, showEmojiPicker) {
-        onModalVisibilityChanged(confirmDelete || showEmojiPicker)
+    val anyModalVisible = confirmDelete ||
+        showEmojiPicker ||
+        deleteAccountReauthRequired ||
+        isReauthenticatingAccountDeletion ||
+        passkeyModalVisible ||
+        sessionModalVisible
+
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        onResumeProfileScreen()
+    }
+
+    LaunchedEffect(anyModalVisible) {
+        onModalVisibilityChanged(anyModalVisible)
     }
     DisposableEffect(Unit) {
         onDispose { onModalVisibilityChanged(false) }
@@ -724,8 +748,16 @@ fun BloomProfileScreen(
                     ))
                 }
                 TelegramIdentitySummary(session, profile.phoneNumber)
-                if (passkeysConfigured) PasskeySection(isOffline)
-                SessionSection(isOffline)
+                if (passkeysConfigured) {
+                    PasskeySection(
+                        isOffline = isOffline,
+                        onModalVisibilityChanged = { passkeyModalVisible = it }
+                    )
+                }
+                SessionSection(
+                    isOffline = isOffline,
+                    onModalVisibilityChanged = { sessionModalVisible = it }
+                )
                 TelegramDestructiveButton(
                     text = stringResource(R.string.bloom_delete_account),
                     onClick = { confirmDelete = true },
@@ -777,11 +809,83 @@ fun BloomProfileScreen(
         onDismiss = { confirmDelete = false },
         destructive = true
     )
+
+    if (deleteAccountReauthRequired || isReauthenticatingAccountDeletion) {
+        Dialog(
+            onDismissRequest = {
+                if (!isReauthenticatingAccountDeletion) onCancelDeleteAccountReauth()
+            }
+        ) {
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = MaterialTheme.colorScheme.surface,
+                shadowElevation = 12.dp
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(22.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.bloom_delete_verify_title),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = stringResource(
+                            if (accountDeletionVerificationFailed) {
+                                R.string.sessions_verify_failed
+                            } else {
+                                R.string.bloom_delete_verify_required
+                            }
+                        ),
+                        color = if (accountDeletionVerificationFailed) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                    if (isReauthenticatingAccountDeletion) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                            Text(stringResource(R.string.sessions_verifying))
+                        }
+                    } else {
+                        if (passkeysConfigured) {
+                            TelegramPrimaryButton(
+                                text = stringResource(R.string.sessions_verify_passkey),
+                                onClick = { onVerifyDeleteWithPasskey(context) }
+                            )
+                        }
+                        TelegramPrimaryButton(
+                            text = stringResource(R.string.sessions_verify_telegram),
+                            secondary = passkeysConfigured,
+                            onClick = { onVerifyDeleteWithTelegram(context) }
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = onCancelDeleteAccountReauth) {
+                            Text(stringResource(R.string.cancel))
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
 private fun PasskeySection(
     isOffline: Boolean,
+    onModalVisibilityChanged: (Boolean) -> Unit = {},
     viewModel: PasskeyViewModel = koinViewModel()
 ) {
     val credentialDataSource: PasskeyCredentialDataSource = koinInject()
@@ -797,6 +901,14 @@ private fun PasskeySection(
 
     val passkeys = uiState.passkeys
     val isBusy = uiState.isBusy
+    val canChangePasskeys = !isBusy && uiState !is PasskeyUiState.ReauthenticationRequired
+
+    LaunchedEffect(showCreateDialog, deletingId) {
+        onModalVisibilityChanged(showCreateDialog || deletingId != null)
+    }
+    DisposableEffect(Unit) {
+        onDispose { onModalVisibilityChanged(false) }
+    }
 
     LaunchedEffect(viewModel) {
         viewModel.events.collectLatest { event ->
@@ -827,7 +939,7 @@ private fun PasskeySection(
                 }
                 is PasskeyUiEvent.LaunchTelegramReauthentication -> {
                     try {
-                        authenticationRepository.startTelegramReauthentication(context)
+                        authenticationRepository.startTelegramReauthentication(context, ReauthenticationScope.PASSKEY)
                         viewModel.onTelegramReauthenticationStarted(event.pendingAction)
                     } catch (error: Throwable) {
                         viewModel.onCredentialError(error.toPasskeyError())
@@ -857,7 +969,7 @@ private fun PasskeySection(
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         PasskeyCard(
                             passkey = passkey,
-                            enabled = !isBusy && !isOffline,
+                            enabled = canChangePasskeys && !isOffline,
                             deleting = exiting || (uiState as? PasskeyUiState.Deleting)?.passkeyId == passkey.id,
                             onRename = {
                                 editingId = passkey.id
@@ -903,10 +1015,50 @@ private fun PasskeySection(
                 }
             }
         }
+        if (uiState is PasskeyUiState.ReauthenticationRequired) {
+            val reauthState = uiState as PasskeyUiState.ReauthenticationRequired
+            val statusTextRes = when {
+                !reauthState.passkeyAvailable -> R.string.passkey_verify_telegram_fallback
+                reauthState.verificationFailed -> R.string.sessions_verify_failed
+                else -> R.string.passkey_verify_required
+            }
+            Text(
+                stringResource(statusTextRes),
+                color = if (reauthState.verificationFailed && reauthState.passkeyAvailable) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
+            )
+            if (reauthState.passkeyAvailable) {
+                TelegramPrimaryButton(
+                    text = stringResource(R.string.sessions_verify_passkey),
+                    onClick = { viewModel.verifyWithPasskey() }
+                )
+            }
+            TelegramPrimaryButton(
+                text = stringResource(R.string.sessions_verify_telegram),
+                secondary = reauthState.passkeyAvailable,
+                onClick = { viewModel.verifyWithTelegram() }
+            )
+            TextButton(onClick = { viewModel.cancelPendingAction() }) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
         if (uiState is PasskeyUiState.Error) {
             val error = (uiState as PasskeyUiState.Error).error
             val message = error.toPasskeyErrorMessage(context)
             Text(message.message, color = MaterialTheme.colorScheme.error)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (passkeys.isEmpty() && error.userAction is PasskeyUserAction.Retry) {
+                    TextButton(onClick = { viewModel.loadPasskeys() }) {
+                        Text(stringResource(R.string.sessions_retry))
+                    }
+                }
+                TextButton(onClick = { viewModel.dismissError() }) {
+                    Text(stringResource(R.string.passkey_dismiss))
+                }
+            }
         }
         if (uiState is PasskeyUiState.ExternalAuthenticationInProgress &&
             (uiState as PasskeyUiState.ExternalAuthenticationInProgress).pendingAction != null
@@ -923,7 +1075,7 @@ private fun PasskeySection(
         }
         TelegramPrimaryButton(
             text = stringResource(R.string.passkey_add),
-            enabled = viewModel.isPasskeySupported && !isBusy && !isOffline,
+            enabled = viewModel.isPasskeySupported && canChangePasskeys && !isOffline,
             onClick = {
                 newPasskeyName = Build.MODEL.take(80)
                 showCreateDialog = true
@@ -1238,12 +1390,20 @@ internal fun SessionCard(
 @Composable
 private fun SessionSection(
     isOffline: Boolean,
+    onModalVisibilityChanged: (Boolean) -> Unit = {},
     viewModel: SessionViewModel = koinViewModel()
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var targetSessionToRevoke by remember { mutableStateOf<UserSessionInfo?>(null) }
     var confirmRevokeOthers by remember { mutableStateOf(false) }
+
+    LaunchedEffect(targetSessionToRevoke, confirmRevokeOthers) {
+        onModalVisibilityChanged(targetSessionToRevoke != null || confirmRevokeOthers)
+    }
+    DisposableEffect(Unit) {
+        onDispose { onModalVisibilityChanged(false) }
+    }
 
     val sessions = uiState.sessions
     val isBusy = uiState.isBusy

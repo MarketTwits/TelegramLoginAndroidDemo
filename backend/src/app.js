@@ -193,9 +193,9 @@ export const createApp = ({ config, database, verifyTelegramToken, logger, metri
   });
   app.use((request, _response, next) => {
     const override = request.headers['x-http-method-override'];
-    if (override && typeof override === 'string') {
+    if (request.method === 'POST' && override && typeof override === 'string') {
       const normalized = override.trim().toUpperCase();
-      if (['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(normalized)) {
+      if (normalized === 'PATCH') {
         request.method = normalized;
       }
     }
@@ -539,6 +539,7 @@ export const createApp = ({ config, database, verifyTelegramToken, logger, metri
     const session = await authenticatedSession(database, request);
     if (!session) return response.status(401).json({ code: 'SESSION_INVALID', message: 'Session is missing or expired' });
     if (rejectDisabledAccount(session, response)) return;
+    if (!passkeys) return response.status(503).json({ code: 'PASSKEYS_NOT_CONFIGURED', message: 'Passkeys are not configured' });
     response.json({ passkeys: database.listPasskeys(session.account.id).map(passkeyResponse) });
   }));
 
@@ -721,10 +722,11 @@ export const createApp = ({ config, database, verifyTelegramToken, logger, metri
     response.status(201).json({ passkeys: registered.map(passkeyResponse) });
   }));
 
-  app.patch('/me/passkeys/:id', requireAppToken, requireJsonBody, asyncRoute(async (request, response) => {
+  app.patch('/me/passkeys/:id', requireAppToken, sessionLimiter, requireJsonBody, asyncRoute(async (request, response) => {
     const session = await authenticatedSession(database, request);
     if (!session) return response.status(401).json({ code: 'SESSION_INVALID', message: 'Session is missing or expired' });
     if (rejectDisabledAccount(session, response)) return;
+    if (!passkeys) return response.status(503).json({ code: 'PASSKEYS_NOT_CONFIGURED', message: 'Passkeys are not configured' });
     if (Date.now() - session.reauthenticatedAt.getTime() > FRESH_AUTHENTICATION_MS) {
       return response.status(403).json({ code: 'REAUTHENTICATION_REQUIRED', message: 'Sign in again before changing passkeys' });
     }
@@ -734,10 +736,11 @@ export const createApp = ({ config, database, verifyTelegramToken, logger, metri
     response.json({ passkeys: database.listPasskeys(session.account.id).map(passkeyResponse) });
   }));
 
-  app.delete('/me/passkeys/:id', requireAppToken, asyncRoute(async (request, response) => {
+  app.delete('/me/passkeys/:id', requireAppToken, sessionLimiter, asyncRoute(async (request, response) => {
     const session = await authenticatedSession(database, request);
     if (!session) return response.status(401).json({ code: 'SESSION_INVALID', message: 'Session is missing or expired' });
     if (rejectDisabledAccount(session, response)) return;
+    if (!passkeys) return response.status(503).json({ code: 'PASSKEYS_NOT_CONFIGURED', message: 'Passkeys are not configured' });
     if (Date.now() - session.reauthenticatedAt.getTime() > FRESH_AUTHENTICATION_MS) {
       return response.status(403).json({ code: 'REAUTHENTICATION_REQUIRED', message: 'Sign in again before changing passkeys' });
     }
@@ -790,7 +793,7 @@ export const createApp = ({ config, database, verifyTelegramToken, logger, metri
     response.set('Cache-Control', 'no-store').json(authenticationStateResponse(state, session.expiresAt));
   }));
 
-  app.delete('/me/account', requireAppToken, asyncRoute(async (request, response) => {
+  app.delete('/me/account', requireAppToken, sessionLimiter, asyncRoute(async (request, response) => {
     const session = await authenticatedSession(database, request);
     if (!session) {
       return response.status(401).json({ code: 'SESSION_INVALID', message: 'Session is missing or expired' });

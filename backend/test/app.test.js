@@ -674,4 +674,53 @@ test('session deduplication: multiple logins from the same device do not create 
   assert.equal(list3.sessions.length, 2);
 });
 
+test('X-HTTP-Method-Override only permits POST-to-PATCH and unconfigured passkey CRUD returns 503', async (context) => {
+  const { baseUrl } = await startServer(context, async () => telegramProfile());
+  const authenticated = await login(baseUrl);
+  const authHeader = { Authorization: `Bearer ${authenticated.body.sessionToken}` };
+
+  // GET with X-HTTP-Method-Override: DELETE must NOT delete the account
+  const spoofedDelete = await fetch(`${baseUrl}/me/account`, {
+    method: 'GET',
+    headers: { ...authHeader, 'X-HTTP-Method-Override': 'DELETE' }
+  });
+  assert.equal(spoofedDelete.status, 404);
+
+  // POST with X-HTTP-Method-Override: DELETE must NOT override to DELETE
+  const spoofedPostDelete = await fetch(`${baseUrl}/me/account`, {
+    method: 'POST',
+    headers: { ...authHeader, 'X-HTTP-Method-Override': 'DELETE' }
+  });
+  assert.equal(spoofedPostDelete.status, 404);
+
+  // Session is still valid
+  const sessionCheck = await fetch(`${baseUrl}/auth/session`, { headers: authHeader });
+  assert.equal(sessionCheck.status, 200);
+
+  // Passkey CRUD routes fail cleanly with 503 PASSKEYS_NOT_CONFIGURED when passkeys are not configured
+  const listRes = await fetch(`${baseUrl}/me/passkeys`, { headers: authHeader });
+  assert.equal(listRes.status, 503);
+  assert.equal((await listRes.json()).code, 'PASSKEYS_NOT_CONFIGURED');
+
+  // POST with X-HTTP-Method-Override: PATCH is still honored for Android HTTP client compatibility
+  const patchOverrideRes = await fetch(`${baseUrl}/me/passkeys/missing`, {
+    method: 'POST',
+    headers: {
+      ...authHeader,
+      'X-HTTP-Method-Override': 'PATCH',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ name: 'Renamed' })
+  });
+  assert.equal(patchOverrideRes.status, 503);
+  assert.equal((await patchOverrideRes.json()).code, 'PASSKEYS_NOT_CONFIGURED');
+
+  const deletePasskeyRes = await fetch(`${baseUrl}/me/passkeys/missing`, {
+    method: 'DELETE',
+    headers: authHeader
+  });
+  assert.equal(deletePasskeyRes.status, 503);
+  assert.equal((await deletePasskeyRes.json()).code, 'PASSKEYS_NOT_CONFIGURED');
+});
+
 

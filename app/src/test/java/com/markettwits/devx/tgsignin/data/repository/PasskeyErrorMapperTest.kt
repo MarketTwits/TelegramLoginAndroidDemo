@@ -214,4 +214,28 @@ class PasskeyErrorMapperTest {
             .toPasskeyError()
         assertTrue(notAllowedCancelled is PasskeyError.Cancelled)
     }
+
+    @Test
+    fun `last passkey recovery error and session invalid flags map accurately`() {
+        val recoveryError = BackendHttpException(
+            statusCode = 409,
+            errorCode = "LAST_PASSKEY_RECOVERY_REQUIRED",
+            requestId = "req-recovery"
+        ).toPasskeyError()
+        assertTrue(recoveryError is PasskeyError.RecoveryRequired)
+
+        val sessionInvalid = BackendHttpException(
+            statusCode = 401,
+            errorCode = "SESSION_INVALID",
+            requestId = "req-invalid"
+        ).toPasskeyError() as PasskeyError.SessionExpired
+        assertTrue(sessionInvalid.requiresFullSignIn)
+
+        val reauthRequired = BackendHttpException(
+            statusCode = 403,
+            errorCode = "REAUTHENTICATION_REQUIRED",
+            requestId = "req-reauth"
+        ).toPasskeyError() as PasskeyError.SessionExpired
+        assertEquals(false, reauthRequired.requiresFullSignIn)
+    }
 }

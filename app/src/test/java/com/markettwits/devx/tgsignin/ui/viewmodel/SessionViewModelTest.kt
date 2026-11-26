@@ -3,10 +3,14 @@ package com.markettwits.devx.tgsignin.ui.viewmodel
 import android.content.Context
 import com.markettwits.devx.tgsignin.data.model.AuthenticationResult
 import com.markettwits.devx.tgsignin.data.model.AuthenticationError
+import com.markettwits.devx.tgsignin.data.model.OnboardingState
 import com.markettwits.devx.tgsignin.data.model.ProfileDraft
 import com.markettwits.devx.tgsignin.data.model.RootAuthenticationState
+import com.markettwits.devx.tgsignin.data.model.ServiceAccount
+import com.markettwits.devx.tgsignin.data.model.TelegramIdentity
 import com.markettwits.devx.tgsignin.data.model.UserSessionInfo
 import com.markettwits.devx.tgsignin.data.repository.AuthenticationRepository
+import com.markettwits.devx.tgsignin.data.repository.ReauthenticationScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,12 +44,18 @@ class SessionViewModelTest {
     }
 
     private class FakeAuthenticationRepository : AuthenticationRepository {
-        override val state: StateFlow<RootAuthenticationState> =
-            MutableStateFlow(RootAuthenticationState.Unauthenticated())
+        val mutableState = MutableStateFlow<RootAuthenticationState>(RootAuthenticationState.Unauthenticated())
+        override val state: StateFlow<RootAuthenticationState> = mutableState.asStateFlow()
         private val reauthVersion = MutableStateFlow(0L)
         override val reauthenticationVersion: StateFlow<Long> = reauthVersion.asStateFlow()
+        val reauthFailureVersion = MutableStateFlow(0L)
+        override val reauthenticationFailureVersion: StateFlow<Long> = reauthFailureVersion.asStateFlow()
+        val callbackInFlight = MutableStateFlow(false)
+        override val isTelegramCallbackInFlight: StateFlow<Boolean> = callbackInFlight.asStateFlow()
+        override var lastReauthenticationScope: ReauthenticationScope? = null
 
-        fun completeReauthentication() {
+        fun completeReauthentication(scope: ReauthenticationScope? = null) {
+            lastReauthenticationScope = scope
             reauthVersion.value += 1
         }
 
@@ -77,6 +87,7 @@ class SessionViewModelTest {
         var revokedSessionId: String? = null
         var revokedIsCurrent: Boolean? = null
         var revokedOthersCalled = false
+        var revokeOthersCallCount = 0
 
         override suspend fun listSessions(): Result<List<UserSessionInfo>> {
             return listSessionsResult ?: Result.success(sessionsList)
@@ -90,6 +101,7 @@ class SessionViewModelTest {
 
         override suspend fun revokeOtherSessions(): Result<Int> {
             revokedOthersCalled = true
+            revokeOthersCallCount++
             return revokeOthersResult
         }
         override suspend fun reauthenticateWithPasskey(context: Context): Result<Unit> {
@@ -266,5 +278,46 @@ class SessionViewModelTest {
         val state = viewModel.uiState.value
         assertTrue(state is SessionUiState.Error)
         assertEquals("Server error", (state as SessionUiState.Error).error.message)
+    }
+
+    @Test
+    fun `reauthentication scoped to PASSKEY does not run session action and account switch reloads`() = runTest {
+        val repo = FakeAuthenticationRepository().apply {
+            revokeOthersResult = Result.failure(AuthenticationError.ReauthenticationRequired())
+        }
+        val sessionA = AuthenticationResult(
+            accessToken = "tok-a",
+            expiresAt = null,
+            account = ServiceAccount("acc-a", 1, OnboardingState.PROFILE_COMPLETED, "2026-01-01", "2026-01-01", 1),
+            telegram = TelegramIdentity(userId = "1", name = "A"),
+            profile = null
+        )
+        val sessionB = sessionA.copy(
+            accessToken = "tok-b",
+            account = sessionA.account.copy(id = "acc-b")
+        )
+        repo.mutableState.value = RootAuthenticationState.Authenticated(sessionA)
+
+        val viewModel = SessionViewModel(repo)
+        advanceUntilIdle()
+
+        viewModel.revokeOtherSessions()
+        advanceUntilIdle()
+        assertEquals(1, repo.revokeOthersCallCount)
+        assertTrue(viewModel.uiState.value is SessionUiState.ReauthenticationRequired)
+
+        // PASSKEY scope reauth does not run session revoke
+        repo.completeReauthentication(ReauthenticationScope.PASSKEY)
+        advanceUntilIdle()
+        assertEquals(1, repo.revokeOthersCallCount)
+        assertTrue(viewModel.uiState.value is SessionUiState.ReauthenticationRequired)
+
+        // Account switch resets pending reauth and reloads sessions for sessionB
+        repo.sessionsList = listOf(repo.sessionsList[0].copy(deviceLabel = "New Device"))
+        repo.mutableState.value = RootAuthenticationState.Authenticated(sessionB)
+        advanceUntilIdle()
+
+        val ready = viewModel.uiState.value as SessionUiState.Ready
+        assertEquals("New Device", ready.sessions.single().deviceLabel)
     }
 }

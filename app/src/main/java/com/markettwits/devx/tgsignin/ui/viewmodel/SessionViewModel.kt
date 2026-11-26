@@ -4,8 +4,11 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.markettwits.devx.tgsignin.data.model.AuthenticationError
+import com.markettwits.devx.tgsignin.data.model.RootAuthenticationState
 import com.markettwits.devx.tgsignin.data.model.UserSessionInfo
+import com.markettwits.devx.tgsignin.data.model.sessionOrNull
 import com.markettwits.devx.tgsignin.data.repository.AuthenticationRepository
+import com.markettwits.devx.tgsignin.data.repository.ReauthenticationScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -57,14 +60,61 @@ class SessionViewModel(
     private var pendingAction: PendingSessionAction? = null
     private var telegramVerificationPending = false
     private var observedReauthenticationVersion = authenticationRepository.reauthenticationVersion.value
+    private var observedReauthenticationFailureVersion = authenticationRepository.reauthenticationFailureVersion.value
+    private var observedSessionKey: Pair<String, String>? =
+        authenticationRepository.state.value.sessionOrNull?.let { it.account.id to it.accessToken }
 
     init {
         loadSessions()
         viewModelScope.launch {
+            authenticationRepository.state.collect { authState ->
+                val session = authState.sessionOrNull
+                val sessionKey = session?.let { it.account.id to it.accessToken }
+                if (session == null) {
+                    if (observedSessionKey != null && authState !is RootAuthenticationState.Loading) {
+                        observedSessionKey = null
+                        pendingAction = null
+                        telegramVerificationPending = false
+                        _uiState.value = SessionUiState.Loading
+                    }
+                } else if (sessionKey != observedSessionKey) {
+                    val hadSession = observedSessionKey != null
+                    observedSessionKey = sessionKey
+                    if (hadSession) {
+                        pendingAction = null
+                        telegramVerificationPending = false
+                        _uiState.value = SessionUiState.Loading
+                        refreshSessions()
+                    }
+                }
+            }
+        }
+        viewModelScope.launch {
             authenticationRepository.reauthenticationVersion.collect { version ->
                 if (version != observedReauthenticationVersion) {
                     observedReauthenticationVersion = version
-                    pendingAction?.let { action -> runAction(action) }
+                    val scope = authenticationRepository.lastReauthenticationScope
+                    if (scope == null || scope == ReauthenticationScope.SESSIONS) {
+                        pendingAction?.let { action -> runAction(action) }
+                    }
+                }
+            }
+        }
+        viewModelScope.launch {
+            authenticationRepository.reauthenticationFailureVersion.collect { version ->
+                if (version != observedReauthenticationFailureVersion) {
+                    observedReauthenticationFailureVersion = version
+                    val scope = authenticationRepository.lastReauthenticationScope
+                    if (telegramVerificationPending && (scope == null || scope == ReauthenticationScope.SESSIONS)) {
+                        telegramVerificationPending = false
+                        val current = _uiState.value as? SessionUiState.Reauthenticating
+                        if (current != null) {
+                            _uiState.value = SessionUiState.ReauthenticationRequired(
+                                current.sessions,
+                                verificationFailed = true
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -92,7 +142,7 @@ class SessionViewModel(
         telegramVerificationPending = false
         _uiState.value = SessionUiState.Reauthenticating(current.sessions)
         viewModelScope.launch {
-            authenticationRepository.reauthenticateWithPasskey(context)
+            authenticationRepository.reauthenticateWithPasskey(context, ReauthenticationScope.SESSIONS)
                 .onFailure { error ->
                     if (error is CancellationException) throw error
                     _uiState.value = SessionUiState.ReauthenticationRequired(
@@ -106,7 +156,7 @@ class SessionViewModel(
     fun verifyWithTelegram(context: Context) {
         val current = _uiState.value as? SessionUiState.ReauthenticationRequired ?: return
         try {
-            authenticationRepository.startTelegramReauthentication(context)
+            authenticationRepository.startTelegramReauthentication(context, ReauthenticationScope.SESSIONS)
             telegramVerificationPending = true
             _uiState.value = SessionUiState.Reauthenticating(current.sessions)
         } catch (_: Throwable) {
@@ -115,6 +165,7 @@ class SessionViewModel(
     }
 
     fun onResume() {
+        if (authenticationRepository.isTelegramCallbackInFlight.value) return
         if (!telegramVerificationPending) return
         telegramVerificationPending = false
         authenticationRepository.cancelTelegramReauthentication()

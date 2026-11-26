@@ -183,6 +183,7 @@
     <string name="passkey_error_challenge_expired">Время действия операции истекло или она уже была завершена. Попробуйте снова.</string>
     <string name="passkey_error_already_registered">Этот ключ доступа уже зарегистрирован для вашего аккаунта.</string>
     <string name="passkey_error_limit_reached">Достигнут максимальный лимит ключей доступа для этого аккаунта.</string>
+    <string name="passkey_error_last_recovery_required">Нельзя удалить единственный ключ доступа без привязанного способа восстановления через Telegram.</string>
     <string name="passkey_error_backend_not_configured">Аутентификация по ключам доступа не включена на сервере.</string>
     <string name="passkey_error_network_unavailable">Нет подключения к интернету. Проверьте сеть и повторите попытку.</string>
     <string name="passkey_error_unknown">Не удалось выполнить операцию с ключом доступа. Попробуйте снова.</string>
@@ -209,6 +210,11 @@
     <string name="update_open_failed">Не удалось открыть страницу релиза.</string>
     <string name="sessions_title">Устройства и сессии</string>
     <string name="passkey_waiting_for_verification">Ожидается подтверждение личности.</string>
+    <string name="passkey_verify_required">Подтвердите личность, чтобы завершить действие с ключами доступа.</string>
+    <string name="passkey_verify_telegram_fallback">Подходящий ключ доступа не найден на этом устройстве. Подтвердите личность через Telegram, чтобы продолжить.</string>
+    <string name="passkey_dismiss">Скрыть</string>
+    <string name="bloom_delete_verify_title">Подтвердите удаление аккаунта</string>
+    <string name="bloom_delete_verify_required">Подтвердите личность, чтобы безвозвратно удалить аккаунт.</string>
     <string name="sessions_description">Активные входы на ваших устройствах.</string>
     <string name="sessions_current_badge">Текущее устройство</string>
     <string name="sessions_unknown_device">Неизвестное устройство</string>

@@ -5,9 +5,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.markettwits.devx.tgsignin.data.model.PasskeyError
 import com.markettwits.devx.tgsignin.data.model.PasskeyInfo
+import com.markettwits.devx.tgsignin.data.model.RootAuthenticationState
 import com.markettwits.devx.tgsignin.data.model.sessionOrNull
 import com.markettwits.devx.tgsignin.data.repository.AuthenticationRepository
 import com.markettwits.devx.tgsignin.data.repository.PasskeyRepository
+import com.markettwits.devx.tgsignin.data.repository.ReauthenticationScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,7 +35,9 @@ sealed interface PasskeyUiState {
     data class Deleting(val passkeyId: String, val passkeys: List<PasskeyInfo> = emptyList()) : PasskeyUiState
     data class ReauthenticationRequired(
         val pendingAction: PasskeyPendingAction,
-        val passkeys: List<PasskeyInfo> = emptyList()
+        val passkeys: List<PasskeyInfo> = emptyList(),
+        val passkeyAvailable: Boolean = true,
+        val verificationFailed: Boolean = false
     ) : PasskeyUiState
     data class ExternalAuthenticationInProgress(
         val pendingAction: PasskeyPendingAction? = null,
@@ -111,7 +115,10 @@ class PasskeyViewModel(
     private var activeJob: Job? = null
     private var restoredPendingNeedsRecovery = false
     private var telegramReauthenticationPending = false
+    private var awaitingPasskeyReauthAssertion = false
+    private var observedSessionKey: Pair<String, String>? = null
     private var observedReauthenticationVersion = authenticationRepository.reauthenticationVersion.value
+    private var observedReauthenticationFailureVersion = authenticationRepository.reauthenticationFailureVersion.value
 
     val isPasskeySupported: Boolean
         get() = passkeyRepository.isSupported
@@ -129,9 +136,24 @@ class PasskeyViewModel(
         }
         viewModelScope.launch {
             authenticationRepository.state.collect { authState ->
-                val token = authState.sessionOrNull?.accessToken
-                if (token != null && _uiState.value is PasskeyUiState.Loading) {
-                    loadPasskeysInternal(token)
+                val session = authState.sessionOrNull
+                val sessionKey = session?.let { it.account.id to it.accessToken }
+                if (session == null) {
+                    if (observedSessionKey != null && authState !is RootAuthenticationState.Loading) {
+                        observedSessionKey = null
+                        resetForSignedOutState()
+                    }
+                } else if (sessionKey != observedSessionKey) {
+                    val hadPreviousSession = observedSessionKey != null
+                    observedSessionKey = sessionKey
+                    if (hadPreviousSession) {
+                        resetPendingStateForAccountSwitch()
+                        loadPasskeysInternal(session.accessToken)
+                    } else if (!restoredPendingNeedsRecovery && _uiState.value is PasskeyUiState.Loading) {
+                        loadPasskeysInternal(session.accessToken)
+                    }
+                } else if (!restoredPendingNeedsRecovery && _uiState.value is PasskeyUiState.Loading) {
+                    loadPasskeysInternal(session.accessToken)
                 }
             }
         }
@@ -139,7 +161,33 @@ class PasskeyViewModel(
             authenticationRepository.reauthenticationVersion.collect { version ->
                 if (version != observedReauthenticationVersion) {
                     observedReauthenticationVersion = version
-                    if (restorePendingAction() != null) continueAfterReauthentication()
+                    val scope = authenticationRepository.lastReauthenticationScope
+                    if ((scope == null || scope == ReauthenticationScope.PASSKEY) && restorePendingAction() != null) {
+                        continueAfterReauthentication()
+                    }
+                }
+            }
+        }
+        viewModelScope.launch {
+            authenticationRepository.reauthenticationFailureVersion.collect { version ->
+                if (version != observedReauthenticationFailureVersion) {
+                    observedReauthenticationFailureVersion = version
+                    val scope = authenticationRepository.lastReauthenticationScope
+                    if (telegramReauthenticationPending && (scope == null || scope == ReauthenticationScope.PASSKEY)) {
+                        telegramReauthenticationPending = false
+                        val pending = restorePendingAction()
+                        val passkeys = _uiState.value.passkeys
+                        _uiState.value = if (pending != null) {
+                            PasskeyUiState.ReauthenticationRequired(
+                                pendingAction = pending,
+                                passkeys = passkeys,
+                                passkeyAvailable = passkeys.isNotEmpty(),
+                                verificationFailed = true
+                            )
+                        } else {
+                            PasskeyUiState.Ready(passkeys)
+                        }
+                    }
                 }
             }
         }
@@ -225,8 +273,29 @@ class PasskeyViewModel(
 
     fun onCredentialError(error: PasskeyError, operationId: String? = null) {
         if (operationId != null && savedStateHandle.get<String>(KEY_PENDING_OPERATION_ID) != operationId) return
-        clearSavedPendingAction()
+        val wasReauthenticating = awaitingPasskeyReauthAssertion
+        awaitingPasskeyReauthAssertion = false
         val currentPasskeys = _uiState.value.passkeys
+        if (wasReauthenticating) {
+            savedStateHandle.remove<String>(KEY_PENDING_OPERATION_ID)
+            val pending = restorePendingAction()
+            if (pending != null) {
+                val passkeyStillAvailable = error is PasskeyError.Cancelled || (
+                    error !is PasskeyError.CredentialNotFound &&
+                        error !is PasskeyError.ProviderUnavailable &&
+                        error !is PasskeyError.ScreenLockRequired &&
+                        error !is PasskeyError.DigitalAssetLinksInvalid
+                    )
+                _uiState.value = PasskeyUiState.ReauthenticationRequired(
+                    pendingAction = pending,
+                    passkeys = currentPasskeys,
+                    passkeyAvailable = passkeyStillAvailable,
+                    verificationFailed = error !is PasskeyError.Cancelled
+                )
+                return
+            }
+        }
+        clearSavedPendingAction()
         if (error is PasskeyError.Cancelled) {
             _uiState.value = PasskeyUiState.Ready(currentPasskeys)
         } else {
@@ -246,6 +315,7 @@ class PasskeyViewModel(
         pendingAction: PasskeyPendingAction
     ) {
         if (savedStateHandle.get<String>(KEY_PENDING_OPERATION_ID) != operationId) return
+        awaitingPasskeyReauthAssertion = false
         val token = currentAccessToken() ?: return
         val currentPasskeys = _uiState.value.passkeys
         viewModelScope.launch {
@@ -271,6 +341,7 @@ class PasskeyViewModel(
 
     fun onTelegramReauthenticationStarted(pendingAction: PasskeyPendingAction) {
         restoredPendingNeedsRecovery = false
+        awaitingPasskeyReauthAssertion = false
         telegramReauthenticationPending = true
         savePendingAction(pendingAction)
         _uiState.value = PasskeyUiState.ExternalAuthenticationInProgress(
@@ -279,11 +350,68 @@ class PasskeyViewModel(
         )
     }
 
+    fun verifyWithPasskey() {
+        val current = _uiState.value as? PasskeyUiState.ReauthenticationRequired ?: return
+        val token = currentAccessToken() ?: return
+        telegramReauthenticationPending = false
+        _uiState.value = PasskeyUiState.ExternalAuthenticationInProgress(current.pendingAction, current.passkeys)
+        activeJob = viewModelScope.launch {
+            mutex.withLock {
+                savePendingAction(current.pendingAction)
+                val reauthOptionsResult = passkeyRepository.beginPasskeyReauthentication(token)
+                if (reauthOptionsResult.isSuccess) {
+                    val options = reauthOptionsResult.getOrThrow()
+                    savedStateHandle[KEY_PENDING_OPERATION_ID] = options.operationId
+                    awaitingPasskeyReauthAssertion = true
+                    _events.emit(
+                        PasskeyUiEvent.LaunchCredentialAuthentication(
+                            operationId = options.operationId,
+                            requestJson = options.requestJson,
+                            pendingAction = current.pendingAction
+                        )
+                    )
+                } else {
+                    awaitingPasskeyReauthAssertion = false
+                    _uiState.value = PasskeyUiState.ReauthenticationRequired(
+                        pendingAction = current.pendingAction,
+                        passkeys = current.passkeys,
+                        passkeyAvailable = false,
+                        verificationFailed = true
+                    )
+                }
+            }
+        }
+    }
+
+    fun verifyWithTelegram() {
+        val current = _uiState.value as? PasskeyUiState.ReauthenticationRequired ?: return
+        awaitingPasskeyReauthAssertion = false
+        savePendingAction(current.pendingAction)
+        _uiState.value = PasskeyUiState.ExternalAuthenticationInProgress(current.pendingAction, current.passkeys)
+        viewModelScope.launch {
+            _events.emit(PasskeyUiEvent.LaunchTelegramReauthentication(current.pendingAction))
+        }
+    }
+
     fun resumeAfterExternalAuth() {
+        if (authenticationRepository.isTelegramCallbackInFlight.value) return
         if (!restoredPendingNeedsRecovery) {
             if (telegramReauthenticationPending) {
                 telegramReauthenticationPending = false
                 authenticationRepository.cancelTelegramReauthentication()
+                val current = _uiState.value
+                if (current is PasskeyUiState.ExternalAuthenticationInProgress) {
+                    val pending = current.pendingAction ?: restorePendingAction()
+                    _uiState.value = if (pending != null) {
+                        PasskeyUiState.ReauthenticationRequired(
+                            pendingAction = pending,
+                            passkeys = current.passkeys,
+                            passkeyAvailable = current.passkeys.isNotEmpty()
+                        )
+                    } else {
+                        PasskeyUiState.Ready(current.passkeys)
+                    }
+                }
             }
             return
         }
@@ -350,9 +478,9 @@ class PasskeyViewModel(
                 val result = passkeyRepository.deletePasskey(token, id)
                 result.onSuccess { deleted ->
                     clearSavedPendingAction()
-                    passkeyRepository.signalUnknownCredential(deleted.rpId, deleted.credentialId)
                     val remaining = currentPasskeys.filterNot { it.id == id }
                     _uiState.value = PasskeyUiState.Ready(remaining)
+                    passkeyRepository.signalUnknownCredential(deleted.rpId, deleted.credentialId)
                 }.onFailure { error ->
                     handleOperationFailure(error, action, currentPasskeys)
                 }
@@ -366,7 +494,7 @@ class PasskeyViewModel(
         passkeys: List<PasskeyInfo>
     ) {
         val passkeyError = (error as? PasskeyError) ?: PasskeyError.Unknown(originalCause = error)
-        if (passkeyError is PasskeyError.SessionExpired) {
+        if (passkeyError is PasskeyError.SessionExpired && !passkeyError.requiresFullSignIn) {
             savePendingAction(action)
             _uiState.value = PasskeyUiState.ReauthenticationRequired(action, passkeys)
             val token = currentAccessToken()
@@ -375,6 +503,7 @@ class PasskeyViewModel(
                 if (reauthOptionsResult.isSuccess) {
                     val options = reauthOptionsResult.getOrThrow()
                     savedStateHandle[KEY_PENDING_OPERATION_ID] = options.operationId
+                    awaitingPasskeyReauthAssertion = true
                     _uiState.value = PasskeyUiState.ExternalAuthenticationInProgress(action, passkeys)
                     _events.emit(
                         PasskeyUiEvent.LaunchCredentialAuthentication(
@@ -386,6 +515,7 @@ class PasskeyViewModel(
                     return
                 }
             }
+            awaitingPasskeyReauthAssertion = false
             _uiState.value = PasskeyUiState.ExternalAuthenticationInProgress(action, passkeys)
             _events.emit(PasskeyUiEvent.LaunchTelegramReauthentication(action))
         } else {
@@ -439,8 +569,8 @@ class PasskeyViewModel(
                 val result = passkeyRepository.deletePasskey(token, action.passkeyId)
                 result.onSuccess { deleted ->
                     clearSavedPendingAction()
-                    passkeyRepository.signalUnknownCredential(deleted.rpId, deleted.credentialId)
                     _uiState.value = PasskeyUiState.Ready(currentPasskeys.filterNot { it.id == action.passkeyId })
+                    passkeyRepository.signalUnknownCredential(deleted.rpId, deleted.credentialId)
                 }.onFailure { error ->
                     handleOperationFailure(error, action, currentPasskeys)
                 }
@@ -457,11 +587,26 @@ class PasskeyViewModel(
 
     fun cancelPendingAction() {
         restoredPendingNeedsRecovery = false
+        awaitingPasskeyReauthAssertion = false
         if (telegramReauthenticationPending) authenticationRepository.cancelTelegramReauthentication()
         telegramReauthenticationPending = false
         activeJob?.cancel()
         clearSavedPendingAction()
         _uiState.value = PasskeyUiState.Ready(_uiState.value.passkeys)
+    }
+
+    private fun resetPendingStateForAccountSwitch() {
+        restoredPendingNeedsRecovery = false
+        awaitingPasskeyReauthAssertion = false
+        if (telegramReauthenticationPending) authenticationRepository.cancelTelegramReauthentication()
+        telegramReauthenticationPending = false
+        activeJob?.cancel()
+        clearSavedPendingAction()
+    }
+
+    private fun resetForSignedOutState() {
+        resetPendingStateForAccountSwitch()
+        _uiState.value = PasskeyUiState.Loading
     }
 
     private fun savePendingAction(action: PasskeyPendingAction) {
